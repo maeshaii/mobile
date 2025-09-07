@@ -121,4 +121,4 @@ class AuthService {
   }
 }
 
-export default AuthService.getInstance();
+export default AuthService;
