@@ -23,6 +23,8 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack initialRouteName="login/login">
           <Stack.Screen name="login/login" options={{ title: 'login', headerShown: false }} />
+          <Stack.Screen name="forgot-password/forgot-password" options={{ title: 'forgot-password', headerShown: false }} />
+          <Stack.Screen name="temporary-password/temporary-password" options={{ title: 'temporary-password', headerShown: false }} />
           <Stack.Screen name="homepage/home" options={{ title: 'homepage', headerShown: false }} />
           <Stack.Screen name="posts/post" options={{ title: 'post', headerShown: false }} />
           <Stack.Screen name="notifications/notification" options={{ title: 'notification', headerShown: false }} />
