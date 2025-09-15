@@ -8,6 +8,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { UserProvider } from '../contexts/UserContext';
 
 export default function RootLayout() {
+  console.log('RootLayout mounted');
   const colorScheme = useColorScheme();
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
