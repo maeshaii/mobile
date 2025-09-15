@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView, Alert } from 'react-native';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
-import NavBar from '../(tabs)/navbar';
+import NavBar from '../(tabs)/_navbar';
 import { useRouter } from 'expo-router';
 import { API_BASE_URL, getUserInfo } from '../../services/api';
 import { useFocusEffect } from '@react-navigation/native';
