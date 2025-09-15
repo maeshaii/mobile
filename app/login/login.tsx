@@ -11,13 +11,14 @@ import {
   Platform,
   ImageBackground,
 } from 'react-native';
-import { loginUser } from '../../services/api';
+import { loginUser, clearAllTokens } from '../../services/api';
 import { useRouter } from 'expo-router';
 
 export default function LoginScreen() {
   const [ctuId, setCtuId] = useState('');
   const [password, setPassword] = useState(''); // CHANGED: Now uses password like web
   const [error, setError] = useState('');
+  const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -30,11 +31,20 @@ export default function LoginScreen() {
     setError('');
     setLoading(true);
     
+    // Clear any existing tokens before login attempt
+    await clearAllTokens();
+    
     try {
       // UNIFIED: Call the same API endpoint as web frontend
       const data = await loginUser(ctuId.trim(), password);
       
       if (data.success && data.user && data.user.account_type) {
+        if (data.must_change_password) {
+          // Navigate to first-time change password screen
+          router.replace({ pathname: '/temporary-password/temporary-password', params: { first: '1' } as any });
+          // The mobile change form lives in temporary-password route; we will handle there
+          return;
+        }
         // Check account type (SAME LOGIC AS WEB)
         if (data.user.account_type.user) {
           // Alumni user - redirect to homepage
@@ -102,20 +112,25 @@ export default function LoginScreen() {
             />
             {/* CHANGED: Password field instead of birthdate */}
             <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={[styles.input, error && styles.inputError]}
-              placeholder="Enter your password"
-              placeholderTextColor="#ddd"
-              value={password}
-              onChangeText={(text) => {
-                setPassword(text);
-                clearError();
-              }}
-              secureTextEntry={true} // Hide password for security
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
-            />
+            <View style={styles.inputWithIcon}>
+              <TextInput
+                style={[styles.input, error && styles.inputError]}
+                placeholder="Enter your password"
+                placeholderTextColor="#ddd"
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  clearError();
+                }}
+                secureTextEntry={!show}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!loading}
+              />
+              <TouchableOpacity style={styles.eyeButton} onPress={() => setShow((s) => !s)}>
+                <Text style={styles.eyeText}>{show ? '🙈' : '👁️'}</Text>
+              </TouchableOpacity>
+            </View>
             {error ? (
               <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>{error}</Text>
@@ -131,6 +146,14 @@ export default function LoginScreen() {
               ) : (
                 <Text style={styles.buttonText}>Log In</Text>
               )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.forgotPasswordButton}
+              onPress={() => router.push('/forgot-password/forgot-password')}
+              disabled={loading}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -194,6 +217,21 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
+  inputWithIcon: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eyeText: {
+    color: '#333',
+    fontSize: 16,
+  },
   dateInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -245,6 +283,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#000',
+  },
+  forgotPasswordButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: '#fff',
+    textDecorationLine: 'underline',
+    opacity: 0.9,
   },
   signupText: {
     color: '#fff',
