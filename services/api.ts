@@ -9,9 +9,13 @@ function normalizeBaseUrl(raw?: string): string {
 }
 
 const rawFromExpo = (Constants.expoConfig?.extra as any)?.API_BASE_URL as string | undefined;
-const rawFromEnv = process.env.API_BASE_URL;
+const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
-export const API_BASE_URL = normalizeBaseUrl('https://27a02da4cea5.ngrok-free.app');
+// Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
+// Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
+export const API_BASE_URL = normalizeBaseUrl(
+  rawFromExpo || rawFromEnv || 'http://192.168.1.106:8000'
+);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -19,7 +23,10 @@ console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
-  headers: { Accept: 'application/json' },
+  headers: { 
+    Accept: 'application/json',
+    'ngrok-skip-browser-warning': 'true'  // Required for ngrok free accounts
+  },
 });
 
 /** Auth helpers */
@@ -35,12 +42,32 @@ export const logoutUser = async () => {
   await SecureStore.deleteItemAsync('user');
 };
 
-/** Attach bearer */
+// Clear all stored tokens - useful for debugging login issues
+export const clearAllTokens = async () => {
+  await SecureStore.deleteItemAsync('accessToken');
+  await SecureStore.deleteItemAsync('refreshToken');
+  await SecureStore.deleteItemAsync('user');
+  await SecureStore.deleteItemAsync('lastLogin');
+};
+
+/** Attach bearer - but NOT for login/token endpoints */
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    const token = await getAccessToken();
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-    else delete (config.headers as any).Authorization;
+    // Don't add Authorization header for login/token endpoints
+    const isLoginEndpoint = config.url?.includes('/api/token/') && config.method === 'post';
+    const isRefreshEndpoint = config.url?.includes('/api/token/refresh/');
+    
+    if (!isLoginEndpoint && !isRefreshEndpoint) {
+      const token = await getAccessToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      } else {
+        delete (config.headers as any).Authorization;
+      }
+    } else {
+      // Explicitly remove Authorization header for login/refresh endpoints
+      delete (config.headers as any).Authorization;
+    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -153,6 +180,15 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
   }
 };
 
+export const changePassword = async (old_password: string, new_password: string) => {
+  try {
+    const { data } = await api.post('/api/change-password/', { old_password, new_password });
+    return data;
+  } catch (error: any) {
+    return { success: false, message: error.response?.data?.message || 'Password change failed' };
+  }
+};
+
 /** Notifications */
 export const getNotifications = async (userId: number) => {
   const { data } = await api.get(`/api/notifications/?user_id=${userId}`);
@@ -259,6 +295,26 @@ export const repostPost = async (postId: number) =>
   (await api.post(`/api/posts/${postId}/repost/`)).data;
 export const deleteRepost = async (repostId: number) =>
   (await api.delete(`/api/reposts/${repostId}/`)).data;
+
+/** Forgot Password */
+export const forgotPassword = async (credentials: {
+  ctu_id: string;
+  email: string;
+  last_name: string;
+  first_name: string;
+  middle_name?: string;
+}) => {
+  try {
+    const { data } = await api.post('/api/forgot-password/', credentials);
+    return { success: true, ...data };
+  } catch (error: any) {
+    console.error('Mobile: Forgot password error:', error);
+    if (error.response?.data?.message) {
+      return { success: false, message: error.response.data.message };
+    }
+    return { success: false, message: 'Network error. Please try again.' };
+  }
+};
 
 /** Profile */
 export const updateProfile = async (bio: string, profile_pic: string) =>
