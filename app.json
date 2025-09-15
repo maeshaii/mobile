@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "wnymobile",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
@@ -40,7 +39,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "API_BASE_URL": "https://a794cbc82e5b.ngrok-free.app"
+      "API_BASE_URL": "https://27a02da4cea5.ngrok-free.app"
     }
   }
 }

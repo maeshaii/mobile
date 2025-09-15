@@ -26,7 +26,7 @@ export default function PostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [postTitle, setPostTitle] = useState('');
+  // Removed title as requested
   const [postContent, setPostContent] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
@@ -109,7 +109,7 @@ export default function PostScreen() {
           try {
             // Convert local file to base64
             const base64 = await FileSystem.readAsStringAsync(selectedImage, {
-              encoding: FileSystem.EncodingType.Base64,
+              encoding: FileSystem.EncodingType?.Base64 || 'base64',
             });
             postImage = `data:image/jpeg;base64,${base64}`;
           } catch (error) {
@@ -122,7 +122,7 @@ export default function PostScreen() {
       }
       
       const postData = {
-        post_title: postTitle.trim() || 'Untitled Post',
+        post_title: '',
         post_content: postContent.trim(),
         post_image: postImage,
         post_cat_id: selectedCategory,
@@ -253,14 +253,6 @@ export default function PostScreen() {
           </View>
         </Modal>
 
-        {/* Post Title */}
-        <TextInput
-          style={styles.titleInput}
-          placeholder="Post title (optional)..."
-          value={postTitle}
-          onChangeText={setPostTitle}
-          maxLength={255}
-        />
 
         {/* Post Input */}
         <TextInput

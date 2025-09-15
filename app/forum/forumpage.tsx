@@ -1,8 +1,9 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL, commentOnPost, followUser, getPosts, getUserInfo, likePost, repostPost, unlikePost } from '../../services/api';
+import { Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import PostModal from '../homepage/postmodal';
+import { API_BASE_URL, commentOnPost, deletePost, editPost, followUser, getPosts, getUserInfo, likePost, repostPost, unlikePost, checkFollowStatus, getPostDetail } from '../../services/api';
 
 const forumLogo = require('../../assets/images/wny_logo.jpg');
 
@@ -36,6 +37,18 @@ export default function CCICTPage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showPostActionSheet, setShowPostActionSheet] = useState(false);
+  const [postActionForId, setPostActionForId] = useState<number | null>(null);
+  const [editingPostId, setEditingPostId] = useState<number | null>(null);
+  const [editPostContent, setEditPostContent] = useState<string>('');
+  const [confirmDeletePostId, setConfirmDeletePostId] = useState<number | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [followStatusByUserId, setFollowStatusByUserId] = useState<Record<number, boolean>>({});
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
+  const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
+  const [commentText, setCommentText] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -61,27 +74,46 @@ export default function CCICTPage() {
     }
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
+  async function loadForumPosts() {
       try {
         const userInfo = await getUserInfo();
         setUser(userInfo);
+      const meId = (userInfo as any)?.id || (userInfo as any)?.user_id || null;
+      setCurrentUserId(meId);
         const allPosts = await getPosts();
-        // Show only forum posts if type is 'forum' (fallback to all if type not present)
         const forumPosts = Array.isArray(allPosts) ? allPosts.filter((p: any) => (p.type || '').toLowerCase() === 'forum') : [];
         setPosts(forumPosts);
+      try {
+        const authorIds = Array.from(new Set(forumPosts.map(p => p.user?.user_id).filter(Boolean)));
+        const statuses = await Promise.all(authorIds.map(async (uid) => {
+          if (!uid || (meId && uid === meId)) return [uid, true] as [number, boolean];
+          try { const s = await checkFollowStatus(uid); return [uid, !!s?.is_following] as [number, boolean]; } catch { return [uid, false] as [number, boolean]; }
+        }));
+        const map: Record<number, boolean> = {};
+        statuses.forEach(([uid, val]) => { if (uid) map[uid] = val; });
+        setFollowStatusByUserId(map);
+      } catch {}
       } catch (e) {
         setUser(null);
         setPosts([]);
       } finally {
         setLoading(false);
       }
-    };
-    fetchData();
-  }, []);
+  }
+
+  useEffect(() => { loadForumPosts(); }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try { await loadForumPosts(); } finally { setRefreshing(false); }
+  };
 
   return (
-    <ScrollView style={styles.scrollContainer} contentContainerStyle={{ flexGrow: 1 }}>
+    <ScrollView
+      style={styles.scrollContainer}
+      contentContainerStyle={{ flexGrow: 1 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#1e3a8a"]} tintColor="#1e3a8a" />}
+    >
       {/* Blue Header with Back Button */}
       <View style={styles.headerContainer}>
         <View style={styles.headerBg} />
@@ -118,22 +150,67 @@ export default function CCICTPage() {
               <Text style={styles.postName}>{post.user?.f_name} {post.user?.l_name}</Text>
               <Text style={styles.postMeta}>{formatDate(post.created_at)} • <FontAwesome name="globe" size={12} color="#888" /></Text>
             </View>
+            {(() => { try {
+              const meId = currentUserId;
+              const authorId = (post as any)?.user?.user_id;
+              if (meId && authorId === meId) {
+                // Own post: show ellipsis actions
+                return (
+                  <TouchableOpacity
+                    onPress={() => { setPostActionForId(post.post_id); setEditPostContent(post.post_content || ''); setShowPostActionSheet(true); }}
+                    style={{ padding: 6 }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <FontAwesome name="ellipsis-h" size={18} color="#888" />
+                  </TouchableOpacity>
+                );
+              }
+              // Not own post: show Follow if not followed; else nothing
+              const isFollowing = !!followStatusByUserId[authorId as number];
+              if (authorId && !isFollowing) {
+                return (
+                  <TouchableOpacity
+                    onPress={async () => { try { await followUser(authorId); setFollowStatusByUserId(prev => ({ ...prev, [authorId]: true })); Alert.alert('Followed', `You followed ${post.user.f_name} ${post.user.l_name}`); } catch { Alert.alert('Error', 'Failed to follow'); } }}
+                    style={{ paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#E6F0FF', borderRadius: 16 }}
+                  >
+                    <Text style={{ color: '#1C4E80', fontWeight: '600' }}>Follow</Text>
+                  </TouchableOpacity>
+                );
+              }
+              return null;
+            } catch { return null; } })()}
           </View>
           {post.post_title ? <Text style={styles.postName}>{post.post_title}</Text> : null}
           <Text style={styles.postContent}>{post.post_content}</Text>
           {post.post_image ? (<Image source={{ uri: (String(post.post_image).startsWith('http') || String(post.post_image).startsWith('data:')) ? String(post.post_image) : `${API_BASE_URL}${post.post_image}` }} style={{ width: '100%', height: 200, borderRadius: 8, marginTop: 8 }} />) : null}
+          {/* Counts row, open viewers */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, marginTop: 6 }}>
+            <TouchableOpacity onPress={async () => { try { const detail = await getPostDetail(post.post_id); setSelectedPostStats(detail); setViewerType('likes'); setViewerVisible(true); } catch {} }}>
+              <Text style={{ fontSize: 12, color: '#666' }}>{post.likes_count || 0} {(post.likes_count || 0) === 1 ? 'like' : 'likes'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
+              <Text style={{ fontSize: 12, color: '#666' }}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={async () => { try { const detail = await getPostDetail(post.post_id); setSelectedPostStats(detail); setViewerType('reposts'); setViewerVisible(true); } catch {} }}>
+              <Text style={{ fontSize: 12, color: '#666' }}>{post.reposts_count || 0} {(post.reposts_count || 0) === 1 ? 'share' : 'shares'}</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.postActions}>
             <TouchableOpacity 
               style={styles.actionBtn}
               onPress={async () => {
                 try {
-                  if (post.is_liked) {
-                    await unlikePost(post.post_id);
-                    setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p));
-                  } else {
-                    await likePost(post.post_id);
-                    setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p));
-                  }
+                  if (post.is_liked) await unlikePost(post.post_id); else await likePost(post.post_id);
+                  try {
+                    const detail = await getPostDetail(post.post_id);
+                    setPosts(prev => prev.map(p => p.post_id === post.post_id ? {
+                      ...p,
+                      is_liked: !!(detail?.likes || []).some((l:any)=> (l.user_id||l.user?.user_id) === ((user as any)?.id || (user as any)?.user_id)),
+                      likes_count: detail?.likes_count ?? p.likes_count,
+                      comments_count: detail?.comments_count ?? p.comments_count,
+                      reposts_count: detail?.reposts_count ?? p.reposts_count,
+                    } : p));
+                  } catch {}
                 } catch (e) {
                   Alert.alert('Error', 'Failed to update like');
                 }
@@ -144,14 +221,7 @@ export default function CCICTPage() {
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.actionBtn}
-              onPress={async () => {
-                try {
-                  await commentOnPost(post.post_id, 'Nice post!');
-                  setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, comments_count: (p.comments_count||0)+1 } : p));
-                } catch (e) {
-                  Alert.alert('Error', 'Failed to comment');
-                }
-              }}
+              onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}
             >
               <FontAwesome name="comment-o" size={16} color="#888" />
               <Text style={styles.actionText}>{post.comments_count || 0}</Text>
@@ -161,6 +231,7 @@ export default function CCICTPage() {
               onPress={async () => {
                 try {
                   await repostPost(post.post_id);
+                  try { const detail = await getPostDetail(post.post_id); setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: detail?.reposts_count ?? (p.reposts_count||0) } : p)); } catch {}
                   Alert.alert('Reposted', 'Post reposted successfully');
                 } catch (e) {
                   Alert.alert('Error', 'Failed to repost');
@@ -170,23 +241,114 @@ export default function CCICTPage() {
               <FontAwesome name="retweet" size={16} color="#888" />
               <Text style={styles.actionText}>{post.reposts_count || 0}</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.actionBtn}
-              onPress={async () => {
-                try {
-                  await followUser(post.user.user_id);
-                  Alert.alert('Followed', `You followed ${post.user.f_name} ${post.user.l_name}`);
-                } catch (e) {
-                  Alert.alert('Error', 'Failed to follow');
-                }
-              }}
-            >
-              <FontAwesome name="user-plus" size={16} color="#888" />
-              <Text style={styles.actionText}>Follow</Text>
-            </TouchableOpacity>
           </View>
         </View>
       ))}
+      {/* Viewer Modal */}
+      <Modal visible={viewerVisible} transparent animationType="fade" onRequestClose={() => setViewerVisible(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, width: '92%', maxWidth: 420 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold' }}>{viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Reposts' : 'Comments'}</Text>
+              <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 320, marginTop: 8 }}>
+              {viewerType === 'likes' && (selectedPostStats?.likes || []).map((u: any, idx: number) => (
+                <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
+                  <Image source={{ uri: (u.profile_pic && (String(u.profile_pic).startsWith('http') || String(u.profile_pic).startsWith('data:'))) ? u.profile_pic : (u.profile_pic ? `${API_BASE_URL}${u.profile_pic}` : '') }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                  <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{u.f_name || ''} {u.l_name || ''}</Text>
+                </View>
+              ))}
+              {viewerType === 'reposts' && (selectedPostStats?.reposts || []).map((r: any) => (
+                <View key={r.repost_id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
+                  <Image source={{ uri: (r.user?.profile_pic && (String(r.user.profile_pic).startsWith('http') || String(r.user.profile_pic).startsWith('data:'))) ? r.user?.profile_pic : (r.user?.profile_pic ? `${API_BASE_URL}${r.user.profile_pic}` : '') }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                  <View>
+                    <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{r.user?.f_name || ''} {r.user?.l_name || ''}</Text>
+                    <Text style={{ color: '#888', fontSize: 12 }}>{r.repost_date ? new Date(r.repost_date).toLocaleString() : ''}</Text>
+                  </View>
+                </View>
+              ))}
+              {viewerType === 'comments' && (selectedPostStats?.comments || []).map((c: any) => (
+                <View key={c.comment_id} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 8 }}>
+                  <Image source={{ uri: c.user?.profile_pic || '' }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{c.user?.f_name || ''} {c.user?.l_name || ''}</Text>
+                    <Text style={{ color: '#333' }}>{c.comment_content}</Text>
+                    <Text style={{ color: '#888', fontSize: 12 }}>{c.date_created ? new Date(c.date_created).toLocaleString() : ''}</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            {viewerType === 'comments' && selectedPostStats?.post_id && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                <TextInput
+                  style={{ flex: 1, borderWidth: 1, borderColor: '#eee', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#f9f9f9' }}
+                  placeholder="Write a comment..."
+                  value={commentText}
+                  onChangeText={setCommentText}
+                />
+            <TouchableOpacity 
+                  style={{ backgroundColor: '#1e3a8a', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, marginLeft: 8 }}
+              onPress={async () => {
+                    const msg = (commentText || '').trim();
+                    if (!msg) return;
+                    try { await commentOnPost(selectedPostStats.post_id, msg); setCommentText(''); const detail = await getPostDetail(selectedPostStats.post_id); setSelectedPostStats(detail); setPosts(prev => prev.map(p => p.post_id === selectedPostStats.post_id ? { ...p, comments_count: (p.comments_count||0)+1 } : p)); } catch { Alert.alert('Error', 'Failed to add comment'); }
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: 'bold' }}>Send</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+      {/* Post actions sheet */}
+      <Modal visible={showPostActionSheet} transparent animationType="fade" onRequestClose={() => setShowPostActionSheet(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, width: '92%', maxWidth: 420 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Select Action</Text>
+              <TouchableOpacity onPress={() => setShowPostActionSheet(false)}>
+                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={{ paddingVertical: 12 }}
+              onPress={() => { setShowPostActionSheet(false); if (postActionForId != null) setEditingPostId(postActionForId); }}
+            >
+              <Text style={{ fontSize: 16, color: '#174f84', fontWeight: '600' }}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ paddingVertical: 12 }}
+              onPress={() => { setShowPostActionSheet(false); const id = postActionForId; if (id!=null) { Alert.alert('Delete Post','Are you sure you want to delete this post?',[{ text:'Cancel', style:'cancel' }, { text:'Delete', style:'destructive', onPress: async ()=>{ try { const { deletePost } = await import('../../services/api'); await deletePost(id); const all = await getPosts(); const forumPosts = Array.isArray(all) ? all.filter((p:any)=> (p.type||'').toLowerCase()==='forum') : []; setPosts(forumPosts); } catch { Alert.alert('Error','Failed to delete'); } } }]); } }}
+            >
+              <Text style={{ fontSize: 16, color: 'red', fontWeight: '600' }}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Unified Post Modal */}
+      {editingPostId != null && (
+        <PostModal
+          visible={true}
+          postId={editingPostId}
+          initialContent={editPostContent}
+          onClose={() => setEditingPostId(null)}
+          onSaved={async () => {
+            const allPosts = await getPosts();
+            const forumPosts = Array.isArray(allPosts) ? allPosts.filter((p: any) => (p.type || '').toLowerCase() === 'forum') : [];
+            setPosts(forumPosts);
+          }}
+          onDeleted={async () => {
+            const allPosts = await getPosts();
+            const forumPosts = Array.isArray(allPosts) ? allPosts.filter((p: any) => (p.type || '').toLowerCase() === 'forum') : [];
+            setPosts(forumPosts);
+          }}
+        />
+      )}
     </ScrollView>
   );
 }

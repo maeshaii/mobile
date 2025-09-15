@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image } from 'react-native';
+import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { getUserInfo, logoutUser, getPosts } from '../services/api';
+import {
+  getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
+  repostPost, deleteRepost
+} from '../services/api';
 
 export default function DashboardScreen() {
   const [user, setUser] = useState<any>(null);
@@ -11,6 +16,12 @@ export default function DashboardScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editData, setEditData] = useState({ name: '', course: '', year_graduated: '', profile_pic: '' });
   const router = useRouter();
+
+  // Viewer and comment state
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
+  const [selectedPost, setSelectedPost] = useState<any | null>(null);
+  const [commentText, setCommentText] = useState('');
 
   useEffect(() => {
     loadUserInfo();
@@ -230,14 +241,147 @@ export default function DashboardScreen() {
                    post.category?.announcements ? 'Announcements' : 
                    post.category?.donation ? 'Donation' : 'Other'}
                 </Text>
-                <Text style={styles.postStats}>
-                  {post.likes_count || 0} likes • {post.comments_count || 0} comments
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TouchableOpacity onPress={() => { setSelectedPost(post); setViewerType('likes'); setViewerVisible(true); }}>
+                    <Text style={styles.postStats}>{post.likes_count || 0} likes</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.postStats}> • </Text>
+                  <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
+                    <Text style={styles.postStats}>{post.comments_count || 0} comments</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Actions */}
+              <View style={styles.actionsRow}>
+                <TouchableOpacity 
+                  style={styles.actionBtn}
+                  onPress={async () => {
+                    try {
+                      if (post.is_liked) {
+                        await unlikePost(post.post_id);
+                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p));
+                      } else {
+                        await likePost(post.post_id);
+                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p));
+                      }
+                    } catch (e) {
+                      Alert.alert('Error', 'Failed to update like');
+                    }
+                  }}
+                >
+                  <FontAwesome name={post.is_liked ? 'thumbs-up' : 'thumbs-o-up'} size={16} color="#888" />
+                  <Text style={styles.actionText}>Like</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.actionBtn}
+                  onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}
+                >
+                  <FontAwesome name="comment-o" size={16} color="#888" />
+                  <Text style={styles.actionText}>Comment</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.actionBtn}
+                  onPress={async () => {
+                    try {
+                      await repostPost(post.post_id);
+                      setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: (p.reposts_count||0)+1 } : p));
+                      Alert.alert('Reposted');
+                    } catch (e) {
+                      Alert.alert('Error', 'Failed to repost');
+                    }
+                  }}
+                >
+                  <FontAwesome name="retweet" size={16} color="#888" />
+                  <Text style={styles.actionText}>Repost</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ))
         )}
       </ScrollView>
+      {/* Viewer Modal */}
+      <Modal
+        visible={viewerVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setViewerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewerModal}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.modalTitle}>
+                {viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}
+              </Text>
+              <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320 }}>
+              {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => (
+                <View key={idx} style={styles.listItemRow}>
+                  <Image source={{ uri: u.profile_pic || 'https://randomuser.me/api/portraits/men/45.jpg' }} style={styles.listAvatar} />
+                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                </View>
+              ))}
+
+              {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => (
+                <View key={r.repost_id} style={styles.listItemRow}>
+                  <Image source={{ uri: r.user?.profile_pic || 'https://randomuser.me/api/portraits/men/46.jpg' }} style={styles.listAvatar} />
+                  <View>
+                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
+                  </View>
+                </View>
+              ))}
+
+              {viewerType === 'comments' && selectedPost?.comments?.map((c: any) => (
+                <View key={c.comment_id} style={styles.listItemRow}>
+                  <Image source={{ uri: c.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.listAvatar} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.listText}>{c.user?.f_name} {c.user?.l_name}</Text>
+                    <Text style={styles.commentBody}>{c.comment_content}</Text>
+                    <Text style={styles.listSubText}>{new Date(c.date_created).toLocaleString()}</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            {viewerType === 'comments' && selectedPost ? (
+              <View style={styles.commentInputRow}>
+                <TextInput
+                  style={styles.commentInput}
+                  placeholder="Write a comment..."
+                  value={commentText}
+                  onChangeText={setCommentText}
+                />
+                <TouchableOpacity
+                  style={styles.sendBtn}
+                  onPress={async () => {
+                    const message = (commentText || '').trim();
+                    if (!message) return;
+                    try {
+                      await commentOnPost(selectedPost.post_id, message);
+                      const data = await getPostComments(selectedPost.post_id);
+                      const newComments = data?.comments || [];
+                      setPosts(prev => prev.map(p => p.post_id === selectedPost.post_id ? { ...p, comments: newComments, comments_count: newComments.length } : p));
+                      setSelectedPost((prev: any) => prev ? { ...prev, comments: newComments, comments_count: newComments.length } : prev);
+                      setCommentText('');
+                    } catch (e) {
+                      Alert.alert('Error', 'Failed to add comment');
+                    }
+                  }}
+                >
+                  <Text style={{ color: 'white', fontWeight: 'bold' }}>Send</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -495,6 +639,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionText: {
+    color: '#666',
+    marginLeft: 6,
+  },
   startPostCard: {
     backgroundColor: 'white',
     borderRadius: 10,
@@ -521,5 +682,58 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: '#e9ecef',
+  },
+  viewerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '92%',
+    maxHeight: '80%',
+  },
+  listItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e0e7ef',
+    marginRight: 10,
+  },
+  listText: {
+    fontSize: 14,
+    color: '#174f84',
+    fontWeight: '600',
+  },
+  listSubText: {
+    fontSize: 12,
+    color: '#888',
+  },
+  commentBody: {
+    fontSize: 14,
+    color: '#333',
+  },
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  commentInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#f9f9f9',
+  },
+  sendBtn: {
+    backgroundColor: '#174f84',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginLeft: 8,
   },
 }); 

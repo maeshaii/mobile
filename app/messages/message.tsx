@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import NavBar from '../(tabs)/navbar';
+import NavBar from '../(tabs)/_navbar';
 import { useRouter } from 'expo-router';
 
 const samplePic = require('../../assets/images/sample_pic.jpg');

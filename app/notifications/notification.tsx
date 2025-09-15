@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, ActivityIndicator, Alert } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import NavBar from '../(tabs)/navbar';
+import NavBar from '../(tabs)/_navbar';
 import { useRouter } from 'expo-router';
 import { getNotifications, deleteNotifications } from '../../services/api';
 import { getUserInfo } from '../../services/api';

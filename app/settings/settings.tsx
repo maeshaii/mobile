@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import NavBar from '../(tabs)/navbar';
+import NavBar from '../(tabs)/_navbar';
 import { getUserInfo } from '../../services/api';
 
 

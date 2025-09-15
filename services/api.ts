@@ -240,12 +240,33 @@ export const getAlumniDetails = async (userId: number) =>
 export const sendReminder = async () => (await api.post('/api/send-reminder/')).data;
 
 /** Posts */
-export const getPosts = async () => (await api.get('/api/posts/')).data.posts || [];
+export const getPosts = async () => {
+  try {
+    const response = await api.get('/api/posts/');
+    console.log('Mobile getPosts API Response:', response.data);
+    console.log('Posts array:', response.data?.posts);
+    console.log('Posts count:', response.data?.posts?.length);
+    return response.data?.posts || [];
+  } catch (error) {
+    console.error('Mobile getPosts API Error:', error);
+    throw error;
+  }
+};
 export const getPostsByUserType = async (userType: 'peso' | 'admin') =>
   (await api.get(`/api/posts/by-user-type/?user_type=${userType}`)).data.posts || [];
 export const createPost = async (postData: {
   post_title: string; post_content: string; post_image?: string; post_cat_id: number; type?: string;
-}) => (await api.post('/api/posts/', postData)).data;
+}) => {
+  try {
+    console.log('Mobile createPost sending:', postData);
+    const response = await api.post('/api/posts/', postData);
+    console.log('Mobile createPost response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Mobile createPost error:', error);
+    throw error;
+  }
+};
 export const likePost = async (postId: number) =>
   (await api.post(`/api/posts/${postId}/like/`)).data;
 export const unlikePost = async (postId: number) =>
@@ -254,8 +275,17 @@ export const commentOnPost = async (postId: number, comment: string) =>
   (await api.post(`/api/posts/${postId}/comments/`, { comment_content: comment })).data;
 export const getPostComments = async (postId: number) =>
   (await api.get(`/api/posts/${postId}/comments/`)).data;
+export const getPostDetail = async (postId: number) => (await api.get(`/api/posts/${postId}/`)).data;
+export const updateComment = async (postId: number, commentId: number, content: string) =>
+  (await api.put(`/api/posts/${postId}/comments/${commentId}/`, { comment_content: content })).data;
+export const deleteComment = async (postId: number, commentId: number) =>
+  (await api.delete(`/api/posts/${postId}/comments/${commentId}/`)).data;
 export const deletePost = async (postId: number) =>
   (await api.delete(`/api/posts/${postId}/`)).data;
+export const editPost = async (
+  postId: number,
+  postData: { post_title?: string; post_content?: string }
+) => (await api.put(`/api/posts/${postId}/`, postData)).data;
 
 /** Categories */
 export const getPostCategories = async () => (await api.get('/api/post-categories/')).data;

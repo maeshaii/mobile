@@ -1,26 +1,30 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import NavBar from '../(tabs)/navbar';
+import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import NavBar from '../(tabs)/_navbar';
 import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost } from '../../services/api';
+import PostModal from './postmodal';
 
 interface Post {
   post_id: number;
-  post_title: string;
+  post_title?: string;
   post_content: string;
-  post_image: string;
+  post_image?: string;
   user: {
     f_name: string;
     l_name: string;
-    profile_pic: string;
+    profile_pic?: string;
   };
-  likes: any[];
-  comments: any[];
-  reposts: any[];
-  reposts_count: number;
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
+  likes_count?: number;
+  comments_count?: number;
+  reposts_count?: number;
   created_at: string;
-  type: string;
+  type?: string;
+  is_liked?: boolean;
 }
 
 interface UserInfo {
@@ -43,12 +47,30 @@ const HomeScreen = () => {
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showPostActionSheet, setShowPostActionSheet] = useState(false);
+  const [postActionForId, setPostActionForId] = useState<number | null>(null);
+  const [editingPostId, setEditingPostId] = useState<number | null>(null);
+  const [editPostContent, setEditPostContent] = useState<string>('');
   const router = useRouter();
 
   useEffect(() => {
     loadUserInfo();
     loadPosts();
   }, []);
+
+  // Add refresh functionality
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadPosts();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const loadUserInfo = async () => {
     try {
@@ -77,10 +99,12 @@ const HomeScreen = () => {
     try {
       setPostsLoading(true);
       const postsData = await getPosts();
-      setPosts(postsData);
+      console.log('Homepage posts data:', postsData); // Debug log
+      setPosts(Array.isArray(postsData) ? postsData : []);
     } catch (error) {
       console.error('Error loading posts:', error);
-      // Don't show error alert for posts, just log it
+      Alert.alert('Error', 'Failed to load posts. Please try again.');
+      setPosts([]);
     } finally {
       setPostsLoading(false);
     }
@@ -221,7 +245,18 @@ const HomeScreen = () => {
       </View>
 
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        style={styles.scroll} 
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#1e3a8a']}
+            tintColor="#1e3a8a"
+          />
+        }
+      >
       {/* Start a Post */}
       <View style={styles.postCard}>
         <View style={styles.postRow}>
@@ -248,17 +283,18 @@ const HomeScreen = () => {
         ) : posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
             <Text style={styles.noPostsText}>No posts yet. Be the first to share something!</Text>
-      </View>
+            <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
+          </View>
         ) : (
           posts.map((post) => {
             const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
             const userAvatar = post.user?.profile_pic 
               ? { uri: String(post.user.profile_pic).startsWith('http') || String(post.user.profile_pic).startsWith('data:') ? String(post.user.profile_pic) : `${API_BASE_URL}${post.user.profile_pic}` }
               : require('../../assets/images/sample_pic.jpg');
-            const isLiked = typeof (post as any).is_liked === 'boolean' ? (post as any).is_liked : Array.isArray((post as any).likes) && (post as any).likes.length > 0;
-            const likeCount = (post as any).likes_count ?? ((post as any).likes ? (post as any).likes.length : 0);
-            const commentCount = (post as any).comments_count ?? ((post as any).comments ? (post as any).comments.length : 0);
-            const repostCount = (post as any).reposts_count ?? ((post as any).reposts ? (post as any).reposts.length : 0);
+            const isLiked = post.is_liked || false;
+            const likeCount = post.likes_count || 0;
+            const commentCount = post.comments_count || 0;
+            const repostCount = post.reposts_count || 0;
 
             // Detect if current user reposted this post
             let reposterName: string | null = null;
@@ -267,13 +303,20 @@ const HomeScreen = () => {
               // inline require to avoid circular import
               const current = user as any;
               const currentId = current?.id || current?.user_id;
-              if (currentId && Array.isArray((post as any).reposts)) {
-                const match = (post as any).reposts.find((r: any) => r?.user?.user_id === currentId);
+              if (currentId && Array.isArray(post.reposts)) {
+                const match = post.reposts.find((r: any) => r?.user?.user_id === currentId);
                 if (match) {
                   reposterName = `${match.user?.f_name || ''} ${match.user?.l_name || ''}`.trim();
                 }
               }
             } catch {}
+
+            // --- UPDATED IMAGE URL LOGIC ---
+            const imageUrl = post.post_image
+              ? (String(post.post_image).startsWith('http') || String(post.post_image).startsWith('data:')
+                  ? String(post.post_image)
+                  : `${API_BASE_URL}${post.post_image}`)
+              : null;
 
             return (
               <View key={post.post_id} style={styles.card}>
@@ -285,6 +328,15 @@ const HomeScreen = () => {
                       {formatDate(post.created_at)} • 🌐{reposterName ? `  •  Reposted by ${reposterName}` : ''}
                     </Text>
               </View>
+              {(() => { try { const me:any = user; const meId = me?.id || me?.user_id; return meId && (post as any)?.user?.user_id === meId; } catch { return false; } })() ? (
+                <TouchableOpacity
+                  onPress={() => { setPostActionForId(post.post_id); setEditPostContent(post.post_content || ''); setShowPostActionSheet(true); }}
+                  style={{ padding: 6 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <FontAwesome name="ellipsis-h" size={18} color="#888" />
+                </TouchableOpacity>
+              ) : null}
             </View>
 
                 {post.post_title && (
@@ -293,22 +345,22 @@ const HomeScreen = () => {
 
                 <Text style={styles.content}>{post.post_content}</Text>
 
-                {post.post_image && (
+                {imageUrl && (
                   <Image 
-                    source={{ uri: String(post.post_image).startsWith('http') || String(post.post_image).startsWith('data:') ? String(post.post_image) : `${API_BASE_URL}${post.post_image}` }} 
+                    source={{ uri: imageUrl }} 
                     style={styles.postImage}
                     resizeMode="cover"
                   />
                 )}
 
             <View style={styles.actionsCountsRow}>
-              <TouchableOpacity onPress={() => router.push({ pathname: '/posts/likes', params: { postId: String(post.post_id) } })}>
+              <TouchableOpacity onPress={() => { setSelectedPost(post); setViewerType('likes'); setViewerVisible(true); }}>
                 <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push({ pathname: '/posts/comments', params: { postId: String(post.post_id) } })}>
+              <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
                 <Text style={styles.countText}>{commentCount} {commentCount === 1 ? 'comment' : 'comments'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push({ pathname: '/posts/reposts', params: { postId: String(post.post_id) } })}>
+              <TouchableOpacity onPress={() => { setSelectedPost(post); setViewerType('reposts'); setViewerVisible(true); }}>
                 <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'share' : 'shares'}</Text>
               </TouchableOpacity>
             </View>
@@ -327,7 +379,7 @@ const HomeScreen = () => {
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.actionIcon}
-                onPress={() => handleComment(post.post_id)}
+                onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}
               >
                 <FontAwesome name="comment-o" size={18} color="#555" />
                 <Text style={styles.actionText}>Comment</Text>
@@ -379,7 +431,123 @@ const HomeScreen = () => {
             </View>
           </View>
         </Modal>
+
+        {/* Viewer Modal */}
+        <Modal
+          visible={viewerVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setViewerVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.viewerModal}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.modalTitle}>
+                  {viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}
+                </Text>
+                <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                  <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 320 }}>
+                {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => (
+                  <View key={idx} style={styles.listItemRow}>
+                    <Image source={{ uri: u.profile_pic || 'https://randomuser.me/api/portraits/men/45.jpg' }} style={styles.listAvatar} />
+                    <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  </View>
+                ))}
+
+                {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => (
+                  <View key={r.repost_id} style={styles.listItemRow}>
+                    <Image source={{ uri: r.user?.profile_pic || 'https://randomuser.me/api/portraits/men/46.jpg' }} style={styles.listAvatar} />
+                    <View>
+                      <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                      <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
+                    </View>
+                  </View>
+                ))}
+
+                {viewerType === 'comments' && selectedPost?.comments?.map((c: any) => (
+                  <View key={c.comment_id} style={styles.listItemRow}>
+                    <Image source={{ uri: c.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.listAvatar} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.listText}>{c.user?.f_name} {c.user?.l_name}</Text>
+                      <Text style={styles.commentBody}>{c.comment_content}</Text>
+                      <Text style={styles.listSubText}>{new Date(c.date_created).toLocaleString()}</Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+
+              {viewerType === 'comments' && selectedPost ? (
+                <View style={styles.commentInputRow}>
+                  <TextInput
+                    style={styles.commentInput}
+                    placeholder="Write a comment..."
+                    value={commentText}
+                    onChangeText={setCommentText}
+                  />
+                  <TouchableOpacity
+                    style={styles.sendBtn}
+                    onPress={async () => {
+                      const message = (commentText || '').trim();
+                      if (!message) return;
+                      try {
+                        await commentOnPost(selectedPost.post_id, message);
+                        setCommentText('');
+                        setViewerVisible(false);
+                        await loadPosts(); // Refresh posts
+                      } catch (e) {
+                        Alert.alert('Error', 'Failed to add comment');
+                      }
+                    }}
+                  >
+                    <Text style={{ color: 'white', fontWeight: 'bold' }}>Send</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
+      {/* Post actions sheet */}
+      <Modal visible={showPostActionSheet} transparent animationType="fade" onRequestClose={() => setShowPostActionSheet(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewerModal}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.modalTitle}>Select Action</Text>
+              <TouchableOpacity onPress={() => setShowPostActionSheet(false)}>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={styles.listItemRow}
+              onPress={() => { setShowPostActionSheet(false); if (postActionForId != null) { setEditPostContent(posts.find(p=>p.post_id===postActionForId)?.post_content || ''); setEditingPostId(postActionForId); } }}
+            >
+              <Text style={styles.listText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.listItemRow}
+              onPress={() => { setShowPostActionSheet(false); const id = postActionForId; if (id!=null) { Alert.alert('Delete Post','Are you sure you want to delete this post?',[{ text:'Cancel', style:'cancel' }, { text:'Delete', style:'destructive', onPress: async ()=>{ try { const { deletePost } = await import('../../services/api'); await deletePost(id); await loadPosts(); } catch { Alert.alert('Error','Failed to delete'); } } }]); } }}
+            >
+              <Text style={[styles.listText, { color: 'red' }]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Unified Post Modal for Edit/Delete */}
+      {editingPostId != null && (
+        <PostModal
+          visible={true}
+          postId={editingPostId}
+          initialContent={editPostContent}
+          onClose={() => setEditingPostId(null)}
+          onSaved={async () => { await loadPosts(); }}
+          onDeleted={async () => { await loadPosts(); }}
+        />
+      )}
     </View>
   );
 };
@@ -664,6 +832,13 @@ const styles = StyleSheet.create({
     color: '#555',
     textAlign: 'center',
   },
+  pullToRefreshText: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 10,
+    fontStyle: 'italic',
+  },
   postTitle: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -710,5 +885,58 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  viewerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '92%',
+    maxHeight: '80%',
+  },
+  listItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e0e7ef',
+    marginRight: 10,
+  },
+  listText: {
+    fontSize: 14,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  listSubText: {
+    fontSize: 12,
+    color: '#888',
+  },
+  commentBody: {
+    fontSize: 14,
+    color: '#333',
+  },
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  commentInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#f9f9f9',
+  },
+  sendBtn: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginLeft: 8,
   },
 });

@@ -38,6 +38,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings/settings" options={{ title: 'settings', headerShown: false }} />
           <Stack.Screen name="search/search" options={{ title: 'search', headerShown: false }} />
           <Stack.Screen name="forms/forms" options={{ title: 'forms', headerShown: false }} />
+          <Stack.Screen name="posts/comments" options={{ title: 'comments', headerShown: false }} />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>
