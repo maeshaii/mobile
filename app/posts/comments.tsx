@@ -1,22 +1,35 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { API_BASE_URL, commentOnPost, getPostComments, getPosts, updateComment, deleteComment } from '../../services/api';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import {
+  API_BASE_URL,
+  commentOnPost,
+  deleteComment,
+  getPostComments,
+  getPosts,
+  getUserInfo,
+  updateComment,
+} from '../../services/api';
+
+dayjs.extend(relativeTime);
 
 type CommentItem = {
   comment_id: number;
@@ -34,42 +47,60 @@ export default function PostCommentsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const postId = Number(params.postId);
-
   const insets = useSafeAreaInsets();
-
-  const HEADER_HEIGHT = 44;
-  const HEADER_TOP_PAD = 2;
 
   const [loading, setLoading] = useState(true);
   const [post, setPost] = useState<any | null>(null);
   const [comments, setComments] = useState<CommentItem[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
   const [commentText, setCommentText] = useState('');
+  const [inputHeight, setInputHeight] = useState(44); // auto-grow
   const [submitting, setSubmitting] = useState(false);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
+  const [me, setMe] = useState<any>(null);
 
   const [actionFor, setActionFor] = useState<CommentItem | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<CommentItem | null>(null);
 
+  const [now, setNow] = useState(dayjs());
   useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const posts = await getPosts();
-        const found = Array.isArray(posts) ? posts.find((p: any) => p.post_id === postId) : null;
-        setPost(found || null);
+    const t = setInterval(() => setNow(dayjs()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
-        const data = await getPostComments(postId);
-        setComments(Array.isArray(data?.comments) ? data.comments : []);
-      } catch (e) {
-        console.error('[comments] load failed', e);
-        setComments([]);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [posts, user] = await Promise.all([getPosts(), getUserInfo()]);
+      setMe(user);
+      const found = Array.isArray(posts) ? posts.find((p: any) => p.post_id === postId) : null;
+      setPost(found || null);
+
+      const data = await getPostComments(postId);
+      setComments(Array.isArray(data?.comments) ? data.comments : []);
+    } catch (e) {
+      console.error('[comments] load failed', e);
+      setComments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [postId]);
+
+  useEffect(() => {
     if (postId) load();
+  }, [postId, load]);
+
+  const onRefresh = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      const data = await getPostComments(postId);
+      setComments(Array.isArray(data?.comments) ? data.comments : []);
+    } finally {
+      setRefreshing(false);
+    }
   }, [postId]);
 
   const renderAvatar = (src?: string) => {
@@ -78,26 +109,20 @@ export default function PostCommentsScreen() {
     return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
   };
 
+  const meId = me?.id || me?.user_id;
   const canSend = !!postId && !!commentText.trim() && !submitting;
 
   async function handleSend() {
     if (!canSend) return;
     try {
       setSubmitting(true);
-      const text = commentText.trim();
-      await commentOnPost(postId, text);
-
+      await commentOnPost(postId, commentText.trim());
       setCommentText('');
-      const data = await getPostComments(postId);
-      setComments(Array.isArray(data?.comments) ? data.comments : []);
+      setInputHeight(44);
+      await onRefresh();
     } catch (err: any) {
-      const status = err?.response?.status;
-      const apiMsg =
-        typeof err?.response?.data === 'string'
-          ? err.response.data
-          : err?.response?.data?.detail || err?.message || 'Failed to add comment';
-      console.error('[comments] send failed:', status, apiMsg);
-      Alert.alert('Could not post comment', `${status ?? 'Network'}: ${apiMsg}`);
+      console.error('[comments] send failed', err);
+      Alert.alert('Error', 'Failed to add comment');
     } finally {
       setSubmitting(false);
     }
@@ -109,10 +134,9 @@ export default function PostCommentsScreen() {
       await updateComment(postId, commentId, editText.trim());
       setEditingId(null);
       setEditText('');
-      const data = await getPostComments(postId);
-      setComments(Array.isArray(data?.comments) ? data.comments : []);
-    } catch (err) {
-      Alert.alert('Failed to update comment');
+      await onRefresh();
+    } catch {
+      Alert.alert('Error', 'Failed to update comment');
     }
   }
 
@@ -120,14 +144,20 @@ export default function PostCommentsScreen() {
     try {
       await deleteComment(postId, commentId);
       setConfirmDelete(null);
-      const data = await getPostComments(postId);
-      setComments(Array.isArray(data?.comments) ? data.comments : []);
-    } catch (err) {
-      Alert.alert('Failed to delete comment');
+      await onRefresh();
+    } catch {
+      Alert.alert('Error', 'Failed to delete comment');
     }
   }
 
   const hideComposer = !!actionFor || !!confirmDelete || editingId !== null;
+  const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
+
+  const commentCount = comments.length;
+  const headerTitle = useMemo(
+    () => `Comments · ${commentCount}`,
+    [commentCount]
+  );
 
   if (!postId) {
     return (
@@ -149,169 +179,205 @@ export default function PostCommentsScreen() {
     );
   }
 
+  const renderComment = ({ item: c }: { item: CommentItem }) => {
+    const isMine = c.user.user_id === meId;
+    const isEditing = editingId === c.comment_id;
+
+    return (
+      <TouchableOpacity
+        key={c.comment_id}
+        onLongPress={() => setActionFor(c)}
+        delayLongPress={300}
+        activeOpacity={1}
+      >
+        <View style={styles.commentRow}>
+          <Image source={renderAvatar(c.user?.profile_pic)} style={styles.cAvatar} />
+          <View style={{ flex: 1 }}>
+            <View style={styles.cHeaderRow}>
+              <Text style={styles.cName}>
+                {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
+              </Text>
+              {!!c.date_created && (
+                <Text style={styles.cMeta}>{dayjs(c.date_created).fromNow()}</Text>
+              )}
+              {isMine && !isEditing && (
+                <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
+                  <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {isEditing ? (
+              <View style={styles.editBox}>
+                <TextInput
+                  style={styles.editInput}
+                  value={editText}
+                  onChangeText={setEditText}
+                  multiline
+                />
+                <View style={styles.editActions}>
+                  <TouchableOpacity onPress={() => handleUpdate(c.comment_id)} style={styles.sendBtn}>
+                    <Text style={styles.sendBtnText}>Update</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditingId(null)} style={styles.backBtn}>
+                    <Text style={styles.backText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.bubble}>
+                <Text style={styles.cBody}>{c.comment_content}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'left', 'right']}>
-      {/* Header */}
-      <View style={[styles.topBar, { height: HEADER_HEIGHT, paddingTop: HEADER_TOP_PAD }]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      {/* Top bar */}
+      <View style={[styles.topBar, { height: 48 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={20} color="#1f2937" />
         </TouchableOpacity>
-        <Text style={styles.topTitle}>Post</Text>
+        <Text style={styles.topTitle}>{headerTitle}</Text>
         <View style={{ width: 28 }} />
       </View>
       <View style={styles.divider} />
 
-      {/* Content */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <View style={{ flex: 1 }}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 12 }}>
-            {/* Post */}
-            {post && (
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        {/* Comments list */}
+        <FlatList
+          data={comments}
+          keyExtractor={(c) => String(c.comment_id)}
+          renderItem={renderComment}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          contentContainerStyle={{
+            paddingHorizontal: 12,
+            paddingBottom: hideComposer ? insets.bottom + 12 : insets.bottom + 12,
+          }}
+          ListHeaderComponent={
+            post ? (
               <View style={styles.postCard}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Image source={renderAvatar(post?.user?.profile_pic)} style={styles.avatar} />
+                  <Image source={renderAvatar(post.user?.profile_pic)} style={styles.avatar} />
                   <View>
                     <Text style={styles.name}>
-                      {`${post?.user?.f_name || ''} ${post?.user?.l_name || ''}`.trim() || 'User'}
+                      {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
                     </Text>
-                    {post?.created_at && <Text style={styles.subtle}>{new Date(post.created_at).toLocaleString()}</Text>}
-                  </View>
-                </View>
-                {!!post?.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
-                {!!post?.post_content && <Text style={styles.postContent}>{post.post_content}</Text>}
-                {!!post?.post_image && (
-                  <Image source={renderAvatar(post.post_image)} style={styles.postImage} resizeMode="cover" />
-                )}
-              </View>
-            )}
-
-            {/* Comments */}
-            <Text style={styles.sectionTitle}>Comments</Text>
-            {comments.length === 0 ? (
-              <Text style={styles.subtle}>No comments yet</Text>
-            ) : (
-              comments.map((c) => {
-                const isMine = true; // Replace with real user check
-                const isEditing = editingId === c.comment_id;
-                return (
-                  <TouchableOpacity
-                    key={c.comment_id}
-                    onLongPress={() => setActionFor(c)} // Long press opens popup
-                    delayLongPress={300}
-                    activeOpacity={1}
-                  >
-                    <View style={styles.commentRow}>
-                  <Image source={renderAvatar(c.user?.profile_pic)} style={styles.cAvatar} />
-                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-start' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cName}>
-                      {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
-                    </Text>
-                    {!!c.date_created && (
-                      <Text style={styles.cMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                    {!!post.created_at && (
+                      <Text style={styles.subtle}>{dayjs(post.created_at).fromNow()}</Text>
                     )}
-
-                          {isEditing ? (
-                            <View style={styles.editBox}>
-                              <TextInput
-                                style={styles.editInput}
-                                value={editText}
-                                onChangeText={setEditText}
-                                multiline
-                              />
-                              <View style={styles.editActions}>
-                                <TouchableOpacity onPress={() => handleUpdate(c.comment_id)} style={styles.sendBtn}>
-                                  <Text style={styles.sendBtnText}>Update</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setEditingId(null)} style={styles.backBtn}>
-                                  <Text style={styles.backText}>Cancel</Text>
-                                </TouchableOpacity>
-                              </View>
-                            </View>
-                          ) : (
-                    <Text style={styles.cBody}>{c.comment_content}</Text>
-                          )}
-                        </View>
-
-                        {isMine && !isEditing && (
-                          <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 6 }}>
-                            <Ionicons name="ellipsis-vertical" size={18} color="#6b7280" />
-                          </TouchableOpacity>
-                        )}
                   </View>
                 </View>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-          </ScrollView>
-
-          {/* Composer - hidden when editing or popup open */}
-          {!hideComposer && (
-          <View style={[styles.composerWrap, { paddingBottom: Math.max(8, insets.bottom) }]}>
-            <View style={styles.composerRow}>
-              <Text style={styles.composerLabel}>Comment</Text>
-              <View style={{ flex: 1 }} />
-            </View>
-            <View style={styles.composerInputRow}>
-              <View style={styles.composerInputBox}>
-                <TextInput
-                  style={styles.inputText}
-                  value={commentText}
-                  onChangeText={setCommentText}
-                  placeholder="Write a comment…"
-                  placeholderTextColor="#9ca3af"
-                  multiline
-                  returnKeyType="send"
-                  blurOnSubmit
-                  onSubmitEditing={handleSend}
-                />
+                {!!post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
+                {!!post.post_content && (
+                  <Text style={styles.postContent}>{post.post_content}</Text>
+                )}
+                {!!post.post_image && (
+                  <Image
+                    source={renderAvatar(post.post_image)}
+                    style={styles.postImage}
+                    resizeMode="cover"
+                  />
+                )}
+                <Text style={styles.sectionTitle}>Comments</Text>
               </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            <View style={{ padding: 20 }}>
+              <Text style={styles.subtle}>No comments yet</Text>
+            </View>
+          }
+        />
+
+        {/* Composer */}
+        {!hideComposer && (
+          <View
+            style={[
+              styles.composerWrap,
+              {
+                paddingBottom: Math.max(8, insets.bottom),
+              },
+            ]}
+          >
+            <View style={styles.composerInputRow}>
+              <TextInput
+                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
+                value={commentText}
+                onChangeText={setCommentText}
+                placeholder="Write a comment…"
+                placeholderTextColor="#9ca3af"
+                multiline
+                onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
+                returnKeyType="send"
+                blurOnSubmit
+                onSubmitEditing={handleSend}
+              />
               <TouchableOpacity
                 disabled={!canSend}
                 onPress={handleSend}
                 style={[styles.sendBtn, !canSend && { opacity: 0.5 }]}
               >
-                  {submitting ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Ionicons name="send" size={18} color="#fff" />
-                  )}
-                </TouchableOpacity>
-              </View>
+                {submitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#fff" />
+                )}
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* Action Sheet */}
-      <Modal visible={!!actionFor} transparent animationType="fade" onRequestClose={() => setActionFor(null)}>
-        <TouchableOpacity style={styles.confirmOverlay} activeOpacity={1} onPress={() => setActionFor(null)}>
-          <View style={styles.actionSheet}>
-            <View style={styles.actionSheetHeader}>
-              <Text style={styles.actionSheetTitle}>Comment Actions</Text>
-              <TouchableOpacity onPress={() => setActionFor(null)}>
-                <Ionicons name="close" size={20} color="#111827" />
-              </TouchableOpacity>
-            </View>
+      <Modal
+        visible={!!actionFor}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setActionFor(null)}
+      >
+        <TouchableOpacity
+          style={styles.sheetOverlay}
+          activeOpacity={1}
+          onPress={() => setActionFor(null)}
+        >
+          <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 8 }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.actionSheetTitle}>Comment Actions</Text>
             <TouchableOpacity
-              style={styles.actionItem}
+              style={styles.sheetButton}
               onPress={() => {
                 setEditingId(actionFor!.comment_id);
                 setEditText(actionFor!.comment_content);
                 setActionFor(null);
               }}
             >
-              <Text style={styles.actionItemText}>Edit</Text>
+              <Text style={styles.sheetButtonText}>Edit</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.actionItem}
+              style={[styles.sheetButton, { backgroundColor: '#fee2e2' }]}
               onPress={() => {
                 setConfirmDelete(actionFor);
                 setActionFor(null);
               }}
             >
-              <Text style={[styles.actionItemText, { color: '#dc2626' }]}>Delete</Text>
+              <Text style={[styles.sheetButtonText, { color: '#dc2626' }]}>Delete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sheetButton, { backgroundColor: '#f3f4f6' }]}
+              onPress={() => setActionFor(null)}
+            >
+              <Text style={[styles.sheetButtonText, { color: '#111827' }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -327,7 +393,9 @@ export default function PostCommentsScreen() {
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmCard}>
             <Text style={styles.title}>Delete this comment?</Text>
-            <Text style={[styles.subtle, { marginVertical: 8 }]}>This action cannot be undone.</Text>
+            <Text style={[styles.subtle, { marginVertical: 8 }]}>
+              This action cannot be undone.
+            </Text>
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
               <TouchableOpacity onPress={() => setConfirmDelete(null)} style={styles.backBtn}>
                 <Text style={styles.backText}>Cancel</Text>
@@ -347,20 +415,22 @@ export default function PostCommentsScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    backgroundColor: '#fff' 
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
   },
-  title: { 
-    fontSize: 18, 
-    fontWeight: '700', 
-    color: '#111827' 
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
   },
-  subtle: { 
-    color: '#6b7280'
+  subtle: {
+    color: '#6b7280',
   },
+
+  // Top bar
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -368,66 +438,57 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingBottom: 10,
   },
-  topTitle: { 
-    fontSize: 18, 
-    fontWeight: '700', 
-    color: '#111827' 
+  topTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
   },
-  backBtn: { 
-    paddingHorizontal: 10, 
-    paddingVertical: 6, 
-    borderRadius: 8, 
-    backgroundColor: '#f1f5f9' 
+  backBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
   },
-  backText: { 
-    color: '#1f2937', 
-    fontWeight: '600' 
+  backText: {
+    color: '#1f2937',
+    fontWeight: '600',
   },
-  divider: { 
-    height: StyleSheet.hairlineWidth, 
-    backgroundColor: '#e5e7eb' 
-  },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#e5e7eb' },
+
+  // Post preview card
   postCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 12,
-    marginBottom: 12,
+    marginVertical: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#e5e7eb',
   },
-  avatar: { 
-    width: 36, 
-    height: 36, 
-    borderRadius: 18, 
-    marginRight: 8, 
-    backgroundColor: '#e5e7eb' 
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 8,
+    backgroundColor: '#e5e7eb',
   },
-  name: { 
-    fontSize: 14, 
-    fontWeight: '700', 
-    color: '#111827' 
-  },
-  postTitle: { 
-    fontSize: 16, 
-    fontWeight: '700', 
-    color: '#111827', 
-    marginBottom: 6 
-  },
-  postContent: { 
-    color: '#111827' 
-  },
-  postImage: { 
-    width: '100%', 
+  name: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  postTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 6 },
+  postContent: { color: '#111827' },
+  postImage: {
+    width: '100%',
     height: 220,
-    backgroundColor: '#e5e7eb', 
-    borderRadius: 10, 
-    marginTop: 10 },
-  sectionTitle: { 
-    fontSize: 16, 
-    fontWeight: '700', 
-    color: '#111827', 
-    marginVertical: 8 
+    backgroundColor: '#e5e7eb',
+    borderRadius: 10,
+    marginTop: 10,
   },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 12,
+  },
+
+  // Comment row
   commentRow: {
     flexDirection: 'row',
     gap: 10,
@@ -435,27 +496,32 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e5e7eb',
   },
-  cAvatar: { 
-    width: 32, 
-    height: 32, 
-    borderRadius: 16, 
-    backgroundColor: '#e5e7eb' 
+  cAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
   },
-  cName: { 
-    fontWeight: '600', 
-    color: '#111827' 
+  cHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
   },
-  cMeta: { 
-    fontSize: 12, 
-    color: '#6b7280', 
-    marginBottom: 4 
+  cName: { fontWeight: '600', color: '#111827' },
+  cMeta: { fontSize: 12, color: '#6b7280', marginLeft: 'auto' },
+  bubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
-  cBody: { 
-    color: '#111827' 
-  },
-  editBox: { 
-    marginTop: 6 
-  },
+  cBody: { color: '#111827' },
+
+  // Edit state
+  editBox: { marginTop: 6 },
   editInput: {
     borderWidth: 1,
     borderColor: '#e5e7eb',
@@ -464,12 +530,14 @@ const styles = StyleSheet.create({
     color: '#111827',
     minHeight: 40,
   },
-  editActions: { 
-    flexDirection: 'row', 
-    marginTop: 6, 
+  editActions: {
+    flexDirection: 'row',
+    marginTop: 6,
     gap: 8,
-    justifyContent: 'flex-end' 
-   },
+    justifyContent: 'flex-end',
+  },
+
+  // Composer
   composerWrap: {
     backgroundColor: '#fff',
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -477,69 +545,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
   },
-  composerRow: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    marginBottom: 6 },
-  composerLabel: { 
-    fontSize: 12, 
-    color: '#64748b', 
-    fontWeight: '600' 
-  },
-  composerInputRow: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8 
-  },
-  composerInputBox: {
+  composerInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  inputText: {
     flex: 1,
-    minHeight: 44,
-    maxHeight: 120,
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    justifyContent: 'center',
+    paddingVertical: 10,
+    textAlignVertical: 'top',
+    color: '#111827',
   },
-  inputText: { 
-    color: '#111827' 
+  sendBtn: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
-  sendBtn: { 
-    backgroundColor: '#1e3a8a', 
-    paddingHorizontal: 14, 
-    paddingVertical: 10, 
-    borderRadius: 10 
-  },
-  sendBtnText: { 
-    color: '#fff', 
-    fontWeight: '700' 
+  sendBtnText: { color: '#fff', fontWeight: '700' },
+
+  // Bottom sheet
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   actionSheet: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingVertical: 10,
-    width: '80%',
-  },
-  actionSheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 8,
     paddingHorizontal: 16,
-    paddingVertical: 10,
   },
-  actionSheetTitle: { 
-    fontWeight: '700', 
-    fontSize: 16, 
-    color: '#111827' 
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e5e7eb',
+    marginBottom: 8,
   },
-  actionItem: { 
-    paddingHorizontal: 16, 
-    paddingVertical: 12 
+  actionSheetTitle: {
+    fontWeight: '700',
+    fontSize: 16,
+    color: '#111827',
+    marginBottom: 8,
   },
-  actionItemText: { 
-    fontSize: 15, 
-    color: '#111827' 
+  sheetButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    marginVertical: 6,
   },
+  sheetButtonText: { fontSize: 15, color: '#1e3a8a', fontWeight: '600' },
+
+  // Confirm delete
   confirmOverlay: {
     position: 'absolute',
     left: 0,

@@ -2,9 +2,13 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import NavBar from '../(tabs)/_navbar';
-import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost } from '../../services/api';
-import PostModal from './postmodal';
+import NavBar from '../(tabs)/navbar';
+import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost, getPostDetail, editPost, getPostLikes } from '../../services/api';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+dayjs.extend(relativeTime);
+import PostCard from '../posts/postCard';
+import { useFocusEffect } from '@react-navigation/native';
 
 interface Post {
   post_id: number;
@@ -28,6 +32,7 @@ interface Post {
 }
 
 interface UserInfo {
+  user_id?: number;
   name?: string;
   f_name?: string;
   l_name?: string;
@@ -50,17 +55,32 @@ const HomeScreen = () => {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [viewPostId, setViewPostId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showPostActionSheet, setShowPostActionSheet] = useState(false);
   const [postActionForId, setPostActionForId] = useState<number | null>(null);
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [editPostContent, setEditPostContent] = useState<string>('');
+  const [actionLoadingPostId, setActionLoadingPostId] = useState<number | null>(null);
+  const [showPostModal, setShowPostModal] = useState<boolean>(false);
+  const [modalPostId, setModalPostId] = useState<number | null>(null);
   const router = useRouter();
+  const [nowTick, setNowTick] = useState(0);
 
   useEffect(() => {
     loadUserInfo();
     loadPosts();
+    // Tick every minute to update relative timestamps
+    const t = setInterval(() => setNowTick((x) => x + 1), 60000);
+    return () => clearInterval(t);
   }, []);
+
+  // Refetch posts whenever this screen gains focus (e.g., after creating a post)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadPosts();
+    }, [])
+  );
 
   // Add refresh functionality
   const onRefresh = async () => {
@@ -100,7 +120,14 @@ const HomeScreen = () => {
       setPostsLoading(true);
       const postsData = await getPosts();
       console.log('Homepage posts data:', postsData); // Debug log
-      setPosts(Array.isArray(postsData) ? postsData : []);
+      const me: any = await getUserInfo();
+      const meId = me?.user_id || me?.id;
+      const normalized = (Array.isArray(postsData) ? postsData : []).map((p: any) => {
+        const likesArr = Array.isArray(p?.likes) ? p.likes : [];
+        const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+        return { ...p, is_liked: !!likedByMe } as Post;
+      });
+      setPosts(normalized);
     } catch (error) {
       console.error('Error loading posts:', error);
       Alert.alert('Error', 'Failed to load posts. Please try again.');
@@ -111,17 +138,55 @@ const HomeScreen = () => {
   };
 
   const handleLikePost = async (postId: number, isLiked: boolean) => {
+    if (actionLoadingPostId === postId) return; // prevent duplicate taps
+    setActionLoadingPostId(postId);
     try {
+      // Optimistic UI update
+      setPosts((prev) => prev.map((p) => {
+        if (p.post_id !== postId) return p;
+        const nextLiked = !isLiked;
+        const nextCount = Math.max(0, (p.likes_count || 0) + (nextLiked ? 1 : -1));
+        return { ...p, is_liked: nextLiked, likes_count: nextCount } as Post;
+      }));
+
       if (isLiked) {
         await unlikePost(postId);
       } else {
         await likePost(postId);
       }
-      // Refresh posts to get updated like status
-      await loadPosts();
+
+      // Re-fetch single post detail to ensure counts and lists are accurate
+      try {
+        const detail = await getPostDetail(postId);
+        const me: any = await getUserInfo();
+        const meId = me?.user_id || me?.id;
+        const likesArr = Array.isArray(detail?.likes) ? detail.likes : [];
+        const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+        setPosts((prev) => prev.map((p) => p.post_id === postId ? {
+          ...p,
+          likes: likesArr,
+          comments: Array.isArray(detail?.comments) ? detail.comments : p.comments,
+          reposts: Array.isArray(detail?.reposts) ? detail.reposts : p.reposts,
+          likes_count: detail?.likes_count ?? likesArr.length ?? p.likes_count,
+          comments_count: detail?.comments_count ?? p.comments_count,
+          reposts_count: detail?.reposts_count ?? p.reposts_count,
+          is_liked: !!likedByMe,
+        } as Post : p));
+      } catch (e) {
+        // Non-fatal; keep optimistic state
+      }
     } catch (error) {
+      // Revert on failure
+      setPosts((prev) => prev.map((p) => {
+        if (p.post_id !== postId) return p;
+        const revertedLiked = isLiked;
+        const revertedCount = Math.max(0, (p.likes_count || 0) + (isLiked ? 1 : -1));
+        return { ...p, is_liked: revertedLiked, likes_count: revertedCount } as Post;
+      }));
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like status');
+    } finally {
+      setActionLoadingPostId(null);
     }
   };
 
@@ -203,18 +268,7 @@ const HomeScreen = () => {
     Alert.alert('Profile updated (not saved to backend)');
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 1) return '1d';
-    if (diffDays < 7) return `${diffDays}d`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w`;
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo`;
-    return `${Math.floor(diffDays / 365)}y`;
-  };
+  // nowTick triggers re-render for live relative time; no direct usage
 
   if (loading) {
     return (
@@ -286,115 +340,53 @@ const HomeScreen = () => {
             <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
           </View>
         ) : (
-          posts.map((post) => {
-            const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
-            const userAvatar = post.user?.profile_pic 
-              ? { uri: String(post.user.profile_pic).startsWith('http') || String(post.user.profile_pic).startsWith('data:') ? String(post.user.profile_pic) : `${API_BASE_URL}${post.user.profile_pic}` }
-              : require('../../assets/images/sample_pic.jpg');
-            const isLiked = post.is_liked || false;
-            const likeCount = post.likes_count || 0;
-            const commentCount = post.comments_count || 0;
-            const repostCount = post.reposts_count || 0;
-
-            // Detect if current user reposted this post
-            let reposterName: string | null = null;
-            try {
-              // get current user id
-              // inline require to avoid circular import
-              const current = user as any;
-              const currentId = current?.id || current?.user_id;
-              if (currentId && Array.isArray(post.reposts)) {
-                const match = post.reposts.find((r: any) => r?.user?.user_id === currentId);
-                if (match) {
-                  reposterName = `${match.user?.f_name || ''} ${match.user?.l_name || ''}`.trim();
-                }
-              }
-            } catch {}
-
-            // --- UPDATED IMAGE URL LOGIC ---
-            const imageUrl = post.post_image
-              ? (String(post.post_image).startsWith('http') || String(post.post_image).startsWith('data:')
-                  ? String(post.post_image)
-                  : `${API_BASE_URL}${post.post_image}`)
-              : null;
-
-            return (
-              <View key={post.post_id} style={styles.card}>
-            <View style={styles.cardHeader}>
-                  <Image source={userAvatar} style={styles.avatar} />
-              <View style={{ flex: 1 }}>
-                    <Text style={styles.name}>{userName}</Text>
-                    <Text style={styles.meta}>
-                      {formatDate(post.created_at)} • 🌐{reposterName ? `  •  Reposted by ${reposterName}` : ''}
-                    </Text>
-              </View>
-              {(() => { try { const me:any = user; const meId = me?.id || me?.user_id; return meId && (post as any)?.user?.user_id === meId; } catch { return false; } })() ? (
-                <TouchableOpacity
-                  onPress={() => { setPostActionForId(post.post_id); setEditPostContent(post.post_content || ''); setShowPostActionSheet(true); }}
-                  style={{ padding: 6 }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <FontAwesome name="ellipsis-h" size={18} color="#888" />
-                </TouchableOpacity>
-              ) : null}
-            </View>
-
-                {post.post_title && (
-                  <Text style={styles.postTitle}>{post.post_title}</Text>
-                )}
-
-                <Text style={styles.content}>{post.post_content}</Text>
-
-                {imageUrl && (
-                  <Image 
-                    source={{ uri: imageUrl }} 
-                    style={styles.postImage}
-                    resizeMode="cover"
-                  />
-                )}
-
-            <View style={styles.actionsCountsRow}>
-              <TouchableOpacity onPress={() => { setSelectedPost(post); setViewerType('likes'); setViewerVisible(true); }}>
-                <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-                <Text style={styles.countText}>{commentCount} {commentCount === 1 ? 'comment' : 'comments'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => { setSelectedPost(post); setViewerType('reposts'); setViewerVisible(true); }}>
-                <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'share' : 'shares'}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.actions}>
-              <TouchableOpacity 
-                style={styles.actionIcon}
-                onPress={() => handleLikePost(post.post_id, isLiked)}
-              >
-                <FontAwesome 
-                  name={isLiked ? 'thumbs-up' : 'thumbs-o-up'} 
-                  size={18} 
-                  color={isLiked ? '#1e3a8a' : '#555'} 
-                />
-                <Text style={[styles.actionText, isLiked && styles.likedText]}>Like</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.actionIcon}
-                onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}
-              >
-                <FontAwesome name="comment-o" size={18} color="#555" />
-                <Text style={styles.actionText}>Comment</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.actionIcon}
-                onPress={() => handleRepost(post.post_id)}
-              >
-                <FontAwesome name="retweet" size={18} color="#555" />
-                <Text style={styles.actionText}>Share</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-            );
-          })
+          posts.map((post) => (
+            <PostCard
+              key={post.post_id}
+              post={post}
+              currentUserId={user?.user_id || (user as any)?.id}
+              onLikeToggle={(postId, liked) => {
+                // optimistic update to reflect like state immediately
+                setPosts((prev) => prev.map((p) => p.post_id === postId ? {
+                  ...p,
+                  is_liked: liked,
+                  likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
+                } as any : p));
+              }}
+              onOpenViewer={async (p, type) => {
+                   // ✅ For comments, always navigate to the dedicated Comments screen UI
+                   if (type === 'comments') {
+                     router.push(`/posts/comments?postId=${p.post_id}`);
+                     return;
+                   }
+                
+                   // Keep existing viewer modal for Likes/Reposts
+                   try {
+                     const detail = await getPostDetail(p.post_id);
+                     let likesList = Array.isArray(detail?.likes) ? detail.likes : [];
+                     if (!likesList.length) {
+                       try { likesList = await getPostLikes(p.post_id); } catch {}
+                     }
+                     const merged: Post = {
+                       ...p,
+                       likes: likesList,
+                       comments: Array.isArray(detail?.comments) ? detail.comments : p.comments,
+                       reposts: Array.isArray(detail?.reposts) ? detail.reposts : p.reposts,
+                       likes_count: detail?.likes_count ?? likesList.length ?? p.likes_count,
+                       comments_count: detail?.comments_count ?? p.comments_count,
+                       reposts_count: detail?.reposts_count ?? p.reposts_count,
+                     } as any;
+                     setSelectedPost(merged);
+                     setViewerType(type);
+                     setViewerVisible(true);
+                   } catch {
+                     setSelectedPost(p);
+                     setViewerType(type);
+                     setViewerVisible(true);
+                  }
+                 }}
+            />
+          ))
         )}
 
         {/* Comment Modal */}
@@ -428,6 +420,43 @@ const HomeScreen = () => {
                   <Text style={{ color: '#1e3a8a' }}>Cancel</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Edit Post Modal - stylized header and body */}
+        <Modal visible={editingPostId != null} transparent animationType="slide" onRequestClose={() => setEditingPostId(null)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.viewerModal, { paddingTop: 0 }] }>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 }}>
+                <TouchableOpacity onPress={() => setEditingPostId(null)} style={{ padding: 6 }}>
+                  <FontAwesome name="close" size={20} color="#333" />
+                </TouchableOpacity>
+                <Text style={[styles.modalTitle, { marginBottom: 0 }]}>EDIT POST</Text>
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (editingPostId == null) return;
+                    try {
+                      await editPost(editingPostId, { post_content: (editPostContent || '').trim() });
+                      setEditingPostId(null);
+                      setEditPostContent('');
+                      await loadPosts();
+                    } catch (e) {
+                      Alert.alert('Error', 'Failed to save changes');
+                    }
+                  }}
+                >
+                  <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>SAVE</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                style={[styles.modalInput, { minHeight: 160 }]}
+                value={editPostContent}
+                onChangeText={setEditPostContent}
+                placeholder="Update your post..."
+                multiline
+              />
             </View>
           </View>
         </Modal>
@@ -529,25 +558,35 @@ const HomeScreen = () => {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.listItemRow}
-              onPress={() => { setShowPostActionSheet(false); const id = postActionForId; if (id!=null) { Alert.alert('Delete Post','Are you sure you want to delete this post?',[{ text:'Cancel', style:'cancel' }, { text:'Delete', style:'destructive', onPress: async ()=>{ try { const { deletePost } = await import('../../services/api'); await deletePost(id); await loadPosts(); } catch { Alert.alert('Error','Failed to delete'); } } }]); } }}
+              onPress={() => { 
+                setShowPostActionSheet(false); 
+                const id = postActionForId; 
+                if (id!=null) { 
+                  Alert.alert(
+                    'Are you sure you want to delete it ?',
+                    '',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: async () => { 
+                          try { 
+                            const { deletePost } = await import('../../services/api'); 
+                            await deletePost(id); 
+                            await loadPosts(); 
+                          } catch { 
+                            Alert.alert('Error','Failed to delete'); 
+                          } 
+                        } 
+                      }
+                    ]
+                  );
+                }
+              }}
             >
               <Text style={[styles.listText, { color: 'red' }]}>Delete</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
-      {/* Unified Post Modal for Edit/Delete */}
-      {editingPostId != null && (
-        <PostModal
-          visible={true}
-          postId={editingPostId}
-          initialContent={editPostContent}
-          onClose={() => setEditingPostId(null)}
-          onSaved={async () => { await loadPosts(); }}
-          onDeleted={async () => { await loadPosts(); }}
-        />
-      )}
     </View>
   );
 };

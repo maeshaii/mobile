@@ -2,8 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import PostModal from '../homepage/postmodal';
-import { API_BASE_URL, commentOnPost, deletePost, editPost, followUser, getPosts, getUserInfo, likePost, repostPost, unlikePost, checkFollowStatus, getPostDetail } from '../../services/api';
+import { API_BASE_URL, followUser, getUserInfo, checkFollowStatus, getForumPosts, likeForumPost, unlikeForumPost, commentOnForumPost, getForumDetail, repostForumPost, deleteForumPost, editForumPost } from '../../services/api';
 
 const forumLogo = require('../../assets/images/wny_logo.jpg');
 
@@ -41,12 +40,14 @@ export default function CCICTPage() {
   const [postActionForId, setPostActionForId] = useState<number | null>(null);
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [editPostContent, setEditPostContent] = useState<string>('');
+  const [actionLoadingPostId, setActionLoadingPostId] = useState<number | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [followStatusByUserId, setFollowStatusByUserId] = useState<Record<number, boolean>>({});
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
+  const [viewPostId, setViewPostId] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -80,12 +81,13 @@ export default function CCICTPage() {
         setUser(userInfo);
       const meId = (userInfo as any)?.id || (userInfo as any)?.user_id || null;
       setCurrentUserId(meId);
-        const allPosts = await getPosts();
-        const forumPosts = Array.isArray(allPosts) ? allPosts.filter((p: any) => (p.type || '').toLowerCase() === 'forum') : [];
-        setPosts(forumPosts);
+        const forumPosts = await getForumPosts();
+        setPosts(forumPosts as PostItem[]);
       try {
-        const authorIds = Array.from(new Set(forumPosts.map(p => p.user?.user_id).filter(Boolean)));
-        const statuses = await Promise.all(authorIds.map(async (uid) => {
+        const authorIds: number[] = Array.from(new Set<number>((forumPosts as PostItem[])
+          .map((p: PostItem) => p.user?.user_id)
+          .filter((x): x is number => typeof x === 'number')));
+        const statuses = await Promise.all(authorIds.map(async (uid: number) => {
           if (!uid || (meId && uid === meId)) return [uid, true] as [number, boolean];
           try { const s = await checkFollowStatus(uid); return [uid, !!s?.is_following] as [number, boolean]; } catch { return [uid, false] as [number, boolean]; }
         }));
@@ -185,34 +187,33 @@ export default function CCICTPage() {
           {post.post_image ? (<Image source={{ uri: (String(post.post_image).startsWith('http') || String(post.post_image).startsWith('data:')) ? String(post.post_image) : `${API_BASE_URL}${post.post_image}` }} style={{ width: '100%', height: 200, borderRadius: 8, marginTop: 8 }} />) : null}
           {/* Counts row, open viewers */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, marginTop: 6 }}>
-            <TouchableOpacity onPress={async () => { try { const detail = await getPostDetail(post.post_id); setSelectedPostStats(detail); setViewerType('likes'); setViewerVisible(true); } catch {} }}>
+            <TouchableOpacity onPress={() => router.push({ pathname: '/posts/comments', params: { postId: String(post.post_id) } })}>
               <Text style={{ fontSize: 12, color: '#666' }}>{post.likes_count || 0} {(post.likes_count || 0) === 1 ? 'like' : 'likes'}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
               <Text style={{ fontSize: 12, color: '#666' }}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={async () => { try { const detail = await getPostDetail(post.post_id); setSelectedPostStats(detail); setViewerType('reposts'); setViewerVisible(true); } catch {} }}>
+            <TouchableOpacity onPress={() => router.push({ pathname: '/posts/comments', params: { postId: String(post.post_id) } })}>
               <Text style={{ fontSize: 12, color: '#666' }}>{post.reposts_count || 0} {(post.reposts_count || 0) === 1 ? 'share' : 'shares'}</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.postActions}>
             <TouchableOpacity 
               style={styles.actionBtn}
+              disabled={actionLoadingPostId === post.post_id}
               onPress={async () => {
+                if (actionLoadingPostId === post.post_id) return;
+                setActionLoadingPostId(post.post_id);
+                // Optimistic toggle
+                setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: !p.is_liked, likes_count: Math.max(0, (p.likes_count||0) + (p.is_liked ? -1 : 1)) } : p));
                 try {
-                  if (post.is_liked) await unlikePost(post.post_id); else await likePost(post.post_id);
-                  try {
-                    const detail = await getPostDetail(post.post_id);
-                    setPosts(prev => prev.map(p => p.post_id === post.post_id ? {
-                      ...p,
-                      is_liked: !!(detail?.likes || []).some((l:any)=> (l.user_id||l.user?.user_id) === ((user as any)?.id || (user as any)?.user_id)),
-                      likes_count: detail?.likes_count ?? p.likes_count,
-                      comments_count: detail?.comments_count ?? p.comments_count,
-                      reposts_count: detail?.reposts_count ?? p.reposts_count,
-                    } : p));
-                  } catch {}
+                  if (post.is_liked) await unlikeForumPost(post.post_id); else await likeForumPost(post.post_id);
                 } catch (e) {
+                  // revert on error
+                  setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: !p.is_liked, likes_count: Math.max(0, (p.likes_count||0) + (p.is_liked ? -1 : 1)) } : p));
                   Alert.alert('Error', 'Failed to update like');
+                } finally {
+                  setActionLoadingPostId(null);
                 }
               }}
             >
@@ -230,8 +231,8 @@ export default function CCICTPage() {
               style={styles.actionBtn}
               onPress={async () => {
                 try {
-                  await repostPost(post.post_id);
-                  try { const detail = await getPostDetail(post.post_id); setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: detail?.reposts_count ?? (p.reposts_count||0) } : p)); } catch {}
+                  await repostForumPost(post.post_id);
+                  try { const detail = await getForumDetail(post.post_id); setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: detail?.reposts_count ?? (p.reposts_count||0) } : p)); } catch {}
                   Alert.alert('Reposted', 'Post reposted successfully');
                 } catch (e) {
                   Alert.alert('Error', 'Failed to repost');
@@ -294,7 +295,7 @@ export default function CCICTPage() {
               onPress={async () => {
                     const msg = (commentText || '').trim();
                     if (!msg) return;
-                    try { await commentOnPost(selectedPostStats.post_id, msg); setCommentText(''); const detail = await getPostDetail(selectedPostStats.post_id); setSelectedPostStats(detail); setPosts(prev => prev.map(p => p.post_id === selectedPostStats.post_id ? { ...p, comments_count: (p.comments_count||0)+1 } : p)); } catch { Alert.alert('Error', 'Failed to add comment'); }
+                    try { await commentOnForumPost(selectedPostStats.post_id, msg); setCommentText(''); const detail = await getForumDetail(selectedPostStats.post_id); setSelectedPostStats(detail); setPosts(prev => prev.map(p => p.post_id === selectedPostStats.post_id ? { ...p, comments_count: (p.comments_count||0)+1 } : p)); } catch { Alert.alert('Error', 'Failed to add comment'); }
                   }}
                 >
                   <Text style={{ color: '#fff', fontWeight: 'bold' }}>Send</Text>
@@ -322,33 +323,13 @@ export default function CCICTPage() {
             </TouchableOpacity>
             <TouchableOpacity
               style={{ paddingVertical: 12 }}
-              onPress={() => { setShowPostActionSheet(false); const id = postActionForId; if (id!=null) { Alert.alert('Delete Post','Are you sure you want to delete this post?',[{ text:'Cancel', style:'cancel' }, { text:'Delete', style:'destructive', onPress: async ()=>{ try { const { deletePost } = await import('../../services/api'); await deletePost(id); const all = await getPosts(); const forumPosts = Array.isArray(all) ? all.filter((p:any)=> (p.type||'').toLowerCase()==='forum') : []; setPosts(forumPosts); } catch { Alert.alert('Error','Failed to delete'); } } }]); } }}
+              onPress={() => { setShowPostActionSheet(false); const id = postActionForId; if (id!=null) { Alert.alert('Delete Post','Are you sure you want to delete this post?',[{ text:'Cancel', style:'cancel' }, { text:'Delete', style:'destructive', onPress: async ()=>{ try { const { deleteForumPost, getForumPosts } = await import('../../services/api'); await deleteForumPost(id); const forumPosts = await getForumPosts(); setPosts(forumPosts); } catch { Alert.alert('Error','Failed to delete'); } } }]); } }}
             >
               <Text style={{ fontSize: 16, color: 'red', fontWeight: '600' }}>Delete</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
-      {/* Unified Post Modal */}
-      {editingPostId != null && (
-        <PostModal
-          visible={true}
-          postId={editingPostId}
-          initialContent={editPostContent}
-          onClose={() => setEditingPostId(null)}
-          onSaved={async () => {
-            const allPosts = await getPosts();
-            const forumPosts = Array.isArray(allPosts) ? allPosts.filter((p: any) => (p.type || '').toLowerCase() === 'forum') : [];
-            setPosts(forumPosts);
-          }}
-          onDeleted={async () => {
-            const allPosts = await getPosts();
-            const forumPosts = Array.isArray(allPosts) ? allPosts.filter((p: any) => (p.type || '').toLowerCase() === 'forum') : [];
-            setPosts(forumPosts);
-          }}
-        />
-      )}
     </ScrollView>
   );
 }

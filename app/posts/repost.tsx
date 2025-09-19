@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost } from '../../services/api';
+import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost } from '../../services/api';
 
 export default function RepostScreen() {
   const router = useRouter();
@@ -15,6 +15,7 @@ export default function RepostScreen() {
   const [caption, setCaption] = useState('');
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'reposts' | null>(null);
+  const [myRepostId, setMyRepostId] = useState<number | null>(null); // Used by Mobile: existing repost id if already reposted
 
   useEffect(() => {
     const run = async () => {
@@ -26,6 +27,13 @@ export default function RepostScreen() {
         ]);
         setMe(u);
         setOriginal(detail);
+        // Detect if current user already reposted
+        try {
+          const meId = (u?.id || u?.user_id);
+          const mine = Array.isArray(detail?.reposts) ? detail.reposts.find((r:any)=> (r.user?.user_id) === meId) : null;
+          setMyRepostId(mine?.repost_id || null);
+          if (mine?.caption) setCaption(String(mine.caption));
+        } catch {}
       } catch (e) {
         Alert.alert('Error', 'Failed to load post');
       } finally {
@@ -56,24 +64,50 @@ export default function RepostScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Repost</Text>
         <TouchableOpacity
-          onPress={async () => {
-            if (!postId) return;
-            try {
-              setSubmitting(true);
-              // Backend currently accepts just POST to /repost/. If caption is supported later, include it here.
-              await repostPost(postId);
-              Alert.alert('Reposted', 'Your repost has been published', [{ text: 'OK', onPress: () => router.back() }]);
-            } catch (e) {
-              Alert.alert('Error', 'Failed to repost');
-            } finally {
-              setSubmitting(false);
+        onPress={async () => {
+          if (!postId) return;
+          try {
+            setSubmitting(true);
+            const cleaned = caption.trim();
+        
+            if (myRepostId) {
+              // update my existing repost caption
+              await updateRepost(myRepostId, cleaned);
+              Alert.alert(
+                cleaned ? 'Saved' : 'Saved',
+                'Your repost caption has been updated',
+                [{ text: 'OK', onPress: () => router.back() }],
+              );
+            } else {
+              // create repost; helper will omit caption if empty
+              await repostPost(postId, cleaned);
+              Alert.alert(
+                cleaned ? 'Reposted' : 'Shared',
+                'Your repost has been published',
+                [{ text: 'OK', onPress: () => router.back() }],
+              );
             }
-          }}
-          disabled={submitting}
-          style={{ padding: 10 }}
-        >
-          {submitting ? <ActivityIndicator size="small" color="#222" /> : <Text style={styles.postBtn}>Post</Text>}
-        </TouchableOpacity>
+          } catch (e: any) {
+            const detail =
+              e?.response?.data?.detail ??
+              (e?.response?.data ? JSON.stringify(e.response.data) : e?.message) ??
+              'Failed to repost';
+            Alert.alert('Error', detail);
+          } finally {
+            setSubmitting(false);
+          }
+        }}        
+        disabled={submitting}
+        style={{ padding: 10 }}
+      >
+        {submitting ? (
+          <ActivityIndicator size="small" color="#222" />
+        ) : (
+          <Text style={styles.postBtn}>
+            {caption.trim().length > 0 ? 'Save' : 'Share'}
+          </Text>
+        )}
+      </TouchableOpacity>
       </View>
       <View style={styles.separator} />
 
@@ -95,6 +129,15 @@ export default function RepostScreen() {
             placeholder="Add an optional caption..."
             multiline
           />
+          {myRepostId ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
+              <TouchableOpacity
+                onPress={async () => { try { await deleteRepost(myRepostId); setMyRepostId(null); setCaption(''); Alert.alert('Deleted','Your repost was removed'); } catch { Alert.alert('Error','Failed to delete'); } }}
+              >
+                <Text style={{ color: 'red', fontWeight: 'bold' }}>Delete Repost</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           {/* Nested original post card (tap to open original comments for now) */}
           <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/comments?postId=${original.post_id}`); }}>
@@ -180,6 +223,16 @@ export default function RepostScreen() {
                       <View>
                         <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{r.user?.f_name || ''} {r.user?.l_name || ''}</Text>
                         <Text style={{ color: '#888', fontSize: 12 }}>{r.repost_date ? new Date(r.repost_date).toLocaleString() : ''}</Text>
+                        {r.user?.user_id === (me?.id || me?.user_id) && (
+                          <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
+                            <TouchableOpacity onPress={async () => { try { const input = await Promise.resolve(caption); const next = input; await updateRepost(r.repost_id, next); Alert.alert('Updated'); } catch { Alert.alert('Error','Update failed'); } }}>
+                              <Text style={{ color: '#174f84' }}>Edit caption</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={async () => { try { await deleteRepost(r.repost_id); const detail = await getPostDetail(original.post_id); setOriginal(detail); } catch { Alert.alert('Error','Delete failed'); } }}>
+                              <Text style={{ color: 'red' }}>Delete</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
                       </View>
                     </View>
                   ))}

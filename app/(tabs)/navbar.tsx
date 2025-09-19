@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingTop: 60,
+    paddingTop: 40,
   },
   searchIcon: {
     marginRight: 5,

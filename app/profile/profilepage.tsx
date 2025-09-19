@@ -19,7 +19,6 @@ import {
   updateAlumniProfile,
   getPostDetail,
 } from '../../services/api';
-import PostModal from '../homepage/postmodal';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -328,30 +327,6 @@ export default function ProfilePage() {
               <Image source={{ uri: (String(post.post_image).startsWith('http') || String(post.post_image).startsWith('data:')) ? String(post.post_image) : `${API_BASE_URL}${post.post_image}` }} style={styles.postImage} />
             )}
 
-            {editingPostId === post.post_id && (
-              <PostModal
-                visible={true}
-                postId={post.post_id}
-                initialContent={editPostContent}
-                onClose={() => setEditingPostId(null)}
-                onSaved={async () => { await reloadPosts(); setEditingPostId(null); }}
-                onDeleted={async () => { await reloadPosts(); setEditingPostId(null); }}
-              />
-            )}
-
-            <View style={styles.countsRow}>
-              <TouchableOpacity onPress={async () => { try { const detail = await getPostDetail(post.post_id); setSelectedPostStats(detail); setViewerType('likes'); setViewerVisible(true); } catch {} }}>
-                <Text style={styles.countText}>{(post.likes_count || 0)} {(post.likes_count || 0) === 1 ? 'like' : 'likes'}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-                <Text style={styles.countText}>{(post.comments_count || 0)} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={async () => { try { const detail = await getPostDetail(post.post_id); setSelectedPostStats(detail); setViewerType('reposts'); setViewerVisible(true); } catch {} }}>
-                <Text style={styles.countText}>{(post.reposts_count || 0)} {(post.reposts_count || 0) === 1 ? 'share' : 'shares'}</Text>
-              </TouchableOpacity>
-            </View>
 
             <View style={styles.postActions}>
               <TouchableOpacity
