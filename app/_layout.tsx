@@ -30,6 +30,7 @@ export default function RootLayout() {
           <Stack.Screen name="notifications/notification" options={{ title: 'notification', headerShown: false }} />
           <Stack.Screen name="messages/message" options={{ title: 'message', headerShown: false }} />
           <Stack.Screen name="messages/chatmessage" options={{ title: 'chatmessage', headerShown: false }} />
+          <Stack.Screen name="messages/search" options={{ title: 'search', headerShown: false }} />
           <Stack.Screen name="profile/profiletab" options={{ title: 'profiletab', headerShown: false }} />
           <Stack.Screen name="profile/profilepage" options={{ title: 'profilepage', headerShown: false }} />
           <Stack.Screen name="ccict/ccictpage" options={{ title: 'ccict', headerShown: false }} />
