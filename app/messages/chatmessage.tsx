@@ -35,7 +35,7 @@ const ChatMessageScreen = () => {
         const mapped: UiMsg[] = arr.map((m: any) => ({ 
           id: String(m.message_id), 
           text: m.content, 
-          sent: false // We'll determine this based on sender vs current user
+          sent: m?.sender?.is_me === true
         }));
         setMessages(mapped);
         setNextCursor(data.next_cursor ?? null);
@@ -204,7 +204,7 @@ const ChatMessageScreen = () => {
       <View style={styles.topBar}>
         <Text style={styles.topBarTitle}>MESSAGES</Text>
       </View>
-      <NavBar />
+      {/* Removed NavBar placeholder; not a component here */}
       
       {/* Chat Header */}
       <View style={styles.chatHeader}>
@@ -251,9 +251,7 @@ const ChatMessageScreen = () => {
         contentContainerStyle={{ padding: 16, paddingBottom: 80 }}
         showsVerticalScrollIndicator={false}
         onEndReachedThreshold={0.1}
-        onEndReached={() => {
-          // When scrolled to top in inverted list you'd load more; since we show latest at bottom, add a simple Load More button instead
-        }}
+        onEndReached={() => {}}
         ListHeaderComponent={nextCursor ? (
           <TouchableOpacity onPress={loadMore} style={{ alignSelf: 'center', padding: 8 }}>
             <Text style={{ color: '#1C4E80' }}>{isLoadingMore ? 'Loading…' : 'Load earlier messages'}</Text>

@@ -15,7 +15,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.anonymous.wnymobile"
     },
     "web": {
       "bundler": "metro",
@@ -39,7 +40,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "API_BASE_URL": "https://27a02da4cea5.ngrok-free.app"
+      "API_BASE_URL": "https://2b308c32b1bf.ngrok-free.app"
     }
   }
 }

@@ -13,9 +13,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
 // Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
-export const API_BASE_URL = normalizeBaseUrl(
-  rawFromExpo || rawFromEnv || 'http://192.168.1.106:8000'
-);
+export const API_BASE_URL = normalizeBaseUrl('https://2b308c32b1bf.ngrok-free.app');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -405,7 +403,7 @@ export const sendMessage = async (
   payload: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; attachment_id?: number }
 ): Promise<MessageItem> => {
   const body: any = {
-    message: payload.content ?? '',
+    content: payload.content ?? '',
     message_type: payload.message_type ?? 'text',
     attachment_id: payload.attachment_id,
   };
