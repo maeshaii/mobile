@@ -15,15 +15,11 @@ function endpoint(path: string): string {
 const rawFromExpo = (Constants.expoConfig?.extra as any)?.API_BASE_URL as string | undefined;
 const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
-// Prefer explicit config (Expo extra or env). Fallback to emulator/simulator defaults for local dev.
-// Android emulator uses 10.0.2.2 to reach host loopback; iOS simulator can use localhost.
-const resolvedBaseUrl = normalizeBaseUrl(
-  rawFromExpo ||
-  rawFromEnv ||
-  (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000')
+// Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
+// Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
+export const API_BASE_URL = normalizeBaseUrl(
+  rawFromExpo || rawFromEnv || 'http://192.168.1.106:8000'
 );
-
-export const API_BASE_URL = resolvedBaseUrl;
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
