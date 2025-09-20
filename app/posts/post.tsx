@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL, createPost, createForumPost, getPostCategories, getUserInfo } from '../../services/api';
+import { API_BASE_URL, createPost, getPostCategories, getUserInfo } from '../../services/api';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 
@@ -121,32 +121,19 @@ export default function PostScreen() {
         }
       }
       
-      const postType = (typeof params.type === 'string' && params.type) ? params.type : 'personal';
-      
-      console.log('Post type:', postType);
+      const postData = {
+        post_title: '',
+        post_content: postContent.trim(),
+        post_image: postImage,
+        post_cat_id: selectedCategory,
+        type: (typeof params.type === 'string' && params.type) ? params.type : 'personal',
+      };
+
+      console.log('Submitting post data:', postData);
       console.log('Selected category:', selectedCategory);
       console.log('Categories available:', categories);
 
-      if (postType === 'forum') {
-        // Use forum-specific API
-        const forumData = {
-          title: '',
-          content: postContent.trim(),
-        };
-        console.log('Submitting forum post data:', forumData);
-        await createForumPost(forumData);
-      } else {
-        // Use regular post API
-        const postData = {
-          post_title: '',
-          post_content: postContent.trim(),
-          post_image: postImage,
-          post_cat_id: selectedCategory,
-          type: postType,
-        };
-        console.log('Submitting regular post data:', postData);
-        await createPost(postData);
-      }
+      await createPost(postData);
       
       Alert.alert('Success', 'Post created successfully!', [
         { text: 'OK', onPress: () => router.back() }

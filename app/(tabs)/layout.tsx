@@ -42,6 +42,7 @@ export default function Layout() {
         }}
       />
 
+      {/* Removed explore tab (file deleted) */}
       <Tabs.Screen
         name="navbar"
         options={{
