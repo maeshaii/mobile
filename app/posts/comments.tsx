@@ -6,7 +6,6 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   RefreshControl,
   StyleSheet,
@@ -55,7 +54,7 @@ export default function PostCommentsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [commentText, setCommentText] = useState('');
-  const [inputHeight, setInputHeight] = useState(44); // auto-grow
+  const [inputHeight, setInputHeight] = useState(44);
   const [submitting, setSubmitting] = useState(false);
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -63,7 +62,6 @@ export default function PostCommentsScreen() {
   const [me, setMe] = useState<any>(null);
 
   const [actionFor, setActionFor] = useState<CommentItem | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<CommentItem | null>(null);
 
   const [now, setNow] = useState(dayjs());
   useEffect(() => {
@@ -143,21 +141,17 @@ export default function PostCommentsScreen() {
   async function handleDelete(commentId: number) {
     try {
       await deleteComment(postId, commentId);
-      setConfirmDelete(null);
       await onRefresh();
     } catch {
       Alert.alert('Error', 'Failed to delete comment');
     }
   }
 
-  const hideComposer = !!actionFor || !!confirmDelete || editingId !== null;
+  const hideComposer = !!actionFor || editingId !== null;
   const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
 
   const commentCount = comments.length;
-  const headerTitle = useMemo(
-    () => `Comments · ${commentCount}`,
-    [commentCount]
-  );
+  const headerTitle = useMemo(() => `Comments · ${commentCount}`, [commentCount]);
 
   if (!postId) {
     return (
@@ -340,25 +334,16 @@ export default function PostCommentsScreen() {
       </KeyboardAvoidingView>
 
       {/* Action Sheet */}
-      <Modal
-        visible={!!actionFor}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setActionFor(null)}
-      >
-        <TouchableOpacity
-          style={styles.sheetOverlay}
-          activeOpacity={1}
-          onPress={() => setActionFor(null)}
-        >
+      {actionFor && (
+        <View style={styles.sheetOverlay}>
           <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.sheetHandle} />
             <Text style={styles.actionSheetTitle}>Comment Actions</Text>
             <TouchableOpacity
               style={styles.sheetButton}
               onPress={() => {
-                setEditingId(actionFor!.comment_id);
-                setEditText(actionFor!.comment_content);
+                setEditingId(actionFor.comment_id);
+                setEditText(actionFor.comment_content);
                 setActionFor(null);
               }}
             >
@@ -367,7 +352,18 @@ export default function PostCommentsScreen() {
             <TouchableOpacity
               style={[styles.sheetButton, { backgroundColor: '#fee2e2' }]}
               onPress={() => {
-                setConfirmDelete(actionFor);
+                Alert.alert(
+                  'Delete Comment',
+                  'Are you sure you want to delete this comment? This action cannot be undone.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: () => handleDelete(actionFor.comment_id),
+                    },
+                  ]
+                );
                 setActionFor(null);
               }}
             >
@@ -380,36 +376,8 @@ export default function PostCommentsScreen() {
               <Text style={[styles.sheetButtonText, { color: '#111827' }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Confirm Delete */}
-      <Modal
-        visible={!!confirmDelete}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setConfirmDelete(null)}
-      >
-        <View style={styles.confirmOverlay}>
-          <View style={styles.confirmCard}>
-            <Text style={styles.title}>Delete this comment?</Text>
-            <Text style={[styles.subtle, { marginVertical: 8 }]}>
-              This action cannot be undone.
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
-              <TouchableOpacity onPress={() => setConfirmDelete(null)} style={styles.backBtn}>
-                <Text style={styles.backText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleDelete(confirmDelete!.comment_id)}
-                style={[styles.sendBtn, { backgroundColor: '#dc2626' }]}
-              >
-                <Text style={styles.sendBtnText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
         </View>
-      </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -566,9 +534,12 @@ const styles = StyleSheet.create({
 
   // Bottom sheet
   sheetOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
   },
   actionSheet: {
     backgroundColor: '#fff',
@@ -599,22 +570,4 @@ const styles = StyleSheet.create({
     marginVertical: 6,
   },
   sheetButtonText: { fontSize: 15, color: '#1e3a8a', fontWeight: '600' },
-
-  // Confirm delete
-  confirmOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '80%',
-  },
 });

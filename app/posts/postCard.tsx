@@ -4,6 +4,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
 import { API_BASE_URL, likePost, unlikePost, repostPost, deleteRepost, editPost, deletePost } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 
 interface Post {
   post_id: number;
@@ -47,9 +48,6 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   const [editContent, setEditContent] = useState(post.post_content);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
-  const userAvatar = post.user?.profile_pic 
-    ? { uri: String(post.user.profile_pic).startsWith('http') ? post.user.profile_pic : `${API_BASE_URL}${post.user.profile_pic}` }
-    : require('../../assets/images/sample_pic.jpg');
 
   const imageUrl = post.post_image
     ? (String(post.post_image).startsWith('http') ? post.post_image : `${API_BASE_URL}${post.post_image}`)
@@ -80,14 +78,28 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   };
 
   const handleDelete = async () => {
-    try {
-      await deletePost(post.post_id);
-      Alert.alert('Deleted', 'Post removed successfully.');
-      setShowActions(false);
-      onDeleted?.(post.post_id);
-    } catch (error) {
-      Alert.alert('Error', 'Could not delete post.');
-    }
+    setShowActions(false);
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deletePost(post.post_id);
+              Alert.alert('Deleted', 'Post removed successfully.');
+              setShowActions(false);
+              onDeleted?.(post.post_id);
+            } catch (error) {
+              Alert.alert('Error', 'Could not delete post.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleEdit = async () => {
@@ -105,7 +117,13 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     <View style={styles.card}>
       {/* Header */}
       <View style={styles.cardHeader}>
-        <Image source={userAvatar} style={styles.avatar} />
+        <UserAvatar 
+          profilePic={post.user?.profile_pic}
+          firstName={post.user?.f_name}
+          lastName={post.user?.l_name}
+          size={40}
+          style={styles.avatar}
+        />
         <View style={{ flex: 1 }}>
           <Text style={styles.name}>{userName}</Text>
           <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>

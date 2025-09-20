@@ -9,6 +9,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
 import PostCard from '../posts/postCard';
 import { useFocusEffect } from '@react-navigation/native';
+import UserAvatar from '../../components/UserAvatar';
 
 interface Post {
   post_id: number;
@@ -314,8 +315,11 @@ const HomeScreen = () => {
       {/* Start a Post */}
       <View style={styles.postCard}>
         <View style={styles.postRow}>
-          <Image
-              source={user?.profile_pic ? { uri: String(user.profile_pic).startsWith('http') || String(user.profile_pic).startsWith('data:') ? String(user.profile_pic) : `${API_BASE_URL}${user.profile_pic}` } : require('../../assets/images/sample_pic.jpg')}
+          <UserAvatar 
+            profilePic={user?.profile_pic}
+            firstName={user?.f_name}
+            lastName={user?.l_name}
+            size={40}
             style={styles.avatar}
           />
             <TouchableOpacity
@@ -482,14 +486,26 @@ const HomeScreen = () => {
               <ScrollView style={{ maxHeight: 320 }}>
                 {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => (
                   <View key={idx} style={styles.listItemRow}>
-                    <Image source={{ uri: u.profile_pic || 'https://randomuser.me/api/portraits/men/45.jpg' }} style={styles.listAvatar} />
+                    <UserAvatar 
+                      profilePic={u.profile_pic}
+                      firstName={u.f_name}
+                      lastName={u.l_name}
+                      size={32}
+                      style={styles.listAvatar}
+                    />
                     <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
                   </View>
                 ))}
 
                 {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => (
                   <View key={r.repost_id} style={styles.listItemRow}>
-                    <Image source={{ uri: r.user?.profile_pic || 'https://randomuser.me/api/portraits/men/46.jpg' }} style={styles.listAvatar} />
+                    <UserAvatar 
+                      profilePic={r.user?.profile_pic}
+                      firstName={r.user?.f_name}
+                      lastName={r.user?.l_name}
+                      size={32}
+                      style={styles.listAvatar}
+                    />
                     <View>
                       <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
                       <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
@@ -499,7 +515,13 @@ const HomeScreen = () => {
 
                 {viewerType === 'comments' && selectedPost?.comments?.map((c: any) => (
                   <View key={c.comment_id} style={styles.listItemRow}>
-                    <Image source={{ uri: c.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.listAvatar} />
+                    <UserAvatar 
+                      profilePic={c.user?.profile_pic}
+                      firstName={c.user?.f_name}
+                      lastName={c.user?.l_name}
+                      size={32}
+                      style={styles.listAvatar}
+                    />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.listText}>{c.user?.f_name} {c.user?.l_name}</Text>
                       <Text style={styles.commentBody}>{c.comment_content}</Text>
@@ -563,8 +585,8 @@ const HomeScreen = () => {
                 const id = postActionForId; 
                 if (id!=null) { 
                   Alert.alert(
-                    'Are you sure you want to delete it ?',
-                    '',
+                    'Delete Post',
+                    'Are you sure you want to delete this post?',
                     [
                       { text: 'Cancel', style: 'cancel' },
                       { text: 'Delete', style: 'destructive', onPress: async () => { 

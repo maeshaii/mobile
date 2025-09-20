@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { API_BASE_URL, getAlumniList } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
 
@@ -17,12 +18,23 @@ export default function SearchPage() {
       try {
         setLoading(true);
         const data = await getAlumniList();
-        const mapped = (data.alumni || []).map((a: any) => ({
-          id: String(a.id),
-          name: a.name,
-          avatar: a.profile_pic ? { uri: `${a.profile_pic}`.startsWith('http') ? a.profile_pic : `${API_BASE_URL}${a.profile_pic}` } : samplePic,
-          time: '',
-        }));
+        const mapped = (data.alumni || []).map((a: any) => {
+          // Split the name into first and last name
+          const nameParts = (a.name || '').trim().split(' ');
+          const f_name = nameParts[0] || '';
+          const l_name = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+          
+          console.log('Alumni data:', a.name, 'Profile pic:', a.profile_pic);
+          
+          return {
+            id: String(a.id),
+            name: a.name,
+            f_name: f_name,
+            l_name: l_name,
+            profile_pic: a.profile_pic,
+            time: '',
+          };
+        });
         setUsers(mapped);
       } catch (e) {
         setUsers([]);
@@ -67,8 +79,14 @@ export default function SearchPage() {
           data={filteredUsers}
           keyExtractor={item => item.id}
           renderItem={({ item }) => (
-            <TouchableOpacity style={styles.userRow} onPress={() => router.push({ pathname: '/profile/profilepage', params: { viewUserId: item.id } })}>
-              <Image source={item.avatar} style={styles.avatar} />
+            <TouchableOpacity style={styles.userRow} onPress={() => router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: item.id } })}>
+              <UserAvatar 
+                profilePic={item.profile_pic}
+                firstName={item.f_name}
+                lastName={item.l_name}
+                size={40}
+                style={styles.avatar}
+              />
               <View style={{ flex: 1 }}>
                 <Text style={styles.userName}>{item.name}</Text>
                 <Text style={styles.userTime}>{item.time}</Text>

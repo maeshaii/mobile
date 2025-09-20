@@ -213,6 +213,11 @@ export const fetchFollowers = async (userId: number) => {
   const { data } = await api.get(`/api/alumni/${userId}/followers/`);
   return data;
 };
+// Mobile -> Backend: GET /api/alumni/{user_id}/following/
+export const fetchFollowing = async (userId: number) => {
+  const { data } = await api.get(`/api/alumni/${userId}/following/`);
+  return data;
+};
 // Mobile -> Backend: POST /api/follow/{user_id}/
 export const followUser = async (userId: number) => {
   const { data } = await api.post(`/api/follow/${userId}/`, {});

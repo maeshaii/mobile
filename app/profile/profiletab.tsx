@@ -79,6 +79,7 @@ export default function ProfileTab() {
               else if (item.label === 'CCICT') router.push('/ccict/ccictpage');
               else if (item.label === 'Peso') router.push('/peso/pesopage');
               else if (item.label === 'CCICT Forum') router.push('/forum/forumpage');
+              // else if (item.label === 'Donation') router.push('/donation/donationpage');
               else if (item.label === 'Settings') router.push('/settings/settings');
             }}
           >

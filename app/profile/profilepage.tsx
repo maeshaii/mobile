@@ -8,6 +8,7 @@ import {
   API_BASE_URL,
   checkFollowStatus,
   fetchFollowers,
+  fetchFollowing,
   followUser,
   getAlumniDetails,
   getPosts,
@@ -19,6 +20,7 @@ import {
   updateAlumniProfile,
   getPostDetail,
 } from '../../services/api';
+import FollowModal from '../follow/follow';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -27,6 +29,8 @@ interface UserProfile {
   username: string;
   bio: string;
   profile_pic: any;
+  followers_count?: number;
+  following_count?: number;
 }
 
 function getInitials(name: string) {
@@ -49,6 +53,9 @@ export default function ProfilePage() {
   const [isOwnProfile, setIsOwnProfile] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followers, setFollowers] = useState<any[]>([]);
+  const [following, setFollowing] = useState<any[]>([]);
+  const [showFollowers, setShowFollowers] = useState(false);
+  const [showFollowing, setShowFollowing] = useState(false);
   const [editMode, setEditMode] = useState<'bio' | 'photo'>('bio');
   const [showEditTabs, setShowEditTabs] = useState<boolean>(false);
   const [newPhotoUri, setNewPhotoUri] = useState<string | null>(null);
@@ -84,6 +91,8 @@ export default function ProfilePage() {
             username: me?.acc_username || '@user',
             bio: me?.profile_bio || 'Bio',
             profile_pic: me?.profile_pic ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}` } : profilePic,
+            followers_count: me?.followers_count || 0,
+            following_count: me?.following_count || 0,
           };
           setUser(profile);
           setEditBio(profile.bio);
@@ -92,25 +101,33 @@ export default function ProfilePage() {
           setProfileUserId(userId || null);
           const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === userId);
           setPosts(userPosts);
-          const followersRes = await fetchFollowers(userId);
+          const [followersRes, followingRes] = await Promise.all([
+            fetchFollowers(userId),
+            fetchFollowing(userId)
+          ]);
           setFollowers(followersRes?.followers || []);
+          setFollowing(followingRes?.following || []);
         } else {
           if (!viewUserId) return;
           const details = await getAlumniDetails(viewUserId);
           const a = details?.alumni || {};
+          console.log('Alumni details response:', details);
+          console.log('Alumni data:', a);
           const profile: UserProfile = {
-            name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim(),
+            name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim() || 'User',
             username: a.ctu_id ? `@${a.ctu_id}` : '@user',
             bio: a.profile_bio || '',
             profile_pic: a.profile_pic ? { uri: String(a.profile_pic).startsWith('http') ? a.profile_pic : `${API_BASE_URL}${a.profile_pic}` } : profilePic,
           };
           setUser(profile);
-          const [postsData, followersRes, statusRes] = await Promise.all([
+          const [postsData, followersRes, followingRes, statusRes] = await Promise.all([
             getPosts(),
             fetchFollowers(viewUserId),
+            fetchFollowing(viewUserId),
             checkFollowStatus(viewUserId),
           ]);
           setFollowers(followersRes?.followers || []);
+          setFollowing(followingRes?.following || []);
           setIsFollowing(!!statusRes?.is_following);
           setProfileUserId(viewUserId);
           const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === viewUserId);
@@ -177,6 +194,7 @@ export default function ProfilePage() {
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <FontAwesome name="arrow-left" size={24} color="#fff" />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Profile</Text>
       </View>
 
       {/* Profile Card */}
@@ -211,6 +229,10 @@ export default function ProfilePage() {
         <Text style={styles.profileName}>{user.name}</Text>
         <Text style={styles.profileUsername}>{user.username}</Text>
 
+        {user.bio && (
+          <Text style={styles.bioText}>{user.bio}</Text>
+        )}
+
         {!isOwnProfile && (
           <View style={styles.profileActionsRow}>
             <TouchableOpacity
@@ -220,10 +242,29 @@ export default function ProfilePage() {
                   if (!viewUserId) return;
                   if (isFollowing) {
                     const res = await unfollowUser(viewUserId);
-                    if (res?.success) setIsFollowing(false);
+                    if (res?.success) {
+                      setIsFollowing(false);
+                      // Update follower count - decrease by 1
+                      setFollowers(prev => prev.length > 0 ? prev.slice(0, -1) : []);
+                    }
                   } else {
                     const res = await followUser(viewUserId);
-                    if (res?.success) setIsFollowing(true);
+                    if (res?.success) {
+                      setIsFollowing(true);
+                      // Update follower count - increase by 1
+                      // We'll add a placeholder follower entry since we don't have the current user's full data
+                      const currentUser = await getUserInfo();
+                      if (currentUser) {
+                        const newFollower = {
+                          user_id: currentUser.id || currentUser.user_id,
+                          ctu_id: currentUser.acc_username || 'current_user',
+                          name: currentUser.name || `${currentUser.f_name || ''} ${currentUser.l_name || ''}`.trim(),
+                          profile_pic: currentUser.profile_pic,
+                          followed_at: new Date().toISOString()
+                        };
+                        setFollowers(prev => [...prev, newFollower]);
+                      }
+                    }
                   }
                 } catch (e) { /* ignore */ }
               }}
@@ -243,8 +284,22 @@ export default function ProfilePage() {
           </View>
         )}
 
-        <View style={styles.bioRow}>
-          <Text style={styles.bioText}>{user.bio}</Text>
+        {/* Stats */}
+        <View style={styles.statsRow}>
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => setShowFollowers(true)}
+          >
+            <Text style={styles.statNumber}>{user.followers_count ?? followers.length}</Text>
+            <Text style={styles.statLabel}>Followers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => setShowFollowing(true)}
+          >
+            <Text style={styles.statNumber}>{user.following_count ?? following.length}</Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -261,12 +316,14 @@ export default function ProfilePage() {
       )}
 
       {/* Posts */}
-      {posts.length === 0 ? (
-        <View style={styles.noPostsContainer}>
-          <Text style={styles.noPostsText}>No posts yet. Start sharing your thoughts!</Text>
-        </View>
-      ) : (
-        posts.map((post: any) => (
+      <View style={styles.postsSection}>
+        <Text style={styles.postsHeader}>Posts</Text>
+        {posts.length === 0 ? (
+          <View style={styles.noPostsContainer}>
+            <Text style={styles.noPostsText}>No posts yet.</Text>
+          </View>
+        ) : (
+          posts.map((post: any) => (
           <View key={post.post_id} style={styles.postCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
               {post.user?.profile_pic ? (
@@ -379,8 +436,9 @@ export default function ProfilePage() {
               </TouchableOpacity>
             </View>
           </View>
-        ))
-      )}
+          ))
+        )}
+      </View>
 
       {/* Post actions sheet */}
       <Modal visible={showPostActionSheet} transparent animationType="fade" onRequestClose={() => setShowPostActionSheet(false)}>
@@ -550,6 +608,22 @@ export default function ProfilePage() {
           </View>
         </View>
       </Modal>
+
+      {/* Followers Modal */}
+      <FollowModal
+        visible={showFollowers}
+        onClose={() => setShowFollowers(false)}
+        type="followers"
+        userId={profileUserId || 0}
+      />
+
+      {/* Following Modal */}
+      <FollowModal
+        visible={showFollowing}
+        onClose={() => setShowFollowing(false)}
+        type="following"
+        userId={profileUserId || 0}
+      />
     </ScrollView>
   );
 }
@@ -562,13 +636,20 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     position: 'relative',
+    backgroundColor: '#174f84',
+    paddingTop: 50,
+    paddingBottom: 20,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerBg: {
-    height: 160,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#174f84',
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    width: '100%',
   },
   profileCard: {
     backgroundColor: '#fff',
@@ -576,7 +657,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: -30,
     paddingTop: 60,
-    paddingBottom: 16,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 6,
@@ -631,21 +713,47 @@ const styles = StyleSheet.create({
   },
   profileUsername: {
     fontSize: 14,
-    color: '#888',
+    color: '#666',
     marginBottom: 8,
     textAlign: 'center',
   },
-  bioRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    marginBottom: 8,
-  },
   bioText: {
     fontSize: 14,
-    color: '#444',
-    marginRight: 10,
+    color: '#666',
+    marginTop: 8,
+    marginBottom: 12,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 15,
+    gap: 30,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#222',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  postsSection: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+  },
+  postsHeader: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#222',
+    marginBottom: 12,
   },
   editBtn: {
     flexDirection: 'row',
@@ -662,8 +770,8 @@ const styles = StyleSheet.create({
   },
   profileActionsRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
+    gap: 12,
+    marginTop: 15,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -709,18 +817,21 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   followBtn: {
-    backgroundColor: '#174f84',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    backgroundColor: '#e3ecf7',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#174f84',
   },
   followingBtn: {
-    backgroundColor: '#e6f0ff',
+    backgroundColor: '#174f84',
+    borderColor: '#174f84',
   },
   messageBtn: {
-    backgroundColor: '#1C4E80',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    backgroundColor: '#174f84',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 20,
   },
   messageBtnText: {
@@ -871,12 +982,18 @@ const styles = StyleSheet.create({
 
   backButton: {
     position: 'absolute',
-    top: 40,
+    top: 50,
     left: 16,
     zIndex: 10,
     backgroundColor: 'transparent',
     padding: 8,
     borderRadius: 20,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginLeft: 40,
   },
 
   editBtnAbsolute: {
