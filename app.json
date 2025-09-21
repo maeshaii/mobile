@@ -40,7 +40,11 @@
       "typedRoutes": true
     },
     "extra": {
+<<<<<<< HEAD
       "API_BASE_URL": "https://2ac1658c93d1.ngrok-free.app"
+=======
+      "API_BASE_URL": "https://d66c7609dffe.ngrok-free.app"
+>>>>>>> 4842cbeb9e23214bf09b458655c3fd753d3816d8
     }
   }
 }
