@@ -65,18 +65,10 @@ const MessageScreen = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topBar}>
-        <Text style={styles.topBarTitle}>MESSAGES</Text>
-      </View>
+     
       <NavBar />
       <View style={styles.headerRow}>
         <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity 
-          onPress={() => router.push('/messages/search' as Href)}
-          style={styles.newChatButton}
-        >
-          <FontAwesome name="plus" size={16} color="#1C4E80" />
-        </TouchableOpacity>
       </View>
       <FlatList
         data={rows}
@@ -106,6 +98,14 @@ const MessageScreen = () => {
         contentContainerStyle={{ paddingBottom: 20 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       />
+      
+      {/* Floating Action Button */}
+      <TouchableOpacity 
+        onPress={() => router.push('/messages/search' as Href)}
+        style={styles.floatingButton}
+      >
+        <FontAwesome name="plus" size={24} color="white" />
+      </TouchableOpacity>
     </View>
   );
 };
@@ -144,14 +144,21 @@ const styles = StyleSheet.create({
     color: '#222',
     paddingLeft: 5,
   },
-  newChatButton: {
-    backgroundColor: '#f0f0f0',
-    borderRadius: 20,
-    width: 32,
-    height: 32,
+  floatingButton: {
+    position: 'absolute',
+    bottom: 100,
+    right: 20,
+    backgroundColor: '#1C4E80',
+    borderRadius: 30,
+    width: 60,
+    height: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   messageCard: {
     flexDirection: 'row',

@@ -17,7 +17,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
 // Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
-export const API_BASE_URL = normalizeBaseUrl('https://2b308c32b1bf.ngrok-free.app');
+export const API_BASE_URL = normalizeBaseUrl('https://d66c7609dffe.ngrok-free.app');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
