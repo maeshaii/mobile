@@ -25,6 +25,7 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack initialRouteName="login/login">
           <Stack.Screen name="login/login" options={{ title: 'login', headerShown: false }} />
+          <Stack.Screen name="(tabs)/index" options={{ title: 'index', headerShown: false }} />
           <Stack.Screen name="forgot-password/forgot-password" options={{ title: 'forgot-password', headerShown: false }} />
           <Stack.Screen name="temporary-password/temporary-password" options={{ title: 'temporary-password', headerShown: false }} />
           <Stack.Screen name="homepage/home" options={{ title: 'homepage', headerShown: false }} />
@@ -42,6 +43,9 @@ export default function RootLayout() {
           <Stack.Screen name="search/search" options={{ title: 'search', headerShown: false }} />
           <Stack.Screen name="forms/forms" options={{ title: 'forms', headerShown: false }} />
           <Stack.Screen name="posts/comments" options={{ title: 'comments', headerShown: false }} />
+          <Stack.Screen name="otheruser/otheruser" options={{ title: 'otheruser', headerShown: false }} />
+          <Stack.Screen name="posts/detail" options={{ title: 'repostorig', headerShown: false }} />
+          <Stack.Screen name="donation/donationpage" options={{ title: 'donation', headerShown: false }} />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { API_BASE_URL, likeForumPost, unlikeForumPost, commentOnForumPost, getForumDetail, repostForumPost, deleteForumPost, editForumPost } from '../../services/api';
+import { useRouter } from 'expo-router';
+import { API_BASE_URL, likeForumPost, unlikeForumPost, commentOnForumPost, getForumDetail, repostForumPost, deleteForumPost, editForumPost, followUser, unfollowUser, checkFollowStatus, getUserInfo } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 
 interface Post {
@@ -28,6 +29,7 @@ interface Props {
 }
 
 const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted }) => {
+  const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
@@ -38,12 +40,37 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
+  const [showFollowButton, setShowFollowButton] = useState(false);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
 
   const imageUrl = post.post_image
     ? (String(post.post_image).startsWith('http') ? post.post_image : `${API_BASE_URL}${post.post_image}`)
     : null;
+
+  // Debug logging for image
+  console.log('ForumPostCard - Post ID:', post.post_id);
+  console.log('ForumPostCard - Post image field:', post.post_image);
+  console.log('ForumPostCard - Constructed imageUrl:', imageUrl);
+
+  // Check follow status when component mounts
+  useEffect(() => {
+    const checkFollow = async () => {
+      if (currentUserId && post.user?.user_id && currentUserId !== post.user.user_id) {
+        try {
+          const status = await checkFollowStatus(post.user.user_id);
+          setIsFollowing(status.is_following || false);
+          setShowFollowButton(true);
+        } catch (error) {
+          console.error('Error checking follow status:', error);
+          setShowFollowButton(true); // Show button anyway, let user try
+        }
+      }
+    };
+    checkFollow();
+  }, [currentUserId, post.user?.user_id]);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -66,6 +93,33 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
       return `${diffYears}y`;
     } catch {
       return '';
+    }
+  };
+
+  /** --- Navigation --- **/
+  const handleUserPress = () => {
+    if (post.user?.user_id) {
+      router.push(`/otheruser/otheruser?viewUserId=${post.user.user_id}`);
+    }
+  };
+
+  /** --- Follow Actions --- **/
+  const handleFollow = async () => {
+    if (!post.user?.user_id || followLoading) return;
+    
+    try {
+      setFollowLoading(true);
+      if (isFollowing) {
+        await unfollowUser(post.user.user_id);
+        setIsFollowing(false);
+      } else {
+        await followUser(post.user.user_id);
+        setIsFollowing(true);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update follow status');
+    } finally {
+      setFollowLoading(false);
     }
   };
 
@@ -169,17 +223,38 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
       <View style={styles.card}>
         {/* Header */}
         <View style={styles.cardHeader}>
-          <UserAvatar 
-            profilePic={post.user?.profile_pic}
-            firstName={post.user?.f_name}
-            lastName={post.user?.l_name}
-            size={40}
-            style={styles.avatar}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.name}>{userName}</Text>
-            <Text style={styles.meta}>{formatDate(post.created_at)}</Text>
-          </View>
+          <TouchableOpacity onPress={handleUserPress} style={styles.userInfo}>
+            <UserAvatar 
+              profilePic={post.user?.profile_pic}
+              firstName={post.user?.f_name}
+              lastName={post.user?.l_name}
+              size={40}
+              style={styles.avatar}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.name}>{userName}</Text>
+              <Text style={styles.meta}>{formatDate(post.created_at)}</Text>
+            </View>
+          </TouchableOpacity>
+          
+          {/* Follow button for other users */}
+          {showFollowButton && currentUserId !== post.user?.user_id && (
+            <TouchableOpacity
+              style={[styles.followButton, isFollowing && styles.followingButton]}
+              onPress={handleFollow}
+              disabled={followLoading}
+            >
+              {followLoading ? (
+                <ActivityIndicator size="small" color={isFollowing ? "#fff" : "#174f84"} />
+              ) : (
+                <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
+                  {isFollowing ? 'Following' : 'Follow'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+          
+          {/* Actions menu for own posts */}
           {currentUserId === post.user?.user_id && (
             <TouchableOpacity
               onPress={() => setShowActions(true)}
@@ -364,6 +439,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  followButton: {
+    backgroundColor: '#e3ecf7',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#174f84',
+    marginLeft: 8,
+  },
+  followingButton: {
+    backgroundColor: '#174f84',
+    borderColor: '#174f84',
+  },
+  followButtonText: {
+    color: '#174f84',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  followingButtonText: {
+    color: '#fff',
   },
   avatar: {
     width: 40,

@@ -1,48 +1,41 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  TextInput,
   Alert,
-  LayoutChangeEvent,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import NavBar from '../(tabs)/navbar';
-import { getUserInfo } from '../../services/api';
 
 const civilStatusOptions = ['Single', 'Married', 'Divorced', 'Widowed'];
 const employmentStatusOptions = ['Regular', 'Contractual', 'Casual', 'Probationary', 'Unemployed'];
 const sectorOptions = ['Private', 'Government', 'NGO', 'Self‑Employed', 'Others'];
 
-type Positions = { personal?: number; employment?: number; password?: number };
-
 export default function SettingsPage() {
-  const router = useRouter();
-  const scrollRef = useRef<ScrollView>(null);
-  const [open, setOpen] = useState<{ personal: boolean; employment: boolean; password: boolean }>({
+  const [open, setOpen] = useState({
     personal: false,
     employment: false,
     password: false,
   });
-  const [cardY, setCardY] = useState<Positions>({});
+
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
-  // Personal form
+  // Personal form state
   const [personal, setPersonal] = useState({
-    first_name: '',
-    last_name: '',
-    middle_name: '',
-    civil_status: '',
-    contact_number: '',
-    email: '',
-    address: '',
+    first_name: 'Elizabeth Mary',
+    last_name: 'Cardaje',
+    middle_name: 'Pingol',
+    civil_status: 'Single',
+    contact_number: '09473037750',
+    email: 'elisabethcardaje@gmail.com',
+    address: 'Maga Lang, Lapu City',
   });
 
-  // Employment form
+  // Employment form state
   const [employment, setEmployment] = useState({
     org_name: '',
     date_hired: '',
@@ -52,48 +45,19 @@ export default function SettingsPage() {
     sector: '',
   });
 
-  // Change password (mock per your UI — single field)
+  // Password state
   const [newPassword, setNewPassword] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const user = await getUserInfo();
-        setPersonal({
-          first_name: user?.f_name || '',
-          last_name: user?.l_name || '',
-          middle_name: user?.m_name || '',
-          civil_status: user?.civil_status || '',
-          contact_number: user?.contact_number || '',
-          email: user?.email || '',
-          address: user?.address || '',
-        });
-      } catch {
-        // keep defaults
-      }
-    })();
-  }, []);
 
   const toggle = (key: keyof typeof open) => {
     setOpen((prev) => {
       const next = { ...prev, [key]: !prev[key] };
-      // close dropdown when collapsing
+      // Close dropdown when collapsing
       if (!next[key]) setOpenDropdown(null);
       return next;
     });
-
-    // scroll to the card when opening
-    const y = key === 'personal' ? cardY.personal : key === 'employment' ? cardY.employment : cardY.password;
-    if (y != null) {
-      setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true }), 10);
-    }
   };
 
-  const rememberY =
-    (name: keyof Positions) =>
-    (e: LayoutChangeEvent) =>
-      setCardY((p) => ({ ...p, [name]: e.nativeEvent.layout.y }));
-
+  // Form components
   const LabeledInput = ({
     label,
     value,
@@ -104,7 +68,7 @@ export default function SettingsPage() {
   }: {
     label: string;
     value: string;
-    onChangeText: (t: string) => void;
+    onChangeText: (text: string) => void;
     placeholder?: string;
     keyboardType?: 'default' | 'numeric' | 'phone-pad' | 'email-address';
     secureTextEntry?: boolean;
@@ -134,14 +98,13 @@ export default function SettingsPage() {
     value: string;
     options: string[];
     id: string;
-    onSelect: (v: string) => void;
+    onSelect: (value: string) => void;
   }) => (
     <View style={[styles.formGroup, { position: 'relative', zIndex: openDropdown === id ? 20 : 1 }]}>
       <Text style={styles.label}>{label}</Text>
       <TouchableOpacity
         style={styles.dropdown}
-        activeOpacity={0.8}
-        onPress={() => setOpenDropdown((d) => (d === id ? null : id))}
+        onPress={() => setOpenDropdown(openDropdown === id ? null : id)}
       >
         <Text style={{ color: value ? '#111827' : '#9ca3af' }}>{value || 'Select'}</Text>
         <FontAwesome name="chevron-down" size={14} color="#111827" />
@@ -149,16 +112,16 @@ export default function SettingsPage() {
 
       {openDropdown === id && (
         <View style={styles.dropdownList}>
-          {options.map((opt) => (
+          {options.map((option) => (
             <TouchableOpacity
-              key={opt}
+              key={option}
               style={styles.dropdownItem}
               onPress={() => {
-                onSelect(opt);
+                onSelect(option);
                 setOpenDropdown(null);
               }}
             >
-              <Text style={{ color: '#111827' }}>{opt}</Text>
+              <Text style={{ color: '#111827' }}>{option}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -167,16 +130,15 @@ export default function SettingsPage() {
   );
 
   const onSavePersonal = () => {
-    // TODO: hook to your update profile API
     Alert.alert('Saved', 'Personal details updated.');
   };
+
   const onSaveEmployment = () => {
-    // TODO: hook to your employment API endpoint
     Alert.alert('Saved', 'Employment details updated.');
   };
+
   const onSavePassword = () => {
-    // TODO: integrate with changePassword(old,new) if needed
-    if (!newPassword.trim()) return Alert.alert('Enter a password');
+    if (!newPassword.trim()) return Alert.alert('Error', 'Please enter a password');
     Alert.alert('Saved', 'Password updated.');
     setNewPassword('');
   };
@@ -188,10 +150,10 @@ export default function SettingsPage() {
         <Text style={styles.headerTitle}>Settings</Text>
       </View>
 
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent}>
-        {/* Personal Details card (accordion) */}
-        <View onLayout={rememberY('personal')} style={styles.card}>
-          <TouchableOpacity style={styles.cardHeader} activeOpacity={0.8} onPress={() => toggle('personal')}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Personal Details card */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.cardHeader} onPress={() => toggle('personal')}>
             <Text style={styles.cardHeaderText}>Personal Details</Text>
             <FontAwesome name={open.personal ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
           </TouchableOpacity>
@@ -201,118 +163,118 @@ export default function SettingsPage() {
               <LabeledInput
                 label="First Name :"
                 value={personal.first_name}
-                onChangeText={(t) => setPersonal((p) => ({ ...p, first_name: t }))}
+                onChangeText={(text) => setPersonal(prev => ({ ...prev, first_name: text }))}
               />
               <LabeledInput
                 label="Last Name :"
                 value={personal.last_name}
-                onChangeText={(t) => setPersonal((p) => ({ ...p, last_name: t }))}
+                onChangeText={(text) => setPersonal(prev => ({ ...prev, last_name: text }))}
               />
               <LabeledInput
                 label="Middle Name :"
                 value={personal.middle_name}
-                onChangeText={(t) => setPersonal((p) => ({ ...p, middle_name: t }))}
+                onChangeText={(text) => setPersonal(prev => ({ ...prev, middle_name: text }))}
               />
               <DropDown
                 id="civil"
                 label="Civil Status :"
                 value={personal.civil_status}
                 options={civilStatusOptions}
-                onSelect={(v) => setPersonal((p) => ({ ...p, civil_status: v }))}
+                onSelect={(value) => setPersonal(prev => ({ ...prev, civil_status: value }))}
               />
               <LabeledInput
                 label="Contact Number :"
                 value={personal.contact_number}
-                onChangeText={(t) => setPersonal((p) => ({ ...p, contact_number: t }))}
+                onChangeText={(text) => setPersonal(prev => ({ ...prev, contact_number: text }))}
                 placeholder="+63"
                 keyboardType="phone-pad"
               />
               <LabeledInput
                 label="Email :"
                 value={personal.email}
-                onChangeText={(t) => setPersonal((p) => ({ ...p, email: t }))}
+                onChangeText={(text) => setPersonal(prev => ({ ...prev, email: text }))}
                 keyboardType="email-address"
               />
               <LabeledInput
                 label="Address :"
                 value={personal.address}
-                onChangeText={(t) => setPersonal((p) => ({ ...p, address: t }))}
+                onChangeText={(text) => setPersonal(prev => ({ ...prev, address: text }))}
               />
 
-              <View style={styles.rowButtons}>
-                <TouchableOpacity onPress={onSavePersonal} style={styles.primaryBtn}>
-                  <Text style={styles.primaryBtnText}>Save</Text>
+              <View style={styles.buttonRow}>
+                <TouchableOpacity onPress={onSavePersonal} style={styles.saveButton}>
+                  <Text style={styles.saveButtonText}>Save</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => toggle('personal')} style={styles.secondaryBtn}>
-                  <Text style={styles.secondaryBtnText}>Cancel</Text>
+                <TouchableOpacity onPress={() => toggle('personal')} style={styles.cancelButton}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
         </View>
 
-        {/* Employment Details card (accordion) */}
-        <View onLayout={rememberY('employment')} style={styles.card}>
-          <TouchableOpacity style={styles.cardHeader} activeOpacity={0.8} onPress={() => toggle('employment')}>
+        {/* Employment Details card */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.cardHeader} onPress={() => toggle('employment')}>
             <Text style={styles.cardHeaderText}>Employment Details</Text>
             <FontAwesome name={open.employment ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
           </TouchableOpacity>
 
           {open.employment && (
             <View style={styles.cardBody}>
-              <Text style={styles.caption}>First employment after graduation</Text>
-
+              <Text style={styles.sectionNote}>First employment after graduation</Text>
+              
               <LabeledInput
                 label="Name of Organization :"
                 value={employment.org_name}
-                onChangeText={(t) => setEmployment((e) => ({ ...e, org_name: t }))}
+                onChangeText={(text) => setEmployment(prev => ({ ...prev, org_name: text }))}
               />
               <LabeledInput
                 label="Date Hired :"
                 value={employment.date_hired}
-                onChangeText={(t) => setEmployment((e) => ({ ...e, date_hired: t }))}
+                onChangeText={(text) => setEmployment(prev => ({ ...prev, date_hired: text }))}
                 placeholder="MM/DD/YYYY"
               />
               <LabeledInput
                 label="Position :"
                 value={employment.position}
-                onChangeText={(t) => setEmployment((e) => ({ ...e, position: t }))}
+                onChangeText={(text) => setEmployment(prev => ({ ...prev, position: text }))}
               />
               <DropDown
                 id="emp_status"
                 label="Status of employment :"
                 value={employment.employment_status}
                 options={employmentStatusOptions}
-                onSelect={(v) => setEmployment((e) => ({ ...e, employment_status: v }))}
+                onSelect={(value) => setEmployment(prev => ({ ...prev, employment_status: value }))}
               />
               <LabeledInput
                 label="Company Address :"
                 value={employment.company_address}
-                onChangeText={(t) => setEmployment((e) => ({ ...e, company_address: t }))}
+                onChangeText={(text) => setEmployment(prev => ({ ...prev, company_address: text }))}
               />
               <DropDown
                 id="sector"
                 label="Sector :"
                 value={employment.sector}
                 options={sectorOptions}
-                onSelect={(v) => setEmployment((e) => ({ ...e, sector: v }))}
+                onSelect={(value) => setEmployment(prev => ({ ...prev, sector: value }))}
               />
 
-              <View style={styles.rowButtons}>
-                <TouchableOpacity onPress={onSaveEmployment} style={styles.primaryBtn}>
-                  <Text style={styles.primaryBtnText}>Save</Text>
+              <View style={styles.buttonRow}>
+                <TouchableOpacity onPress={onSaveEmployment} style={styles.saveButton}>
+                  <Text style={styles.saveButtonText}>Save</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => toggle('employment')} style={styles.secondaryBtn}>
-                  <Text style={styles.secondaryBtnText}>Cancel</Text>
+                <TouchableOpacity onPress={() => toggle('employment')} style={styles.cancelButton}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
         </View>
 
-        {/* Change Password card (accordion) */}
-        <View onLayout={rememberY('password')} style={styles.card}>
-          <TouchableOpacity style={styles.cardHeader} activeOpacity={0.8} onPress={() => toggle('password')}>
+        {/* Change Password card */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.cardHeader} onPress={() => toggle('password')}>
             <Text style={styles.cardHeaderText}>Change Password</Text>
             <FontAwesome name={open.password ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
           </TouchableOpacity>
@@ -326,38 +288,45 @@ export default function SettingsPage() {
                 secureTextEntry
                 placeholder="••••••••"
               />
-              <View style={styles.rowButtons}>
-                <TouchableOpacity onPress={onSavePassword} style={styles.primaryBtn}>
-                  <Text style={styles.primaryBtnText}>Save</Text>
+
+              <View style={styles.buttonRow}>
+                <TouchableOpacity onPress={onSavePassword} style={styles.saveButton}>
+                  <Text style={styles.saveButtonText}>Save</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => toggle('password')} style={styles.secondaryBtn}>
-                  <Text style={styles.secondaryBtnText}>Cancel</Text>
+                <TouchableOpacity onPress={() => toggle('password')} style={styles.cancelButton}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
         </View>
-
-        <View style={{ height: 12 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f3f4f6' 
+  },
   headerBar: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 20,
+    paddingTop: 60, // Add top padding for status bar
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e5e7eb',
   },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
-
-  scrollContent: { padding: 12, paddingBottom: 20 },
-
-  // Collapsible cards
+  headerTitle: { 
+    fontSize: 18, 
+    fontWeight: '700', 
+    color: '#111827' 
+  },
+  scrollContent: { 
+    padding: 12, 
+    paddingBottom: 20 
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -367,7 +336,6 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
-    overflow: 'visible',
   },
   cardHeader: {
     paddingHorizontal: 14,
@@ -376,14 +344,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  cardHeaderText: { fontWeight: '700', color: '#111827', fontSize: 15 },
-  cardBody: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eef2f7', padding: 14 },
-
-  caption: { color: '#6b7280', fontSize: 12, marginBottom: 10 },
-
-  // Form
-  formGroup: { marginBottom: 12 },
-  label: { fontSize: 12, color: '#111827', marginBottom: 6, fontWeight: '600' },
+  cardHeaderText: { 
+    fontWeight: '700', 
+    color: '#111827', 
+    fontSize: 15 
+  },
+  cardBody: { 
+    borderTopWidth: StyleSheet.hairlineWidth, 
+    borderTopColor: '#eef2f7', 
+    padding: 14 
+  },
+  sectionNote: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 10,
+    fontStyle: 'italic',
+  },
+  formGroup: { 
+    marginBottom: 12 
+  },
+  label: { 
+    fontSize: 12, 
+    color: '#111827', 
+    marginBottom: 6, 
+    fontWeight: '600' 
+  },
   input: {
     backgroundColor: '#fff',
     borderRadius: 8,
@@ -394,8 +379,6 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
     color: '#111827',
   },
-
-  // Dropdown
   dropdown: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -423,17 +406,39 @@ const styles = StyleSheet.create({
     elevation: 3,
     zIndex: 30,
   },
-  dropdownItem: { paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f3f4f6' },
-
-  // Buttons
-  rowButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  primaryBtn: { backgroundColor: '#1e3a8a', paddingVertical: 10, paddingHorizontal: 22, borderRadius: 10 },
-  primaryBtnText: { color: '#fff', fontWeight: '700' },
-  secondaryBtn: {
+  dropdownItem: { 
+    paddingVertical: 10, 
+    paddingHorizontal: 12, 
+    borderBottomWidth: StyleSheet.hairlineWidth, 
+    borderBottomColor: '#f3f4f6' 
+  },
+  buttonRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginTop: 16 
+  },
+  saveButton: { 
+    backgroundColor: '#1e40af', 
+    paddingVertical: 10, 
+    paddingHorizontal: 22, 
+    borderRadius: 8, 
+    flex: 0.48 
+  },
+  saveButtonText: { 
+    color: '#fff', 
+    fontWeight: '700', 
+    textAlign: 'center' 
+  },
+  cancelButton: {
     backgroundColor: '#e5e7eb',
     paddingVertical: 10,
     paddingHorizontal: 22,
-    borderRadius: 10,
+    borderRadius: 8,
+    flex: 0.48,
   },
-  secondaryBtnText: { color: '#111827', fontWeight: '700' },
+  cancelButtonText: { 
+    color: '#111827', 
+    fontWeight: '700', 
+    textAlign: 'center' 
+  },
 });

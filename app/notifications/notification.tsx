@@ -11,7 +11,6 @@ import {
   Image,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { Swipeable } from 'react-native-gesture-handler';
 import NavBar from '../(tabs)/navbar';
 import { useRouter } from 'expo-router';
 import { getNotifications, deleteNotifications, getUserInfo } from '../../services/api';
@@ -44,44 +43,60 @@ const NotificationScreen = () => {
   const fetchNotificationsData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
+      
       const user = await getUserInfo();
       const userId = user?.id || user?.user_id;
 
       if (!userId) {
         setError('User not found');
-        setLoading(false);
+        setNotifications([]);
         return;
       }
 
       const data = await getNotifications(userId);
 
-      const transformedData = data.notifications
-        ? data.notifications.map((n: any) => {
-            const fullMessage = n.content || n.message || '';
-            const shortMessage =
-              fullMessage.length > 80 ? fullMessage.substring(0, 80) + '...' : fullMessage;
+      if (!data || !Array.isArray(data.notifications)) {
+        setNotifications([]);
+        return;
+      }
 
-            return {
-              id: n.id,
-              name: n.type || n.title || n.name || 'Notification',
-              message: shortMessage,
-              date: n.date || n.created_at || new Date().toLocaleDateString(),
-              notif_type: n.type,
-              subject: n.subject,
-              post_id: n.post_id,
-              user_id: n.user_id,
-              profile_pic: n.profile_pic,
-              first_name: n.f_name || n.first_name,
-              last_name: n.l_name || n.last_name,
-            };
-          })
-        : [];
+      const transformedData = data.notifications.map((n: any, index: number) => {
+        try {
+          const fullMessage = n.content || n.message || '';
+          const shortMessage =
+            fullMessage.length > 80 ? fullMessage.substring(0, 80) + '...' : fullMessage;
+
+          return {
+            id: n.id || index,
+            name: n.type || n.title || n.name || 'Notification',
+            message: shortMessage,
+            date: n.date || n.created_at || new Date().toLocaleDateString(),
+            notif_type: n.type,
+            subject: n.subject,
+            post_id: n.post_id,
+            user_id: n.user_id,
+            profile_pic: n.profile_pic,
+            first_name: n.f_name || n.first_name,
+            last_name: n.l_name || n.last_name,
+          };
+        } catch (transformError) {
+          console.warn('Error transforming notification:', transformError);
+          return {
+            id: index,
+            name: 'Notification',
+            message: 'Error loading notification',
+            date: new Date().toLocaleDateString(),
+          };
+        }
+      });
 
       setNotifications(transformedData);
       setError(null);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
       setError('Failed to load notifications');
+      setNotifications([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -186,40 +201,39 @@ const NotificationScreen = () => {
     );
   };
 
-  const renderRightActions = (id: number) => (
-    <TouchableOpacity
-      style={styles.swipeDelete}
-      onPress={() => handleDeleteIndividual(id)}
-    >
-      <FontAwesome name="trash" size={20} color="#fff" />
-    </TouchableOpacity>
-  );
 
   const renderItem = ({ item }: { item: NotificationItem }) => {
     const isSelected = selectedIds.includes(item.id || 0);
 
     return (
-      <Swipeable renderRightActions={() => renderRightActions(item.id || 0)}>
-        <TouchableOpacity
-          style={[styles.notification, isSelected && styles.selectedNotification]}
-          onPress={() => handleNotificationPress(item)}
-          onLongPress={() => setSelectionMode(true)}
-        >
-          {selectionMode && (
-            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-              {isSelected && <FontAwesome name="check" size={12} color="#fff" />}
-            </View>
+      <TouchableOpacity
+        style={[styles.notification, isSelected && styles.selectedNotification]}
+        onPress={() => handleNotificationPress(item)}
+        onLongPress={() => setSelectionMode(true)}
+      >
+        {selectionMode && (
+          <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+            {isSelected && <FontAwesome name="check" size={12} color="#fff" />}
+          </View>
+        )}
+        {renderAvatar(item)}
+        <View style={styles.messageBox}>
+          <Text style={styles.name}>{item.name}</Text>
+          <Text style={styles.message}>{item.message}</Text>
+        </View>
+        <View style={styles.notificationActions}>
+          <Text style={styles.date}>{item.date}</Text>
+          {!selectionMode && (
+            <TouchableOpacity
+              style={styles.deleteButtonSmall}
+              onPress={() => handleDeleteIndividual(item.id || 0)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <FontAwesome name="trash" size={16} color="#666" />
+            </TouchableOpacity>
           )}
-          {renderAvatar(item)}
-          <View style={styles.messageBox}>
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.message}>{item.message}</Text>
-          </View>
-          <View style={styles.notificationActions}>
-            <Text style={styles.date}>{item.date}</Text>
-          </View>
-        </TouchableOpacity>
-      </Swipeable>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -260,23 +274,33 @@ const NotificationScreen = () => {
       </View>
       <Text style={styles.earlier}>Earlier</Text>
 
-      <FlatList
-        data={notifications}
-        keyExtractor={(item) => (item.id ? item.id.toString() : Math.random().toString())}
-        renderItem={renderItem}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#1e3a8a']} />
-        }
-        ListEmptyComponent={() =>
-            !loading ? (
-              <View style={styles.emptyContainer}>
-                <FontAwesome name="bell-o" size={48} color="#ccc" />
-                <Text style={styles.emptyText}>No notifications</Text>
-              </View>
-            ) : null
+      {error ? (
+        <View style={styles.errorContainer}>
+          <FontAwesome name="exclamation-triangle" size={48} color="#dc3545" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={fetchNotificationsData} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={notifications}
+          keyExtractor={(item) => (item.id ? item.id.toString() : Math.random().toString())}
+          renderItem={renderItem}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#1e3a8a']} />
           }
-        contentContainerStyle={{ paddingBottom: 20 }}
-      />
+          ListEmptyComponent={() =>
+              !loading ? (
+                <View style={styles.emptyContainer}>
+                  <FontAwesome name="bell-o" size={48} color="#ccc" />
+                  <Text style={styles.emptyText}>No notifications</Text>
+                </View>
+              ) : null
+            }
+          contentContainerStyle={{ paddingBottom: 20 }}
+        />
+      )}
     </View>
   );
 };
@@ -321,7 +345,7 @@ const styles = StyleSheet.create({
   messageBox: { flex: 1 },
   name: { fontWeight: 'bold', fontSize: 14 },
   message: { fontSize: 13, color: '#333' },
-  date: { fontSize: 12, color: '#888' },
+  date: { fontSize: 12, color: '#888', marginBottom: 4 },
   notificationActions: { alignItems: 'flex-end' },
   checkbox: {
     width: 20,
@@ -334,18 +358,18 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   checkboxSelected: { backgroundColor: '#1e3a8a', borderColor: '#1e3a8a' },
-  swipeDelete: {
-    backgroundColor: '#dc3545',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 70,
-    borderRadius: 16,
-    marginVertical: 8,
+  deleteButtonSmall: {
+    padding: 4,
+    marginTop: 2,
   },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   loadingText: { marginTop: 10, fontSize: 16, color: '#555' },
   emptyContainer: { alignItems: 'center', padding: 40 },
   emptyText: { fontSize: 16, color: '#666', marginTop: 10 },
+  errorContainer: { alignItems: 'center', padding: 40 },
+  errorText: { fontSize: 16, color: '#dc3545', marginTop: 10, textAlign: 'center' },
+  retryButton: { backgroundColor: '#1e3a8a', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginTop: 15 },
+  retryButtonText: { color: '#fff', fontWeight: 'bold' },
 });
 
 export default NotificationScreen;

@@ -2,17 +2,17 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
-import { followUser, getUserInfo, checkFollowStatus, getForumPosts } from '../../services/api';
+import { followUser, getUserInfo, checkFollowStatus, getDonationPosts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
-import ForumPostCard from '../posts/ForumPostCard';
+import DonationPostCard from '../posts/DonationPostCard';
 
-const forumLogo = require('../../assets/images/wny_logo.jpg');
+const donationLogo = require('../../assets/images/ccict_logo.jpg'); // Using CCICT logo for now
 
 const orgInfo = {
-  name: 'CCICT Forum',
-  username: '@CCICT_FORUM',
-  bio: 'CCICT Forum CTU Main-Campus',
-  profile_pic: forumLogo,
+  name: 'CCICT Donation',
+  username: '@CCICT_DONATION',
+  bio: 'Support CCICT through donations',
+  profile_pic: donationLogo,
 };
 
 interface PostItem {
@@ -35,7 +35,7 @@ interface UserProfile {
   l_name?: string;
 }
 
-export default function CCICTPage() {
+export default function DonationPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [posts, setPosts] = useState<PostItem[]>([]);
@@ -70,16 +70,16 @@ export default function CCICTPage() {
     }
   };
 
-  async function loadForumPosts() {
+  async function loadDonationPosts() {
       try {
         const userInfo = await getUserInfo();
         setUser(userInfo);
       const meId = (userInfo as any)?.id || (userInfo as any)?.user_id || null;
       setCurrentUserId(meId);
-        const forumPosts = await getForumPosts();
-        console.log('Forum page - Raw forum posts:', forumPosts);
-        console.log('Forum page - First post image:', forumPosts[0]?.post_image);
-        setPosts(forumPosts as PostItem[]);
+        const donationPosts = await getDonationPosts();
+        console.log('Donation page - Raw donation posts:', donationPosts);
+        console.log('Donation page - First post image:', donationPosts[0]?.post_image);
+        setPosts(donationPosts as PostItem[]);
       } catch (e) {
         setUser(null);
         setPosts([]);
@@ -88,11 +88,11 @@ export default function CCICTPage() {
       }
   }
 
-  useEffect(() => { loadForumPosts(); }, []);
+  useEffect(() => { loadDonationPosts(); }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    try { await loadForumPosts(); } finally { setRefreshing(false); }
+    try { await loadDonationPosts(); } finally { setRefreshing(false); }
   };
 
   return (
@@ -129,14 +129,14 @@ export default function CCICTPage() {
             size={40}
             style={styles.avatar}
           />
-          <TouchableOpacity style={styles.startPostInput} onPress={() => router.push({ pathname: '/posts/post', params: { type: 'forum' } })}>
-            <Text style={{ color: '#888' }}>Start a post</Text>
+          <TouchableOpacity style={styles.startPostInput} onPress={() => router.push({ pathname: '/posts/post', params: { type: 'donation' } })}>
+            <Text style={{ color: '#888' }}>Start a donation post</Text>
           </TouchableOpacity>
         </View>
       </View>
       {/* Posts */}
       {loading ? null : posts.map((post) => (
-        <ForumPostCard
+        <DonationPostCard
           key={post.post_id}
           post={post}
           currentUserId={currentUserId || undefined}

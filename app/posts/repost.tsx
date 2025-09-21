@@ -129,6 +129,33 @@ export default function RepostScreen() {
             placeholder="Add an optional caption..."
             multiline
           />
+          
+          {/* Quick Share Button */}
+          {!myRepostId && caption.trim().length === 0 && (
+            <TouchableOpacity
+              style={styles.quickShareBtn}
+              onPress={async () => {
+                if (!postId) return;
+                try {
+                  setSubmitting(true);
+                  await repostPost(postId, null);
+                  Alert.alert('Shared', 'Post shared successfully!', [
+                    { text: 'OK', onPress: () => router.back() }
+                  ]);
+                } catch (e: any) {
+                  const detail = e?.response?.data?.detail ?? e?.message ?? 'Failed to share';
+                  Alert.alert('Error', detail);
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+              disabled={submitting}
+            >
+              <FontAwesome name="retweet" size={16} color="#fff" />
+              <Text style={styles.quickShareText}>Share Now</Text>
+            </TouchableOpacity>
+          )}
+          
           {myRepostId ? (
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
               <TouchableOpacity
@@ -139,8 +166,8 @@ export default function RepostScreen() {
             </View>
           ) : null}
 
-          {/* Nested original post card (tap to open original comments for now) */}
-          <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/comments?postId=${original.post_id}`); }}>
+          {/* Nested original post card (tap to open original post detail) */}
+          <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/detail?postId=${original.post_id}`); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <Image source={origAvatar} style={styles.avatarSmall} />
               <View style={{ flex: 1 }}>
@@ -255,6 +282,22 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10, backgroundColor: '#ccc' },
   meName: { fontWeight: 'bold', fontSize: 15, color: '#222' },
   captionInput: { borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 12, minHeight: 80, textAlignVertical: 'top', color: '#222', marginBottom: 12 },
+  quickShareBtn: {
+    backgroundColor: '#1e3a8a',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    marginBottom: 12,
+    gap: 8,
+  },
+  quickShareText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
   nestedCard: { borderWidth: 1, borderColor: '#eee', borderRadius: 12, padding: 12, backgroundColor: '#fafafa' },
   avatarSmall: { width: 32, height: 32, borderRadius: 16, marginRight: 8, backgroundColor: '#ccc' },
   origName: { fontWeight: '600', color: '#222' },

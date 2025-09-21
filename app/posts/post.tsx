@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL, createPost, getPostCategories, getUserInfo } from '../../services/api';
+import { API_BASE_URL, createPost, createForumPost, getPostCategories, getUserInfo } from '../../services/api';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 
@@ -94,7 +94,10 @@ export default function PostScreen() {
       return;
     }
 
-    if (!selectedCategory) {
+    const postType = (typeof params.type === 'string' && params.type) ? params.type : 'personal';
+    
+    // Only require category for non-forum posts
+    if (postType !== 'forum' && !selectedCategory) {
       Alert.alert('Error', 'Please select a category');
       return;
     }
@@ -121,19 +124,35 @@ export default function PostScreen() {
         }
       }
       
-      const postData = {
-        post_title: '',
-        post_content: postContent.trim(),
-        post_image: postImage,
-        post_cat_id: selectedCategory,
-        type: (typeof params.type === 'string' && params.type) ? params.type : 'personal',
-      };
-
-      console.log('Submitting post data:', postData);
+      const postType = (typeof params.type === 'string' && params.type) ? params.type : 'personal';
+      
+      console.log('Post type detected:', postType);
       console.log('Selected category:', selectedCategory);
       console.log('Categories available:', categories);
 
-      await createPost(postData);
+      if (postType === 'forum') {
+        // Use forum API for forum posts
+        const forumData = {
+          title: '', // Forum posts don't require title
+          content: postContent.trim(),
+          image: postImage
+        };
+        console.log('Submitting forum post data:', forumData);
+        await createForumPost(forumData);
+      } else {
+        // Use regular post API for all other posts
+        const postData = {
+          post_title: '',
+          post_content: postContent.trim(),
+          post_image: postImage,
+          post_cat_id: selectedCategory!,  // We've already validated it's not null for non-forum posts
+          type: postType,
+        };
+        console.log('Submitting regular post data:', postData);
+        console.log('Post image data:', postImage ? 'Present' : 'Not present');
+        console.log('Post image length:', postImage ? postImage.length : 0);
+        await createPost(postData);
+      }
       
       Alert.alert('Success', 'Post created successfully!', [
         { text: 'OK', onPress: () => router.back() }
@@ -193,14 +212,16 @@ export default function PostScreen() {
           <Image source={userAvatar} style={styles.avatar} />
           <Text style={styles.userName}>{userName}</Text>
         </View>
-        {/* Category Chip */}
-        <View style={styles.categoryRow}>
-          <TouchableOpacity style={styles.categoryChip} onPress={() => setCategoryModalVisible(true)}>
-            <FontAwesome name="bookmark" size={12} color="#174f84" style={{ marginRight: 6 }} />
-            <Text style={styles.categoryChipText}>Category</Text>
-            <FontAwesome name="caret-up" size={12} color="#174f84" style={{ marginLeft: 6 }} />
-          </TouchableOpacity>
-        </View>
+        {/* Category Chip - Only show for non-forum posts */}
+        {(typeof params.type !== 'string' || params.type !== 'forum') && (
+          <View style={styles.categoryRow}>
+            <TouchableOpacity style={styles.categoryChip} onPress={() => setCategoryModalVisible(true)}>
+              <FontAwesome name="bookmark" size={12} color="#174f84" style={{ marginRight: 6 }} />
+              <Text style={styles.categoryChipText}>Category</Text>
+              <FontAwesome name="caret-up" size={12} color="#174f84" style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Category Modal */}
         <Modal

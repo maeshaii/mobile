@@ -17,7 +17,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
 // Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
-export const API_BASE_URL = normalizeBaseUrl('https://2b308c32b1bf.ngrok-free.app');
+export const API_BASE_URL = normalizeBaseUrl('https://2ac1658c93d1.ngrok-free.app');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -232,6 +232,15 @@ export const checkFollowStatus = async (userId: number) => {
   return data;
 };
 
+/** Suggested Users */
+// Mobile -> Backend: GET /api/users_list_view/?current_user_id={userId}
+export const fetchSuggestedUsers = async () => {
+  const user = await getUserInfo();
+  const currentUserId = user?.user_id || user?.id;
+  const { data } = await api.get(`/api/users_list_view/?current_user_id=${currentUserId}`);
+  return data;
+};
+
 /** Tracker */
 // Mobile -> Backend: GET /api/tracker/active-form/
 export const getActiveTrackerForm = async () => (await api.get('/api/tracker/active-form/')).data;
@@ -274,6 +283,31 @@ export const getPosts = async () => {
   } catch (error) {
     console.error('Mobile getPosts API Error:', error);
     throw error;
+  }
+};
+
+// Get combined feed of posts and reposts
+export const getFeed = async () => {
+  try {
+    const [postsResponse, repostsResponse] = await Promise.all([
+      api.get('/api/posts/'),
+      api.get('/api/reposts/') // This endpoint may need to be created
+    ]);
+    
+    const posts = postsResponse.data?.posts || [];
+    const reposts = repostsResponse.data?.reposts || [];
+    
+    // Combine and sort by date
+    const feedItems = [
+      ...posts.map((post: any) => ({ ...post, item_type: 'post' })),
+      ...reposts.map((repost: any) => ({ ...repost, item_type: 'repost' }))
+    ].sort((a, b) => new Date(b.created_at || b.repost_date).getTime() - new Date(a.created_at || a.repost_date).getTime());
+    
+    return feedItems;
+  } catch (error) {
+    console.error('Mobile getFeed API Error:', error);
+    // Fallback to just posts if reposts endpoint doesn't exist
+    return getPosts().then(posts => posts.map((post: any) => ({ ...post, item_type: 'post' })));
   }
 };
 // Mobile -> Backend: GET /api/posts/by-user-type/?user_type={peso|admin}
@@ -356,19 +390,33 @@ export async function updateRepost(repostId: number, caption?: string | null) {
   return data;
 }
 export const deleteRepost = async (repostId: number) =>
-  (await api.delete(`/api/reposts/${repostId}/`)).data;
+  (await api.delete(`/api/reposts/delete/${repostId}/`)).data;
+
+// Mobile -> Backend: POST /api/reposts/{repost_id}/like/
+export const likeRepost = async (repostId: number) =>
+  (await api.post(`/api/reposts/${repostId}/like/`)).data;
+
+// Mobile -> Backend: DELETE /api/reposts/{repost_id}/like/
+export const unlikeRepost = async (repostId: number) =>
+  (await api.delete(`/api/reposts/${repostId}/like/`)).data;
+
+// Mobile -> Backend: GET /api/reposts/{repost_id}/likes/
+export const getRepostLikes = async (repostId: number) => {
+  const { data } = await api.get(`/api/reposts/${repostId}/likes/`);
+  return Array.isArray(data) ? data : data?.likes || [];
+};
 
 /** Forum (separate storage) */
 // Mobile -> Backend: GET /api/forum/
 export const getForumPosts = async () => (await api.get('/api/forum/')).data.forums || [];
 // Mobile -> Backend: POST /api/forum/
-export const createForumPost = async (payload: { title?: string; content: string }) =>
-  (await api.post('/api/forum/', { post_title: payload.title, post_content: payload.content })).data;
+export const createForumPost = async (payload: { title?: string; content: string; image?: string }) =>
+  (await api.post('/api/forum/', { post_title: payload.title, post_content: payload.content, post_image: payload.image })).data;
 // Mobile -> Backend: GET /api/forum/{forum_id}/
 export const getForumDetail = async (forumId: number) => (await api.get(`/api/forum/${forumId}/`)).data;
 // Mobile -> Backend: PUT /api/forum/{forum_id}/
-export const editForumPost = async (forumId: number, payload: { title?: string; content?: string }) =>
-  (await api.put(`/api/forum/${forumId}/`, { post_title: payload.title, post_content: payload.content })).data;
+export const editForumPost = async (forumId: number, payload: { title?: string; content?: string; post_content?: string }) =>
+  (await api.put(`/api/forum/${forumId}/`, { post_title: payload.title, post_content: payload.content || payload.post_content })).data;
 // Mobile -> Backend: DELETE /api/forum/{forum_id}/
 export const deleteForumPost = async (forumId: number) => (await api.delete(`/api/forum/${forumId}/`)).data;
 // Mobile -> Backend: POST /api/forum/{forum_id}/like/
@@ -390,6 +438,39 @@ export const deleteForumComment = async (forumId: number, commentId: number) =>
 export const repostForumPost = async (forumId: number) => (await api.post(`/api/forum/${forumId}/repost/`)).data;
 // Mobile -> Backend: DELETE /api/forum-reposts/{repost_id}/
 export const deleteForumRepost = async (repostId: number) => (await api.delete(`/api/forum-reposts/${repostId}/`)).data;
+
+/** Donation (separate storage) */
+// Mobile -> Backend: GET /api/donation/
+export const getDonationPosts = async () => (await api.get('/api/donation/')).data.donations || [];
+// Mobile -> Backend: POST /api/donation/
+export const createDonationPost = async (payload: { title?: string; content: string; image?: string }) =>
+  (await api.post('/api/donation/', { post_title: payload.title, post_content: payload.content, post_image: payload.image })).data;
+// Mobile -> Backend: GET /api/donation/{donation_id}/
+export const getDonationDetail = async (donationId: number) => (await api.get(`/api/donation/${donationId}/`)).data;
+// Mobile -> Backend: PUT /api/donation/{donation_id}/
+export const editDonationPost = async (donationId: number, payload: { title?: string; content?: string; post_content?: string }) =>
+  (await api.put(`/api/donation/${donationId}/`, { post_title: payload.title, post_content: payload.content || payload.post_content })).data;
+// Mobile -> Backend: DELETE /api/donation/{donation_id}/
+export const deleteDonationPost = async (donationId: number) => (await api.delete(`/api/donation/${donationId}/`)).data;
+// Mobile -> Backend: POST /api/donation/{donation_id}/like/
+export const likeDonationPost = async (donationId: number) => (await api.post(`/api/donation/${donationId}/like/`)).data;
+// Mobile -> Backend: DELETE /api/donation/{donation_id}/like/
+export const unlikeDonationPost = async (donationId: number) => (await api.delete(`/api/donation/${donationId}/like/`)).data;
+// Mobile -> Backend: POST /api/donation/{donation_id}/comments/
+export const commentOnDonationPost = async (donationId: number, comment: string) =>
+  (await api.post(`/api/donation/${donationId}/comments/`, { comment_content: comment })).data;
+// Mobile -> Backend: GET /api/donation/{donation_id}/comments/
+export const getDonationComments = async (donationId: number) => (await api.get(`/api/donation/${donationId}/comments/`)).data;
+// Mobile -> Backend: PUT /api/donation/{donation_id}/comments/{comment_id}/
+export const updateDonationComment = async (donationId: number, commentId: number, content: string) =>
+  (await api.put(`/api/donation/${donationId}/comments/${commentId}/`, { comment_content: content })).data;
+// Mobile -> Backend: DELETE /api/donation/{donation_id}/comments/{comment_id}/
+export const deleteDonationComment = async (donationId: number, commentId: number) =>
+  (await api.delete(`/api/donation/${donationId}/comments/${commentId}/`)).data;
+// Mobile -> Backend: POST /api/donation/{donation_id}/repost/
+export const repostDonationPost = async (donationId: number) => (await api.post(`/api/donation/${donationId}/repost/`)).data;
+// Mobile -> Backend: DELETE /api/donation-reposts/{repost_id}/
+export const deleteDonationRepost = async (repostId: number) => (await api.delete(`/api/donation-reposts/${repostId}/`)).data;
 
 /** Forgot Password */
 // Mobile -> Backend: POST /api/forgot-password/

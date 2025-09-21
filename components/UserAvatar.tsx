@@ -27,47 +27,49 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   const initials = getInitials(firstName, lastName);
   
   // Determine if we have a valid profile picture
-  const hasValidProfilePic = profilePic && profilePic.trim() !== '';
+  const hasValidProfilePic = profilePic && profilePic.trim() !== '' && profilePic !== 'null' && profilePic !== 'undefined';
   
-  // Build the image source
-  const imageSource: ImageSourcePropType = hasValidProfilePic
-    ? { 
-        uri: String(profilePic).startsWith('http') || String(profilePic).startsWith('data:')
-          ? String(profilePic)
-          : `${API_BASE_URL}${profilePic}`
-      }
-    : require('../assets/images/sample_pic.jpg');
-
   const avatarStyle = {
     width: size,
     height: size,
     borderRadius: size / 2,
   };
 
-  if (hasValidProfilePic) {
+  // Always prioritize initials if no valid profile pic
+  if (!hasValidProfilePic || !firstName) {
     return (
-      <Image 
-        source={imageSource} 
-        style={[avatarStyle, style]}
-        resizeMode="cover"
-      />
+      <View style={[
+        avatarStyle, 
+        styles.initialsContainer, 
+        style
+      ]}>
+        <Text style={[
+          styles.initialsText, 
+          { fontSize: size * 0.4 }
+        ]}>
+          {initials || '?'}
+        </Text>
+      </View>
     );
   }
 
-  // Fallback to initials
+  // Build the image source for valid profile pics
+  const imageSource: ImageSourcePropType = { 
+    uri: String(profilePic).startsWith('http') || String(profilePic).startsWith('data:')
+      ? String(profilePic)
+      : `${API_BASE_URL}${profilePic}`
+  };
+
   return (
-    <View style={[
-      avatarStyle, 
-      styles.initialsContainer, 
-      style
-    ]}>
-      <Text style={[
-        styles.initialsText, 
-        { fontSize: size * 0.4 }
-      ]}>
-        {initials}
-      </Text>
-    </View>
+    <Image 
+      source={imageSource} 
+      style={[avatarStyle, style]}
+      resizeMode="cover"
+      onError={() => {
+        // If image fails to load, this will cause a re-render with hasValidProfilePic = false
+        console.warn('Failed to load profile image:', profilePic);
+      }}
+    />
   );
 };
 
