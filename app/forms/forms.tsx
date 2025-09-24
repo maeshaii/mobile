@@ -18,7 +18,7 @@ import type {} from 'expo-document-picker';
 import type {} from 'react-native-radio-buttons-group';
 import { useNavigation } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
-import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails } from '../../services/api';
+import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus } from '../../services/api';
 
 type FileAsset = {
   name: string;
@@ -28,6 +28,14 @@ type FileAsset = {
 };
 
 export default function TrackerForm() {
+  // Dynamic, web-parity states
+  const [categories, setCategories] = useState<any[] | null>(null);
+  const [responses, setResponses] = useState<Record<string, any>>({});
+  const [fileAnswers, setFileAnswers] = useState<Record<string, FileAsset | null>>({});
+  const [accepting, setAccepting] = useState<boolean | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState<boolean | null>(null);
+
+  // Existing static form (fallback)
   const [form, setForm] = useState({
     email: '',
     yearGraduated: '',
@@ -66,12 +74,13 @@ export default function TrackerForm() {
     file: null as FileAsset | null,
   });
 
-  const [questions, setQuestions] = useState([]);
+  // Keep original questions array for compatibility
+  const [questions, setQuestions] = useState<any>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Dropdown states
+  // Dropdown states (fallback UI)
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
   const [showEmploymentStatusDropdown, setShowEmploymentStatusDropdown] = useState(false);
   const [showCurrentStatusDropdown, setShowCurrentStatusDropdown] = useState(false);
@@ -101,14 +110,43 @@ export default function TrackerForm() {
     freelance: false,
   });
 
-  // Fetch questions from API and prefill using same logic as web
+  // Web-parity: init with gating + dynamic questions + prefill
   useEffect(() => {
     const init = async () => {
       try {
         setLoading(true);
-        const [qs, user] = await Promise.all([getTrackerQuestions(), getUserInfo()]);
+        const user = await getUserInfo();
+
+        // 1) Gating: active form + status
+        try {
+          const active = await getActiveTrackerForm();
+          // Some backends return { tracker_form_id }
+          const status = await checkUserTrackerStatus(); // expect { accepting_responses, has_submitted }
+          setAccepting(Boolean(status?.accepting_responses ?? status?.accepting));
+          setHasSubmitted(Boolean(status?.has_submitted));
+
+          if (status?.has_submitted) {
+            Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+            navigation.goBack();
+            return;
+          }
+          if (status && (status.accepting_responses === false || status.accepting === false)) {
+            Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
+            navigation.goBack();
+            return;
+          }
+        } catch (e) {
+          // Non-fatal: continue to allow form load, but log
+          console.warn('Tracker gating check failed:', e);
+        }
+
+        // 2) Fetch dynamic questions
+        const qs = await getTrackerQuestions();
+        const cats = qs?.categories ?? qs ?? [];
         setQuestions(qs);
-        // Prefill like web does
+        if (Array.isArray(cats)) setCategories(cats);
+
+        // 3) Prefill like web does
         try {
           if (user?.id) {
             const details = await getAlumniDetails(user.id);
@@ -125,92 +163,121 @@ export default function TrackerForm() {
               firstName: alumni.first_name || alumni.f_name || prev.firstName,
               middleName: alumni.middle_name || alumni.m_name || prev.middleName,
               gender: alumni.gender || prev.gender,
-              address: alumni.address || prev.currentAdd,
-              civilStatus: alumni.civil_status || prev.currentStat,
+              currentAdd: alumni.address || prev.currentAdd,
+              currentStat: alumni.civil_status || prev.currentStat,
               age: alumni.age ? String(alumni.age) : prev.age,
               socmedlink: alumni.social_media || prev.socmedlink,
             }));
           }
         } catch {}
+
         setError(null);
-      } catch (error) {
-        console.error('Failed to fetch questions:', error);
-        setError('Failed to load form questions');
+      } catch (err) {
+        console.error('Failed to initialize tracker form:', err);
+        setError('Failed to load tracker form');
       } finally {
         setLoading(false);
       }
     };
+    // @ts-ignore
     init();
-  }, []);
+  }, [navigation]);
 
   const handleChange = (key: keyof typeof form, value: any) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Submit form with API integration (multipart to match backend expectations)
+  // Dynamic responses change
+  const setResponse = (questionId: string | number, value: any) => {
+    setResponses((prev) => ({ ...prev, [String(questionId)]: value }));
+  };
+
+  const pickFileForQuestion = async (questionId: string | number) => {
+    const result = await DocumentPicker.getDocumentAsync({});
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const f = result.assets[0];
+      const asset: FileAsset = {
+        name: f.name,
+        uri: f.uri,
+        mimeType: f.mimeType,
+        size: f.size,
+      };
+      setFileAnswers((prev) => ({ ...prev, [String(questionId)]: asset }));
+      setResponse(String(questionId), { type: 'file' });
+    }
+  };
+
+  // Submit form: prefer dynamic if categories present; else fallback to static mapping
   const handleSubmit = async () => {
     try {
       setSubmitting(true);
-
       const user = await getUserInfo();
 
-      // Build answers map (align keys with web labels where possible)
-      const answers: Record<string, any> = {
-        Email: form.email,
-        'Year Graduated': form.yearGraduated,
-        Course: form.courseGraduated,
-        'Last Name': form.lastName,
-        'First Name': form.firstName,
-        'Middle Name': form.middleName,
-        Gender: form.gender,
-        Age: form.age,
-        Birthdate: form.birthdate,
-        'Phone Number': form.contactno,
-        'Social Media': form.socmedlink,
-        'Current Address': form.currentAdd,
-        'Home Address': form.homeAdd,
-        'First Employer': form.employeer1,
-        'First Date Hired': form.dateHired1,
-        'First Job Position': form.jobPos1,
-        'First Employment Status': form.empstat1,
-        'First Company Address': form.compAdd1,
-        Sector: form.sector,
-        'Presently Employed': form.presentlyEmployed,
-        'Current Employment Status': form.currentStat,
-        'Current Company': form.currentComp,
-        'Current Position': form.currentPos,
-        'Years Employed': form.yearsEmployed,
-        'Salary Range': form.salaryRange,
-        'Has Awards': hasAwards,
-        'Further Study': furtherStudy,
-        'Further Study Date Started': form.fsDateStart,
-        'Post Graduate Degree': form.postGrad,
-        'Further Study University': form.postGradUniv,
-        'Further Study Total Units': form.totalUnits,
-        'Unemployment Reasons': Object.keys(unemploymentReasons)
-          .filter(k => (unemploymentReasons as any)[k] === true && k !== 'otherText'),
-        'Unemployment Other': unemploymentReasons.otherText,
-      };
-
       const fd = new FormData();
-      fd.append('user_id', String(user.id));
-      fd.append('answers', JSON.stringify(answers));
+      if (user?.id) fd.append('user_id', String(user.id));
 
-      // Optional: attach a generic file using a synthetic question id if present
-      if (form.file && form.file.uri && form.file.name) {
-        try {
-          // Use a synthetic question id "9999" for generic uploads
-          fd.append('answers', JSON.stringify({ ...answers, ['9999']: { type: 'file' } }));
+      if (Array.isArray(categories) && categories.length > 0) {
+        // Dynamic submission
+        fd.append('answers', JSON.stringify(responses));
+        // Attach files per question
+        Object.entries(fileAnswers).forEach(([qid, file]) => {
+          if (file && file.uri && file.name) {
+            fd.append(`file_${qid}`, {
+              uri: file.uri,
+              name: file.name,
+              type: file.mimeType || 'application/octet-stream',
+            } as any);
+          }
+        });
+      } else {
+        // Fallback submission (existing static mapping)
+        const answers: Record<string, any> = {
+          Email: form.email,
+          'Year Graduated': form.yearGraduated,
+          Course: form.courseGraduated,
+          'Last Name': form.lastName,
+          'First Name': form.firstName,
+          'Middle Name': form.middleName,
+          Gender: form.gender,
+          Age: form.age,
+          Birthdate: form.birthdate,
+          'Phone Number': form.contactno,
+          'Social Media': form.socmedlink,
+          'Current Address': form.currentAdd,
+          'Home Address': form.homeAdd,
+          'First Employer': form.employeer1,
+          'First Date Hired': form.dateHired1,
+          'First Job Position': form.jobPos1,
+          'First Employment Status': form.empstat1,
+          'First Company Address': form.compAdd1,
+          Sector: form.sector,
+          'Presently Employed': form.presentlyEmployed,
+          'Current Employment Status': form.currentStat,
+          'Current Company': form.currentComp,
+          'Current Position': form.currentPos,
+          'Years Employed': form.yearsEmployed,
+          'Salary Range': form.salaryRange,
+          'Has Awards': hasAwards,
+          'Further Study': furtherStudy,
+          'Further Study Date Started': form.fsDateStart,
+          'Post Graduate Degree': form.postGrad,
+          'Further Study University': form.postGradUniv,
+          'Further Study Total Units': form.totalUnits,
+          'Unemployment Reasons': Object.keys(unemploymentReasons)
+            .filter(k => (unemploymentReasons as any)[k] === true && k !== 'otherText'),
+          'Unemployment Other': unemploymentReasons.otherText,
+        };
+        fd.append('answers', JSON.stringify(answers));
+        if (form.file && form.file.uri && form.file.name) {
           fd.append('file_9999', {
-            // @ts-ignore - React Native FormData file descriptor
             uri: form.file.uri,
             name: form.file.name,
             type: form.file.mimeType || 'application/octet-stream',
-          });
-        } catch {}
+          } as any);
+        }
       }
 
-      console.log('Submitting tracker (multipart) for user:', user.id);
+      console.log('Submitting tracker (multipart)');
       await submitTrackerResponse(fd);
       Alert.alert('Success', 'Form submitted successfully!');
       navigation.goBack();
@@ -261,6 +328,68 @@ export default function TrackerForm() {
     
   };
 
+  // Dynamic renderer
+  const renderQuestion = (q: any) => {
+    const qid = String(q.id ?? q.question_id ?? q.key ?? q.text);
+    const qtype = (q.type || '').toLowerCase();
+    const value = responses[qid];
+
+    if (qtype === 'file' || /upload|file/i.test(q.text || '')) {
+      const file = fileAnswers[qid];
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>{q.text}</Text>
+          <TouchableOpacity style={styles.uploadButton} onPress={() => pickFileForQuestion(qid)}>
+            <Text style={styles.uploadButtonText}>Choose File</Text>
+          </TouchableOpacity>
+          {file && <Text style={styles.fileText}>{file.name}</Text>}
+        </View>
+      );
+    }
+
+    if (qtype === 'radio' || qtype === 'select' || Array.isArray(q.options)) {
+      const opts: string[] = (q.options || []).map((o: any) => (typeof o === 'string' ? o : (o?.label ?? o?.value)));
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>{q.text}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {opts.map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                onPress={() => setResponse(qid, opt)}
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: value === opt ? '#005c99' : '#ccc',
+                  backgroundColor: value === opt ? '#e6f0fa' : '#fff',
+                  marginRight: 8,
+                  marginTop: 6,
+                }}
+              >
+                <Text style={{ color: '#005c99' }}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      );
+    }
+
+    // default to text input
+    return (
+      <View key={qid} style={{ marginBottom: 12 }}>
+        <Text style={styles.label}>{q.text}</Text>
+        <TextInput
+          style={styles.input}
+          value={value ?? ''}
+          onChangeText={(v) => setResponse(qid, v)}
+          placeholder={q.placeholder || ''}
+        />
+      </View>
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: '#1C4E80' }}>
       {/* Top Bar */}
@@ -274,10 +403,38 @@ export default function TrackerForm() {
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.loadingText}>Loading form questions...</Text>
+          <Text style={styles.loadingText}>Loading form...</Text>
           {error && <Text style={styles.errorText}>{error}</Text>}
         </View>
+      ) : Array.isArray(categories) && categories.length > 0 ? (
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.card}>
+            <Text style={styles.sectionDescription}>* Required</Text>
+          </View>
+          {categories.map((cat, idx) => (
+            <View key={cat.id ?? idx} style={styles.card}>
+              {cat.name && <Text style={styles.sectionTitle}>{cat.name}</Text>}
+              {Array.isArray(cat.questions) && cat.questions.map((q: any) => renderQuestion(q))}
+            </View>
+          ))}
+
+          <TouchableOpacity 
+            style={[styles.button, submitting && styles.buttonDisabled]} 
+            onPress={handleSubmit}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <View style={styles.buttonContent}>
+                <ActivityIndicator size="small" color="#005c99" />
+                <Text style={styles.buttonText}>Submitting...</Text>
+              </View>
+            ) : (
+              <Text style={styles.buttonText}>Submit</Text>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
       ) : (
+        // Fallback to existing static form UI if no dynamic questions
         <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>To our Dear Graduates,</Text>
@@ -851,9 +1008,9 @@ export default function TrackerForm() {
       </View>
       )}
 
-    {/* PART IV - Further Study */}
-    {furtherStudy === 'Yes' && (
-    <View style={styles.card}>
+      {/* PART IV - Further Study */}
+      {furtherStudy === 'Yes' && (
+      <View style={styles.card}>
         <Text style={styles.sectionTitle}>PART IV - Further Study</Text>
         <Text style={styles.sectionDescription}>N/A if not applicable</Text> 
 
@@ -906,7 +1063,7 @@ export default function TrackerForm() {
         )}
       </TouchableOpacity>
     </ScrollView>
-    )}
+      )}
     </View>
   );
 }

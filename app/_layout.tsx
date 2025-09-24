@@ -1,8 +1,8 @@
+import 'react-native-gesture-handler';
 import 'react-native-reanimated';
-import React from 'react';
-import { Stack } from 'expo-router';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -10,7 +10,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { UserProvider } from '../contexts/UserContext';
 
 export default function RootLayout() {
-  console.log('RootLayout mounted');
   const colorScheme = useColorScheme();
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
