@@ -8,8 +8,10 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
 import PostCard from '../posts/postCard';
+import RepostCard from '../posts/RepostCard';
 import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
+import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
 
 interface Post {
   post_id: number;
@@ -30,7 +32,37 @@ interface Post {
   created_at: string;
   type?: string;
   is_liked?: boolean;
+  item_type?: 'post';
 }
+
+interface FeedRepost {
+  repost_id: number;
+  caption?: string;
+  created_at: string;
+  user: {
+    f_name: string;
+    l_name: string;
+    profile_pic?: string;
+    user_id?: number;
+  };
+  original_post: Post;
+  likes_count?: number;
+  comments_count?: number;
+  reposts_count?: number;
+  is_liked?: boolean;
+  item_type: 'repost';
+}
+
+type FeedItem = Post | FeedRepost;
+
+// Type guards
+const isRepost = (item: FeedItem): item is FeedRepost => {
+  return item.item_type === 'repost';
+};
+
+const isPost = (item: FeedItem): item is Post => {
+  return item.item_type === 'post' || !('repost_id' in item);
+};
 
 interface UserInfo {
   user_id?: number;
@@ -44,7 +76,7 @@ interface UserInfo {
 
 const HomeScreen = () => {
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -55,7 +87,7 @@ const HomeScreen = () => {
   const [commentText, setCommentText] = useState('');
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
-  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [selectedPost, setSelectedPost] = useState<FeedItem | null>(null);
   const [viewPostId, setViewPostId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showPostActionSheet, setShowPostActionSheet] = useState(false);
@@ -123,12 +155,66 @@ const HomeScreen = () => {
       console.log('Homepage posts data:', postsData); // Debug log
       const me: any = await getUserInfo();
       const meId = me?.user_id || me?.id;
-      const normalized = (Array.isArray(postsData) ? postsData : []).map((p: any) => {
-        const likesArr = Array.isArray(p?.likes) ? p.likes : [];
-        const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
-        return { ...p, is_liked: !!likedByMe } as Post;
-      });
-      setPosts(normalized);
+      
+      // Create feed items from posts and their reposts
+      const feedItems: any[] = [];
+      
+      (Array.isArray(postsData) ? postsData : [])
+        .filter((p: any) => p.type !== 'forum') // Exclude forum posts from home feed
+        .forEach((post: any) => {
+          const likesArr = Array.isArray(post?.likes) ? post.likes : [];
+          const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+          
+          // Add the original post
+          feedItems.push({
+            ...post,
+            is_liked: !!likedByMe,
+            item_type: 'post'
+          });
+          
+          // Add each repost as a separate feed item
+          if (Array.isArray(post.reposts)) {
+            post.reposts.forEach((repost: any) => {
+              feedItems.push({
+                repost_id: repost.repost_id,
+                created_at: repost.repost_date,
+                user: repost.user,
+                caption: repost.caption,
+                original_post: {
+                  post_id: post.post_id,
+                  post_title: post.post_title,
+                  post_content: post.post_content,
+                  post_image: post.post_image,
+                  user: post.user,
+                  created_at: post.created_at,
+                  likes_count: post.likes_count,
+                  comments_count: post.comments_count,
+                  reposts_count: post.reposts_count,
+                  is_liked: !!likedByMe
+                },
+                likes_count: 0, // TODO: Get repost likes from API
+                comments_count: 0, // TODO: Get repost comments from API
+                reposts_count: 0, // TODO: Get repost reposts from API
+                is_liked: false, // TODO: Check if user liked this repost
+                item_type: 'repost'
+              });
+            });
+          }
+        });
+      
+      // Sort feed items by date
+      const sortedFeed = feedItems.sort((a, b) => 
+        new Date(b.created_at || b.repost_date).getTime() - 
+        new Date(a.created_at || a.repost_date).getTime()
+      );
+      
+      console.log('Combined feed items:', sortedFeed.length); // Debug log
+      console.log('Feed breakdown:', {
+        posts: sortedFeed.filter(item => item.item_type === 'post').length,
+        reposts: sortedFeed.filter(item => item.item_type === 'repost').length
+      }); // Debug log
+      
+      setPosts(sortedFeed);
     } catch (error) {
       console.error('Error loading posts:', error);
       Alert.alert('Error', 'Failed to load posts. Please try again.');
@@ -144,7 +230,8 @@ const HomeScreen = () => {
     try {
       // Optimistic UI update
       setPosts((prev) => prev.map((p) => {
-        if (p.post_id !== postId) return p;
+        if (isPost(p) && p.post_id !== postId) return p;
+        if (isRepost(p)) return p; // Don't update reposts when liking original posts
         const nextLiked = !isLiked;
         const nextCount = Math.max(0, (p.likes_count || 0) + (nextLiked ? 1 : -1));
         return { ...p, is_liked: nextLiked, likes_count: nextCount } as Post;
@@ -163,26 +250,33 @@ const HomeScreen = () => {
         const meId = me?.user_id || me?.id;
         const likesArr = Array.isArray(detail?.likes) ? detail.likes : [];
         const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
-        setPosts((prev) => prev.map((p) => p.post_id === postId ? {
-          ...p,
-          likes: likesArr,
-          comments: Array.isArray(detail?.comments) ? detail.comments : p.comments,
-          reposts: Array.isArray(detail?.reposts) ? detail.reposts : p.reposts,
-          likes_count: detail?.likes_count ?? likesArr.length ?? p.likes_count,
-          comments_count: detail?.comments_count ?? p.comments_count,
-          reposts_count: detail?.reposts_count ?? p.reposts_count,
-          is_liked: !!likedByMe,
-        } as Post : p));
+        setPosts((prev) => prev.map((p) => {
+          if (isPost(p) && p.post_id === postId) {
+            return {
+              ...p,
+              likes: likesArr,
+              comments: Array.isArray(detail?.comments) ? detail.comments : p.comments,
+              reposts: Array.isArray(detail?.reposts) ? detail.reposts : p.reposts,
+              likes_count: detail?.likes_count ?? likesArr.length ?? p.likes_count,
+              comments_count: detail?.comments_count ?? p.comments_count,
+              reposts_count: detail?.reposts_count ?? p.reposts_count,
+              is_liked: !!likedByMe,
+            } as Post;
+          }
+          return p;
+        }));
       } catch (e) {
         // Non-fatal; keep optimistic state
       }
     } catch (error) {
       // Revert on failure
       setPosts((prev) => prev.map((p) => {
-        if (p.post_id !== postId) return p;
-        const revertedLiked = isLiked;
-        const revertedCount = Math.max(0, (p.likes_count || 0) + (isLiked ? 1 : -1));
-        return { ...p, is_liked: revertedLiked, likes_count: revertedCount } as Post;
+        if (isPost(p) && p.post_id === postId) {
+          const revertedLiked = isLiked;
+          const revertedCount = Math.max(0, (p.likes_count || 0) + (isLiked ? 1 : -1));
+          return { ...p, is_liked: revertedLiked, likes_count: revertedCount } as Post;
+        }
+        return p;
       }));
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like status');
@@ -344,53 +438,115 @@ const HomeScreen = () => {
             <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
           </View>
         ) : (
-          posts.map((post) => (
-            <PostCard
-              key={post.post_id}
-              post={post}
-              currentUserId={user?.user_id || (user as any)?.id}
-              onLikeToggle={(postId, liked) => {
-                // optimistic update to reflect like state immediately
-                setPosts((prev) => prev.map((p) => p.post_id === postId ? {
-                  ...p,
-                  is_liked: liked,
-                  likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
-                } as any : p));
-              }}
-              onOpenViewer={async (p, type) => {
-                   // ✅ For comments, always navigate to the dedicated Comments screen UI
-                   if (type === 'comments') {
-                     router.push(`/posts/comments?postId=${p.post_id}`);
-                     return;
-                   }
-                
-                   // Keep existing viewer modal for Likes/Reposts
-                   try {
-                     const detail = await getPostDetail(p.post_id);
-                     let likesList = Array.isArray(detail?.likes) ? detail.likes : [];
-                     if (!likesList.length) {
-                       try { likesList = await getPostLikes(p.post_id); } catch {}
-                     }
-                     const merged: Post = {
-                       ...p,
-                       likes: likesList,
-                       comments: Array.isArray(detail?.comments) ? detail.comments : p.comments,
-                       reposts: Array.isArray(detail?.reposts) ? detail.reposts : p.reposts,
-                       likes_count: detail?.likes_count ?? likesList.length ?? p.likes_count,
-                       comments_count: detail?.comments_count ?? p.comments_count,
-                       reposts_count: detail?.reposts_count ?? p.reposts_count,
-                     } as any;
-                     setSelectedPost(merged);
-                     setViewerType(type);
-                     setViewerVisible(true);
-                   } catch {
-                     setSelectedPost(p);
-                     setViewerType(type);
-                     setViewerVisible(true);
-                  }
-                 }}
-            />
-          ))
+          <>
+            {posts.map((item, index) => {
+            if (item.item_type === 'repost') {
+              return (
+                <RepostCard
+                  key={`repost-${item.repost_id}`}
+                  repost={item}
+                  currentUserId={user?.user_id || (user as any)?.id}
+                  onLikeToggle={(repostId, liked) => {
+                    setPosts((prev) => prev.map((p) => {
+                      if (isRepost(p) && p.repost_id === repostId) {
+                        return {
+                          ...p,
+                          is_liked: liked,
+                          likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
+                        } as FeedRepost;
+                      }
+                      return p;
+                    }));
+                  }}
+                  onOpenViewer={(repost, type) => {
+                    // For reposts, we handle the viewer differently
+                    setSelectedPost({...repost, item_type: 'repost'} as FeedRepost);
+                    setViewerType(type);
+                    setViewerVisible(true);
+                  }}
+                  onEdited={(repostId, newCaption) => {
+                    setPosts(prev => prev.map(p => {
+                      if (isRepost(p) && p.repost_id === repostId) {
+                        return { ...p, caption: newCaption };
+                      }
+                      return p;
+                    }));
+                  }}
+                  onDeleted={(repostId) => {
+                    setPosts(prev => prev.filter(p => !isRepost(p) || p.repost_id !== repostId));
+                  }}
+                />
+              );
+            } else {
+              return (
+                <PostCard
+                  key={`post-${item.post_id}`}
+                  post={item}
+                  currentUserId={user?.user_id || (user as any)?.id}
+                  onLikeToggle={(postId, liked) => {
+                    // optimistic update to reflect like state immediately
+                    setPosts((prev) => prev.map((p) => {
+                      if (isPost(p) && p.post_id === postId) {
+                        return {
+                          ...p,
+                          is_liked: liked,
+                          likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
+                        } as Post;
+                      }
+                      return p;
+                    }));
+                  }}
+                  onOpenViewer={async (p, type) => {
+                       // ✅ For comments, always navigate to the dedicated Comments screen UI
+                       if (type === 'comments') {
+                         router.push(`/posts/comments?postId=${p.post_id}`);
+                         return;
+                       }
+                    
+                       // Keep existing viewer modal for Likes/Reposts
+                       try {
+                         const detail = await getPostDetail(p.post_id);
+                         let likesList = Array.isArray(detail?.likes) ? detail.likes : [];
+                         if (!likesList.length) {
+                           try { likesList = await getPostLikes(p.post_id); } catch {}
+                         }
+                         const merged: Post = {
+                           ...p,
+                           likes: likesList,
+                           comments: Array.isArray(detail?.comments) ? detail.comments : p.comments,
+                           reposts: Array.isArray(detail?.reposts) ? detail.reposts : p.reposts,
+                           likes_count: detail?.likes_count ?? likesList.length ?? p.likes_count,
+                           comments_count: detail?.comments_count ?? p.comments_count,
+                           reposts_count: detail?.reposts_count ?? p.reposts_count,
+                         } as any;
+                         setSelectedPost(merged);
+                         setViewerType(type);
+                         setViewerVisible(true);
+                       } catch {
+                         setSelectedPost(p);
+                         setViewerType(type);
+                         setViewerVisible(true);
+                      }
+                     }}
+                  onEdited={(postId, newContent) => {
+                    setPosts(prev => prev.map(p => {
+                      if (isPost(p) && p.post_id === postId) {
+                        return { ...p, post_content: newContent };
+                      }
+                      return p;
+                    }));
+                  }}
+                  onDeleted={(postId) => {
+                    setPosts(prev => prev.filter(p => !isPost(p) || p.post_id !== postId));
+                  }}
+                />
+              );
+            }
+            })}
+            
+            {/* Show People You May Know after 5+ posts */}
+            {posts.length >= 5 && <PeopleYouMayKnowCard />}
+          </>
         )}
 
         {/* Comment Modal */}
@@ -484,7 +640,7 @@ const HomeScreen = () => {
               </View>
 
               <ScrollView style={{ maxHeight: 320 }}>
-                {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => (
+                {viewerType === 'likes' && selectedPost && isPost(selectedPost) && selectedPost.likes?.map((u: any, idx: number) => (
                   <View key={idx} style={styles.listItemRow}>
                     <UserAvatar 
                       profilePic={u.profile_pic}
@@ -497,7 +653,7 @@ const HomeScreen = () => {
                   </View>
                 ))}
 
-                {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => (
+                {viewerType === 'reposts' && selectedPost && isPost(selectedPost) && selectedPost.reposts?.map((r: any) => (
                   <View key={r.repost_id} style={styles.listItemRow}>
                     <UserAvatar 
                       profilePic={r.user?.profile_pic}
@@ -513,7 +669,7 @@ const HomeScreen = () => {
                   </View>
                 ))}
 
-                {viewerType === 'comments' && selectedPost?.comments?.map((c: any) => (
+                {viewerType === 'comments' && selectedPost && isPost(selectedPost) && selectedPost.comments?.map((c: any) => (
                   <View key={c.comment_id} style={styles.listItemRow}>
                     <UserAvatar 
                       profilePic={c.user?.profile_pic}
@@ -545,10 +701,12 @@ const HomeScreen = () => {
                       const message = (commentText || '').trim();
                       if (!message) return;
                       try {
-                        await commentOnPost(selectedPost.post_id, message);
-                        setCommentText('');
-                        setViewerVisible(false);
-                        await loadPosts(); // Refresh posts
+                        if (selectedPost && isPost(selectedPost)) {
+                          await commentOnPost(selectedPost.post_id, message);
+                          setCommentText('');
+                          setViewerVisible(false);
+                          await loadPosts(); // Refresh posts
+                        }
                       } catch (e) {
                         Alert.alert('Error', 'Failed to add comment');
                       }
@@ -574,7 +732,14 @@ const HomeScreen = () => {
             </View>
             <TouchableOpacity
               style={styles.listItemRow}
-              onPress={() => { setShowPostActionSheet(false); if (postActionForId != null) { setEditPostContent(posts.find(p=>p.post_id===postActionForId)?.post_content || ''); setEditingPostId(postActionForId); } }}
+              onPress={() => { 
+                setShowPostActionSheet(false); 
+                if (postActionForId != null) { 
+                  const foundPost = posts.find(p => isPost(p) && p.post_id === postActionForId) as Post | undefined;
+                  setEditPostContent(foundPost?.post_content || ''); 
+                  setEditingPostId(postActionForId); 
+                } 
+              }}
             >
               <Text style={styles.listText}>Edit</Text>
             </TouchableOpacity>
@@ -609,6 +774,7 @@ const HomeScreen = () => {
           </View>
         </View>
       </Modal>
+
     </View>
   );
 };

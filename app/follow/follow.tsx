@@ -19,6 +19,8 @@ interface FollowUser {
   user_id: number;
   ctu_id: string;
   name: string;
+  f_name?: string;
+  l_name?: string;
   profile_pic?: string;
   followed_at?: string;
 }
@@ -39,26 +41,41 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
   const loadUsers = async () => {
-    if (!userId) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     
     try {
       setLoading(true);
-      console.log(`Loading ${type} for user ${userId}`);
       
       // Extract the users from the response
     const data = type === 'followers' 
         ? await fetchFollowers(userId)
         : await fetchFollowing(userId);
 
-    const rawUsers = type === 'followers' ? data.followers : data.following;
+    const rawUsers = type === 'followers' ? data?.followers : data?.following;
 
+    // Try different possible response structures
+    let usersArray = rawUsers;
+    if (!usersArray && data.results) {
+      usersArray = data.results;
+    }
+    if (!usersArray && Array.isArray(data)) {
+      usersArray = data;
+    }
+    
     // Normalize user objects
-    const users = (rawUsers || []).map((u: any) => ({
+    const users = (usersArray || []).map((u: any) => ({
     user_id: u.user_id || u.id, // support both keys
     ctu_id: u.ctu_id,
-    name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim(),
+    name: u.name || `${u.f_name || u.first_name || ''} ${u.l_name || u.last_name || ''}`.trim(),
+    f_name: u.f_name || u.first_name || '',
+    l_name: u.l_name || u.last_name || '',
     profile_pic: u.profile_pic,
     }));
+    
+    console.log(`Normalized ${type} users:`, users);
     setUsers(users);
       
       // Check follow status for each user
@@ -85,7 +102,8 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
       }
     } catch (error) {
       console.error(`Error loading ${type}:`, error);
-      Alert.alert('Error', `Failed to load ${type}`);
+      console.error(`Full error details:`, JSON.stringify(error, null, 2));
+      Alert.alert('Debug Info', `Failed to load ${type} for user ${userId}. Check console for details.`);
       setUsers([]);
     } finally {
       setLoading(false);
@@ -130,11 +148,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   };
 
   const renderUser = ({ item }: { item: FollowUser }) => {
-    // Split the name to get first and last name for UserAvatar
-    const nameParts = item.name.split(' ');
-    const firstName = nameParts[0] || '';
-    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
-    
     const isFollowing = followStatuses[item.user_id] || false;
     const isLoading = followLoading[item.user_id] || false;
     
@@ -148,8 +161,8 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
       >
         <UserAvatar 
           profilePic={item.profile_pic}
-          firstName={firstName}
-          lastName={lastName}
+          firstName={item.f_name}
+          lastName={item.l_name}
           size={50}
           style={styles.avatar}
         />

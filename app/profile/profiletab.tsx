@@ -5,6 +5,7 @@ import NavBar from '../(tabs)/navbar';
 import { useRouter } from 'expo-router';
 import { API_BASE_URL, getUserInfo } from '../../services/api';
 import { useFocusEffect } from '@react-navigation/native';
+import UserAvatar from '../../components/UserAvatar';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 const cciLogo = require('../../assets/images/ccict_logo.jpg');
@@ -15,6 +16,7 @@ const menuItems = [
   { label: 'CCICT', icon: cciLogo },
   { label: 'Peso', icon: pesoLogo },
   { label: 'CCICT Forum', icon: forumLogo },
+  { label: 'Donation', icon: <FontAwesome name="heart" size={24} color="#222" /> },
   { label: 'Settings', icon: <FontAwesome name="cog" size={24} color="#222" /> },
   { label: 'Log out', icon: <MaterialIcons name="logout" size={24} color="#222" /> },
 ];
@@ -23,6 +25,8 @@ interface UserProfile {
   name?: string;
   username?: string;
   profile_pic?: string;
+  f_name?: string;
+  l_name?: string;
 }
 
 export default function ProfileTab() {
@@ -51,11 +55,12 @@ export default function ProfileTab() {
       <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
         {/* Profile Card */}
         <TouchableOpacity style={styles.profileCard} activeOpacity={0.8} onPress={() => router.push('/profile/profilepage')}>
-          <Image 
-            source={user?.profile_pic 
-              ? { uri: String(user.profile_pic).startsWith('http') ? String(user.profile_pic) : `${API_BASE_URL}${user.profile_pic}` }
-              : profilePic}
-            style={styles.profileAvatar} 
+          <UserAvatar
+            profilePic={user?.profile_pic}
+            firstName={user?.f_name}
+            lastName={user?.l_name}
+            size={60}
+            style={styles.profileAvatar}
           />
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={styles.profileName}>{user?.name || 'Your Name'}</Text>
@@ -79,7 +84,7 @@ export default function ProfileTab() {
               else if (item.label === 'CCICT') router.push('/ccict/ccictpage');
               else if (item.label === 'Peso') router.push('/peso/pesopage');
               else if (item.label === 'CCICT Forum') router.push('/forum/forumpage');
-              // else if (item.label === 'Donation') router.push('/donation/donationpage');
+              else if (item.label === 'Donation') router.push('/donation/donationpage');
               else if (item.label === 'Settings') router.push('/settings/settings');
             }}
           >

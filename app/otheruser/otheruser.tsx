@@ -87,15 +87,24 @@ export default function OtherUserPage() {
       ]);
       
       console.log('User data from API:', userData);
+      console.log('Followers data from API:', followersData);
+      console.log('Following data from API:', followingData);
+      
       // Handle the API response structure - it might be wrapped in an 'alumni' property
       const userProfile = userData?.alumni || userData;
       console.log('User profile:', userProfile);
       
       // Add follower/following counts to user profile
+      const followersCount = followersData?.count || followersData?.followers?.length || 0;
+      const followingCount = followingData?.count || followingData?.following?.length || 0;
+      
+      console.log('Calculated followers count:', followersCount);
+      console.log('Calculated following count:', followingCount);
+      
       const userWithCounts = {
         ...userProfile,
-        followers_count: followersData?.count || 0,
-        following_count: followingData?.count || 0
+        followers_count: followersCount,
+        following_count: followingCount
       };
       
       setUser(userWithCounts);
@@ -109,9 +118,10 @@ export default function OtherUserPage() {
       try {
         const allPosts = await getPosts();
         console.log('All posts:', allPosts);
-        // Filter posts by the current user
+        // Filter posts by the current user and exclude forum posts
         const userPosts = allPosts.filter((post: any) => 
-          post.user?.user_id === Number(viewUserId) || post.user?.id === Number(viewUserId)
+          (post.user?.user_id === Number(viewUserId) || post.user?.id === Number(viewUserId)) &&
+          post.type !== 'forum'
         );
         console.log('User posts:', userPosts);
         setPosts(userPosts);

@@ -53,6 +53,11 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     ? (String(post.post_image).startsWith('http') ? post.post_image : `${API_BASE_URL}${post.post_image}`)
     : null;
 
+  // Debug logging for image
+  console.log('PostCard - Post ID:', post.post_id);
+  console.log('PostCard - Post image field:', post.post_image);
+  console.log('PostCard - Constructed imageUrl:', imageUrl);
+
   /** --- Actions --- **/
   const handleLike = async () => {
     try {

@@ -21,6 +21,9 @@ import {
   getPostDetail,
 } from '../../services/api';
 import FollowModal from '../follow/follow';
+import UserAvatar from '../../components/UserAvatar';
+import PostCard from '../posts/postCard';
+import RepostCard from '../posts/RepostCard';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -31,18 +34,64 @@ interface UserProfile {
   profile_pic: any;
   followers_count?: number;
   following_count?: number;
+  f_name?: string;
+  l_name?: string;
 }
 
-function getInitials(name: string) {
-  if (!name) return '';
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+interface Post {
+  post_id: number;
+  post_title?: string;
+  post_content: string;
+  post_image?: string;
+  user: {
+    f_name: string;
+    l_name: string;
+    profile_pic?: string;
+    user_id?: number;
+  };
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
+  likes_count?: number;
+  comments_count?: number;
+  reposts_count?: number;
+  is_liked?: boolean;
+  created_at: string;
+  item_type: 'post';
 }
+
+interface FeedRepost {
+  repost_id: number;
+  created_at: string;
+  user: {
+    f_name: string;
+    l_name: string;
+    profile_pic?: string;
+    user_id?: number;
+  };
+  caption?: string;
+  original_post: Post;
+  likes_count?: number;
+  comments_count?: number;
+  reposts_count?: number;
+  is_liked?: boolean;
+  item_type: 'repost';
+}
+
+type FeedItem = Post | FeedRepost;
+
+// Type guards
+const isRepost = (item: FeedItem): item is FeedRepost => {
+  return item.item_type === 'repost';
+};
+
+const isPost = (item: FeedItem): item is Post => {
+  return item.item_type === 'post';
+};
 
 export default function ProfilePage() {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editBio, setEditBio] = useState('');
@@ -61,19 +110,12 @@ export default function ProfilePage() {
   const [newPhotoUri, setNewPhotoUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [currentProfilePicUri, setCurrentProfilePicUri] = useState<string | null>(null);
-  const [actionLoadingPostId, setActionLoadingPostId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
 
-  // action sheet & edit-post modal
-  const [postActionForId, setPostActionForId] = useState<number | null>(null);
-  const [showPostActionSheet, setShowPostActionSheet] = useState(false);
-  const [editingPostId, setEditingPostId] = useState<number | null>(null);
-  const [editPostContent, setEditPostContent] = useState<string>('');
-
   // viewer (likes/reposts)
   const [viewerVisible, setViewerVisible] = useState(false);
-  const [viewerType, setViewerType] = useState<'likes' | 'reposts' | null>(null);
+  const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
 
   useEffect(() => {
@@ -90,21 +132,79 @@ export default function ProfilePage() {
             name: me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim(),
             username: me?.acc_username || '@user',
             bio: me?.profile_bio || 'Bio',
-            profile_pic: me?.profile_pic ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}` } : profilePic,
+            profile_pic: me?.profile_pic ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}` } : null,
             followers_count: me?.followers_count || 0,
             following_count: me?.following_count || 0,
+            f_name: me?.f_name || '',
+            l_name: me?.l_name || '',
           };
           setUser(profile);
           setEditBio(profile.bio);
           setCurrentProfilePicUri(me?.profile_pic ? ((String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}`) : null);
           const userId = me?.id || me?.user_id;
           setProfileUserId(userId || null);
+          
+          // Create feed items that include both posts and reposts
+          const feedItems: FeedItem[] = [];
           const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === userId);
-          setPosts(userPosts);
+          
+          userPosts.forEach((post: any) => {
+            const likesArr = Array.isArray(post?.likes) ? post.likes : [];
+            const likedByMe = userId ? likesArr.some((l: any) => l?.user_id === userId || l?.user?.user_id === userId) : false;
+            
+            // Add the original post
+            feedItems.push({
+              ...post,
+              created_at: post.created_at || new Date().toISOString(),
+              is_liked: !!likedByMe,
+              item_type: 'post'
+            });
+            
+            // Add each repost as a separate feed item
+            if (Array.isArray(post.reposts)) {
+              post.reposts.forEach((repost: any) => {
+                feedItems.push({
+                  repost_id: repost.repost_id,
+                  created_at: repost.repost_date || new Date().toISOString(),
+                  user: repost.user,
+                  caption: repost.caption,
+                  original_post: {
+                    post_id: post.post_id,
+                    post_title: post.post_title,
+                    post_content: post.post_content,
+                    post_image: post.post_image,
+                    user: post.user,
+                    created_at: post.created_at || new Date().toISOString(),
+                    likes_count: post.likes_count,
+                    comments_count: post.comments_count,
+                    reposts_count: post.reposts_count,
+                    is_liked: !!likedByMe,
+                    item_type: 'post'
+                  },
+                  likes_count: 0, // TODO: Get repost likes from API
+                  comments_count: 0, // TODO: Get repost comments from API
+                  reposts_count: 0, // TODO: Get repost reposts from API
+                  is_liked: false, // TODO: Check if user liked this repost
+                  item_type: 'repost'
+                });
+              });
+            }
+          });
+          
+          // Sort by creation date (newest first)
+          feedItems.sort((a, b) => {
+            const dateA = new Date(a.created_at || 0).getTime();
+            const dateB = new Date(b.created_at || 0).getTime();
+            return dateB - dateA;
+          });
+          
+          setPosts(feedItems);
           const [followersRes, followingRes] = await Promise.all([
             fetchFollowers(userId),
             fetchFollowing(userId)
           ]);
+          console.log('Followers response:', followersRes);
+          console.log('Following response:', followingRes);
           setFollowers(followersRes?.followers || []);
           setFollowing(followingRes?.following || []);
         } else {
@@ -117,7 +217,9 @@ export default function ProfilePage() {
             name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim() || 'User',
             username: a.ctu_id ? `@${a.ctu_id}` : '@user',
             bio: a.profile_bio || '',
-            profile_pic: a.profile_pic ? { uri: String(a.profile_pic).startsWith('http') ? a.profile_pic : `${API_BASE_URL}${a.profile_pic}` } : profilePic,
+            profile_pic: a.profile_pic ? { uri: String(a.profile_pic).startsWith('http') ? a.profile_pic : `${API_BASE_URL}${a.profile_pic}` } : null,
+            f_name: a.first_name || '',
+            l_name: a.last_name || '',
           };
           setUser(profile);
           const [postsData, followersRes, followingRes, statusRes] = await Promise.all([
@@ -126,12 +228,68 @@ export default function ProfilePage() {
             fetchFollowing(viewUserId),
             checkFollowStatus(viewUserId),
           ]);
+          console.log('Other user followers response:', followersRes);
+          console.log('Other user following response:', followingRes);
           setFollowers(followersRes?.followers || []);
           setFollowing(followingRes?.following || []);
           setIsFollowing(!!statusRes?.is_following);
           setProfileUserId(viewUserId);
+          
+          // Create feed items that include both posts and reposts for other user
+          const feedItems: FeedItem[] = [];
           const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === viewUserId);
-          setPosts(userPosts);
+          
+          userPosts.forEach((post: any) => {
+            const likesArr = Array.isArray(post?.likes) ? post.likes : [];
+            const likedByMe = viewUserId ? likesArr.some((l: any) => l?.user_id === viewUserId || l?.user?.user_id === viewUserId) : false;
+            
+            // Add the original post
+            feedItems.push({
+              ...post,
+              created_at: post.created_at || new Date().toISOString(),
+              is_liked: !!likedByMe,
+              item_type: 'post'
+            });
+            
+            // Add each repost as a separate feed item
+            if (Array.isArray(post.reposts)) {
+              post.reposts.forEach((repost: any) => {
+                feedItems.push({
+                  repost_id: repost.repost_id,
+                  created_at: repost.repost_date || new Date().toISOString(),
+                  user: repost.user,
+                  caption: repost.caption,
+                  original_post: {
+                    post_id: post.post_id,
+                    post_title: post.post_title,
+                    post_content: post.post_content,
+                    post_image: post.post_image,
+                    user: post.user,
+                    created_at: post.created_at || new Date().toISOString(),
+                    likes_count: post.likes_count,
+                    comments_count: post.comments_count,
+                    reposts_count: post.reposts_count,
+                    is_liked: !!likedByMe,
+                    item_type: 'post'
+                  },
+                  likes_count: 0, // TODO: Get repost likes from API
+                  comments_count: 0, // TODO: Get repost comments from API
+                  reposts_count: 0, // TODO: Get repost reposts from API
+                  is_liked: false, // TODO: Check if user liked this repost
+                  item_type: 'repost'
+                });
+              });
+            }
+          });
+          
+          // Sort by creation date (newest first)
+          feedItems.sort((a, b) => {
+            const dateA = new Date(a.created_at || 0).getTime();
+            const dateB = new Date(b.created_at || 0).getTime();
+            return dateB - dateA;
+          });
+          
+          setPosts(feedItems);
         }
       } catch (e) {
         setUser({
@@ -159,8 +317,61 @@ export default function ProfilePage() {
     try {
       if (!profileUserId) return;
       const postsData = await getPosts();
+      
+      // Create feed items that include both posts and reposts
+      const feedItems: FeedItem[] = [];
       const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === profileUserId);
-      setPosts(userPosts);
+      
+      userPosts.forEach((post: any) => {
+        const likesArr = Array.isArray(post?.likes) ? post.likes : [];
+        const likedByMe = profileUserId ? likesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
+        
+        // Add the original post
+        feedItems.push({
+          ...post,
+          is_liked: !!likedByMe,
+          item_type: 'post'
+        });
+        
+        // Add each repost as a separate feed item
+        if (Array.isArray(post.reposts)) {
+          post.reposts.forEach((repost: any) => {
+            feedItems.push({
+              repost_id: repost.repost_id,
+              created_at: repost.repost_date,
+              user: repost.user,
+              caption: repost.caption,
+              original_post: {
+                post_id: post.post_id,
+                post_title: post.post_title,
+                post_content: post.post_content,
+                post_image: post.post_image,
+                user: post.user,
+                created_at: post.created_at,
+                likes_count: post.likes_count,
+                comments_count: post.comments_count,
+                reposts_count: post.reposts_count,
+                is_liked: !!likedByMe,
+                item_type: 'post'
+              },
+              likes_count: 0, // TODO: Get repost likes from API
+              comments_count: 0, // TODO: Get repost comments from API
+              reposts_count: 0, // TODO: Get repost reposts from API
+              is_liked: false, // TODO: Check if user liked this repost
+              item_type: 'repost'
+            });
+          });
+        }
+      });
+      
+      // Sort by creation date (newest first)
+      feedItems.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+      
+      setPosts(feedItems);
     } catch (e) {
       // keep last posts
     }
@@ -207,13 +418,13 @@ export default function ProfilePage() {
         )}
 
         <View style={styles.profileImageWrapper}>
-          {user.profile_pic && user.profile_pic.uri ? (
-            <Image source={user.profile_pic} style={styles.profileImage} />
-          ) : (
-            <View style={[styles.profileImage, { backgroundColor: '#bcd0e6', alignItems: 'center', justifyContent: 'center' }]}>
-              <Text style={{ fontSize: 36, color: '#174f84', fontWeight: 'bold' }}>{getInitials(user.name)}</Text>
-            </View>
-          )}
+          <UserAvatar
+            profilePic={user.profile_pic?.uri}
+            firstName={user.f_name}
+            lastName={user.l_name}
+            size={100}
+            style={styles.profileImage}
+          />
 
           {isOwnProfile && (
             <TouchableOpacity
@@ -288,16 +499,26 @@ export default function ProfilePage() {
         <View style={styles.statsRow}>
           <TouchableOpacity 
             style={styles.statItem}
-            onPress={() => setShowFollowers(true)}
+            onPress={() => {
+              console.log('Opening followers modal with userId:', profileUserId);
+              console.log('Followers array length:', followers.length);
+              console.log('User followers_count:', user.followers_count);
+              setShowFollowers(true);
+            }}
           >
-            <Text style={styles.statNumber}>{user.followers_count ?? followers.length}</Text>
+            <Text style={styles.statNumber}>{followers.length || user.followers_count || 0}</Text>
             <Text style={styles.statLabel}>Followers</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.statItem}
-            onPress={() => setShowFollowing(true)}
+            onPress={() => {
+              console.log('Opening following modal with userId:', profileUserId);
+              console.log('Following array length:', following.length);
+              console.log('User following_count:', user.following_count);
+              setShowFollowing(true);
+            }}
           >
-            <Text style={styles.statNumber}>{user.following_count ?? following.length}</Text>
+            <Text style={styles.statNumber}>{following.length || user.following_count || 0}</Text>
             <Text style={styles.statLabel}>Following</Text>
           </TouchableOpacity>
         </View>
@@ -307,7 +528,13 @@ export default function ProfilePage() {
       {isOwnProfile && (
         <View style={styles.startPostCard}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Image source={user.profile_pic} style={styles.avatar} />
+            <UserAvatar
+              profilePic={user.profile_pic?.uri}
+              firstName={user.f_name}
+              lastName={user.l_name}
+              size={40}
+              style={styles.avatar}
+            />
             <TouchableOpacity style={styles.startPostInput} onPress={() => router.push('/posts/post')}>
               <Text style={{ color: '#888' }}>Start a post</Text>
             </TouchableOpacity>
@@ -323,169 +550,72 @@ export default function ProfilePage() {
             <Text style={styles.noPostsText}>No posts yet.</Text>
           </View>
         ) : (
-          posts.map((post: any) => (
-          <View key={post.post_id} style={styles.postCard}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-              {post.user?.profile_pic ? (
-                <Image
-                  source={{ uri: (post.user.profile_pic && (String(post.user.profile_pic).startsWith('http') || String(post.user.profile_pic).startsWith('data:'))) ? post.user.profile_pic : `${API_BASE_URL}${post.user.profile_pic}` }}
-                  style={styles.avatar}
-                />
-              ) : (
-                <View style={[styles.avatar, { backgroundColor: '#bcd0e6', alignItems: 'center', justifyContent: 'center' }]}>
-                  <Text style={{ fontSize: 16, color: '#174f84', fontWeight: 'bold' }}>{getInitials(`${post.user?.f_name || ''} ${post.user?.l_name || ''}`)}</Text>
-                </View>
-              )}
-
-              <View style={{ flex: 1 }}>
-                <Text style={styles.postName}>{post.user?.f_name} {post.user?.l_name}</Text>
-                <Text style={styles.postMeta}>
-                  {(() => {
-                    try {
-                      const d = new Date(post.created_at);
-                      const now = new Date();
-                      const diff = Math.floor((now.getTime() - d.getTime()) / 60000);
-                      if (diff < 1) return 'Just now';
-                      if (diff < 60) return `${diff}m`;
-                      const h = Math.floor(diff / 60);
-                      if (h < 24) return `${h}h`;
-                      const dys = Math.floor(h / 24);
-                      if (dys < 7) return `${dys}d`;
-                      const w = Math.floor(dys / 7);
-                      if (w < 5) return `${w}w`;
-                      const mo = Math.floor(dys / 30);
-                      if (mo < 12) return `${mo}mo`;
-                      return `${Math.floor(dys / 365)}y`;
-                    } catch {
-                      return '';
-                    }
-                  })()}  •  <FontAwesome name="globe" size={12} color="#888" />
-                </Text>
-              </View>
-
-              {profileUserId != null && (post.user?.user_id === profileUserId || (post.user as any)?.id === profileUserId) ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    setPostActionForId(post.post_id);
-                    setEditPostContent(post.post_content || '');
-                    setShowPostActionSheet(true);
+          posts.map((item) => {
+            if (isRepost(item)) {
+              return (
+                <RepostCard
+                  key={`repost-${item.repost_id}`}
+                  repost={item}
+                  currentUserId={profileUserId || undefined}
+                  onLikeToggle={(repostId, liked) => {
+                    setPosts(prev => prev.map(p => 
+                      isRepost(p) && p.repost_id === repostId 
+                        ? { ...p, is_liked: liked, likes_count: liked ? (p.likes_count || 0) + 1 : Math.max(0, (p.likes_count || 0) - 1) } 
+                        : p
+                    ));
                   }}
-                  style={{ padding: 6 }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <FontAwesome name="ellipsis-h" size={18} color="#888" />
-                </TouchableOpacity>
-              ) : null}
-            </View>
-
-            <Text style={styles.postContent}>{post.post_content}</Text>
-
-            {post.post_image && (
-              <Image source={{ uri: (String(post.post_image).startsWith('http') || String(post.post_image).startsWith('data:')) ? String(post.post_image) : `${API_BASE_URL}${post.post_image}` }} style={styles.postImage} />
-            )}
-
-
-            <View style={styles.postActions}>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={async () => {
-                  try {
-                    setActionLoadingPostId(post.post_id);
-                    if (post.is_liked) {
-                      await unlikePost(post.post_id);
-                      setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count || 0) - 1) } : p));
-                    } else {
-                      await likePost(post.post_id);
-                      setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count || 0) + 1 } : p));
-                    }
-                  } catch (e) {
-                    Alert.alert('Error', 'Failed to update like');
-                  } finally {
-                    setActionLoadingPostId(null);
-                  }
-                }}
-                disabled={actionLoadingPostId === post.post_id}
-              >
-                <FontAwesome name={post.is_liked ? 'thumbs-up' : 'thumbs-o-up'} size={16} color={post.is_liked ? '#1e3a8a' : '#888'} />
-                <Text style={[styles.actionText, post.is_liked && { color: '#1e3a8a', fontWeight: '700' }]}>{post.likes_count || 0}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionBtn} onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-                <FontAwesome name="comment-o" size={16} color="#888" />
-                <Text style={styles.actionText}>{post.comments_count || 0}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={async () => {
-                  try {
-                    setActionLoadingPostId(post.post_id);
-                    await repostPost(post.post_id);
-                    setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: (p.reposts_count || 0) + 1 } : p));
-                    Alert.alert('Reposted');
-                  } catch (e) {
-                    Alert.alert('Error', 'Failed to repost');
-                  } finally {
-                    setActionLoadingPostId(null);
-                  }
-                }}
-                disabled={actionLoadingPostId === post.post_id}
-              >
-                <FontAwesome name="retweet" size={16} color="#888" />
-                <Text style={styles.actionText}>{post.reposts_count || 0}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          ))
+                  onOpenViewer={(repost, type) => {
+                    setSelectedPostStats(repost);
+                    setViewerType(type);
+                    setViewerVisible(true);
+                  }}
+                  onEdited={(repostId, newCaption) => {
+                    setPosts(prev => prev.map(p => 
+                      isRepost(p) && p.repost_id === repostId 
+                        ? { ...p, caption: newCaption } 
+                        : p
+                    ));
+                  }}
+                  onDeleted={(repostId) => {
+                    setPosts(prev => prev.filter(p => !(isRepost(p) && p.repost_id === repostId)));
+                  }}
+                />
+              );
+            } else {
+              return (
+                <PostCard
+                  key={`post-${item.post_id}`}
+                  post={item}
+                  currentUserId={profileUserId || undefined}
+                  onLikeToggle={(postId, isLiked) => {
+                    setPosts(prev => prev.map(p => 
+                      isPost(p) && p.post_id === postId 
+                        ? { ...p, is_liked: isLiked, likes_count: isLiked ? (p.likes_count || 0) + 1 : Math.max(0, (p.likes_count || 0) - 1) } 
+                        : p
+                    ));
+                  }}
+                  onOpenViewer={(post, type) => {
+                    setSelectedPostStats(post);
+                    setViewerType(type);
+                    setViewerVisible(true);
+                  }}
+                  onEdited={(postId, newContent) => {
+                    setPosts(prev => prev.map(p => 
+                      isPost(p) && p.post_id === postId 
+                        ? { ...p, post_content: newContent } 
+                        : p
+                    ));
+                  }}
+                  onDeleted={(postId) => {
+                    setPosts(prev => prev.filter(p => !(isPost(p) && p.post_id === postId)));
+                  }}
+                />
+              );
+            }
+          })
         )}
       </View>
 
-      {/* Post actions sheet */}
-      <Modal visible={showPostActionSheet} transparent animationType="fade" onRequestClose={() => setShowPostActionSheet(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.viewerModalSmall}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.modalTitle}>Select Action</Text>
-              <TouchableOpacity onPress={() => setShowPostActionSheet(false)}>
-                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={styles.listItemRow}
-              onPress={() => { setShowPostActionSheet(false); if (postActionForId != null) { setEditPostContent(posts.find((p:any)=>p.post_id===postActionForId)?.post_content || ''); setEditingPostId(postActionForId); } }}
-            >
-              <Text style={styles.listText}>Edit</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.listItemRow}
-              onPress={() => {
-                setShowPostActionSheet(false);
-                const id = postActionForId;
-                if (id != null) {
-                  Alert.alert('Delete Post', 'Are you sure you want to delete this post?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete', style: 'destructive', onPress: async () => {
-                        try {
-                          const { deletePost } = await import('../../services/api');
-                          await deletePost(id);
-                          await reloadPosts();
-                        } catch {
-                          Alert.alert('Error', 'Failed to delete');
-                        }
-                      }
-                    }
-                  ]);
-                }
-              }}
-            >
-              <Text style={[styles.listText, { color: 'red' }]}>Delete</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* Edit profile modal */}
       <Modal visible={editModalVisible} transparent animationType="fade">
@@ -637,11 +767,12 @@ const styles = StyleSheet.create({
   headerContainer: {
     position: 'relative',
     backgroundColor: '#174f84',
-    paddingTop: 50,
+    paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 100,
   },
   headerBg: {
     position: 'absolute',
@@ -982,7 +1113,7 @@ const styles = StyleSheet.create({
 
   backButton: {
     position: 'absolute',
-    top: 50,
+    top: 60,
     left: 16,
     zIndex: 10,
     backgroundColor: 'transparent',
@@ -993,7 +1124,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
-    marginLeft: 40,
+    marginLeft: 50,
+    flex: 1,
+    textAlign: 'center',
   },
 
   editBtnAbsolute: {
