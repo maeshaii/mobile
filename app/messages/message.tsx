@@ -1,15 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, RefreshControl } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-<<<<<<< HEAD
 import NavBar from '../(tabs)/navbar';
-import { useRouter } from 'expo-router';
-=======
-import NavBar from '../(tabs)/_navbar';
 import { useRouter, useFocusEffect } from 'expo-router';
 import type { Href } from 'expo-router';
 import { listConversations } from '../../services/api';
->>>>>>> a18a3213801cd5d4ea747829c14bd4c0fd909a3d
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
 
