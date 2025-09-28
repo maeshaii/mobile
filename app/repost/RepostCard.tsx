@@ -253,7 +253,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
           <Text style={styles.countText}>{repost.comments_count || 0} comments</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => onOpenViewer?.(repost, 'reposts')}>
-          <Text style={styles.countText}>{repostCount} shares</Text>
+          <Text style={styles.countText}>{repostCount} reposts</Text>
         </TouchableOpacity>
       </View>
 
@@ -281,7 +281,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
         <TouchableOpacity style={styles.actionIcon} onPress={handleRepost}>
           <FontAwesome name="retweet" size={18} color="#555" />
-          <Text style={styles.actionText}>Share</Text>
+          <Text style={styles.actionText}>Repost</Text>
         </TouchableOpacity>
       </View>
 

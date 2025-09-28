@@ -12,6 +12,7 @@ import {
   ImageBackground,
 } from 'react-native';
 import { loginUser, clearAllTokens } from '../../services/api';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 export default function LoginScreen() {
@@ -128,7 +129,7 @@ export default function LoginScreen() {
                 editable={!loading}
               />
               <TouchableOpacity style={styles.eyeButton} onPress={() => setShow((s) => !s)}>
-                <Text style={styles.eyeText}>{show ? '🙈' : '👁️'}</Text>
+                <Ionicons name={show ? 'eye-off' : 'eye'} size={24} color="black" />
               </TouchableOpacity>
             </View>
             {error ? (

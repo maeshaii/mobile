@@ -184,7 +184,7 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
           <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
-          <Text style={styles.countText}>{repostCount} shares</Text>
+          <Text style={styles.countText}>{repostCount} reposts</Text>
         </TouchableOpacity>
       </View>
 
@@ -203,13 +203,13 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
           style={styles.actionIcon}
           onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}
         >
-          <FontAwesome name="comment-o" size={18} color="#555" />
+          <FontAwesome name="comment-o" size={20} color="#555" />
           <Text style={styles.actionText}>Comment</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionIcon} onPress={handleRepost}>
           <FontAwesome name="retweet" size={18} color="#555" />
-          <Text style={styles.actionText}>Share</Text>
+          <Text style={styles.actionText}>Repost</Text>
         </TouchableOpacity>
       </View>
 

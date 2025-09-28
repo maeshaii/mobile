@@ -171,7 +171,7 @@ export default function CCICTPage() {
           <View style={styles.viewerModal}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.modalTitle}>
-                {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Shares' : 'Comments'}
+                {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Reposts' : 'Comments'}
               </Text>
               <TouchableOpacity onPress={() => setViewerVisible(false)}>
                 <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>

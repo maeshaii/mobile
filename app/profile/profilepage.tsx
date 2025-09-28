@@ -409,13 +409,12 @@ export default function ProfilePage() {
         />
       }
     >
-      {/* Blue Header with Back Button */}
+      {/* Blue Header */}
       <View style={styles.headerContainer}>
         <View style={styles.headerBg} />
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <FontAwesome name="arrow-left" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
       </View>
 
       {/* Profile Card */}
@@ -451,13 +450,16 @@ export default function ProfilePage() {
         <Text style={styles.profileUsername}>{user.username}</Text>
 
         {user.bio && (
-          <Text style={styles.bioText}>{user.bio}</Text>
+          <View style={styles.bioRow}>
+            <Text style={styles.bioText}>{user.bio}</Text>
+          </View>
         )}
 
+        {/* Action Buttons */}
         {!isOwnProfile && (
-          <View style={styles.profileActionsRow}>
+          <View style={styles.actionButtons}>
             <TouchableOpacity
-              style={[styles.followBtn, isFollowing ? styles.followingBtn : null]}
+              style={[styles.actionButton, styles.followButton, isFollowing && styles.followingButton]}
               onPress={async () => {
                 try {
                   if (!viewUserId) return;
@@ -490,23 +492,25 @@ export default function ProfilePage() {
                 } catch (e) { /* ignore */ }
               }}
             >
-              <Text style={{ color: isFollowing ? '#174f84' : '#fff', fontWeight: 'bold' }}>{isFollowing ? 'Following' : 'Follow'}</Text>
+              <Text style={[styles.actionButtonText, isFollowing && styles.followingButtonText]}>
+                {isFollowing ? 'Following' : 'Follow'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.messageBtn}
+              style={[styles.actionButton, styles.messageButton]}
               onPress={() => {
                 const encodedName = encodeURIComponent(user.name);
                 router.push(`/messages/chatmessage?name=${encodedName}`);
               }}
             >
-              <Text style={styles.messageBtnText}>Message</Text>
+              <Text style={styles.messageButtonText}>Message</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {/* Stats */}
-        <View style={styles.statsRow}>
+        <View style={styles.statsContainer}>
           <TouchableOpacity 
             style={styles.statItem}
             onPress={() => {
@@ -788,30 +792,21 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     position: 'relative',
-    backgroundColor: '#174f84',
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 100,
   },
   headerBg: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    height: 160,
     backgroundColor: '#174f84',
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    width: '100%',
   },
   profileCard: {
     backgroundColor: '#fff',
-    borderRadius: 8,
+    borderRadius: 2,
     alignItems: 'center',
     marginTop: -30,
     paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
+    paddingBottom: 16,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 6,
@@ -821,7 +816,7 @@ const styles = StyleSheet.create({
   },
   profileImageWrapper: {
     position: 'absolute',
-    top: -50,
+    top: -40,
     left: '50%',
     marginLeft: -50,
     zIndex: 2,
@@ -845,16 +840,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#fff',
-    zIndex: 3,
+    zIndex: 999,
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
+    elevation: 10,
   },
   profileImage: {
-    width: 100,
-    height: 100,
+    width: 90,
+    height: 90,
     borderRadius: 50,
   },
   profileName: {
@@ -866,23 +861,57 @@ const styles = StyleSheet.create({
   },
   profileUsername: {
     fontSize: 14,
-    color: '#666',
+    color: '#888',
     marginBottom: 8,
     textAlign: 'center',
   },
+  bioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '90%',
+    marginBottom: 8,
+  },
   bioText: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 8,
-    marginBottom: 12,
-    textAlign: 'center',
-    paddingHorizontal: 20,
+    color: '#444',
   },
-  statsRow: {
+  actionButtons: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    marginBottom: 20,
+    gap: 12,
+  },
+  actionButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 20,
+    minWidth: 100,
     alignItems: 'center',
-    marginTop: 15,
+  },
+  followButton: {
+    backgroundColor: '#e3ecf7',
+  },
+  followingButton: {
+    backgroundColor: '#174f84',
+  },
+  messageButton: {
+    backgroundColor: '#174f84',
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#174f84',
+  },
+  followingButtonText: {
+    color: '#fff',
+  },
+  messageButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  statsContainer: {
+    flexDirection: 'row',
     gap: 30,
   },
   statItem: {
@@ -920,13 +949,6 @@ const styles = StyleSheet.create({
     color: '#174f84',
     fontWeight: 'bold',
     marginLeft: 4,
-  },
-  profileActionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   startPostCard: {
     backgroundColor: '#fff',
@@ -968,28 +990,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
     width: '100%',
-  },
-  followBtn: {
-    backgroundColor: '#e3ecf7',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#174f84',
-  },
-  followingBtn: {
-    backgroundColor: '#174f84',
-    borderColor: '#174f84',
-  },
-  messageBtn: {
-    backgroundColor: '#174f84',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  messageBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
   },
   postName: {
     fontWeight: 'bold',
@@ -1143,20 +1143,11 @@ const styles = StyleSheet.create({
 
   backButton: {
     position: 'absolute',
-    top: 60,
+    top: 40,
     left: 16,
     zIndex: 10,
-    backgroundColor: 'transparent',
     padding: 8,
     borderRadius: 20,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginLeft: 50,
-    flex: 1,
-    textAlign: 'center',
   },
 
   editBtnAbsolute: {

@@ -68,18 +68,40 @@ const NotificationScreen = () => {
           const shortMessage =
             fullMessage.length > 80 ? fullMessage.substring(0, 80) + '...' : fullMessage;
 
+          // Debug: Log the raw notification data
+          console.log('Raw notification data:', n);
+
+          // Extract post ID and user ID from various possible fields
+          let postId = n.post_id || n.postId || n.post_id || n.target_id || n.object_id;
+          let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
+
+          // Try to extract IDs from the message content if not found in fields
+          if (!postId && fullMessage) {
+            const postIdMatch = fullMessage.match(/post[\/\s]*(\d+)/i) || fullMessage.match(/\/posts\/(\d+)/i);
+            if (postIdMatch) {
+              postId = parseInt(postIdMatch[1]);
+            }
+          }
+
+          if (!userId && fullMessage) {
+            const userIdMatch = fullMessage.match(/profile[\/\s]*(\d+)/i) || fullMessage.match(/\/alumni\/profile\/(\d+)/i);
+            if (userIdMatch) {
+              userId = parseInt(userIdMatch[1]);
+            }
+          }
+
           return {
             id: n.id || index,
-            name: n.type || n.title || n.name || 'Notification',
+            name: n.type || n.title || n.name || n.notification_type || 'Notification',
             message: shortMessage,
             date: n.date || n.created_at || new Date().toLocaleDateString(),
-            notif_type: n.type,
+            notif_type: n.type || n.notification_type || n.action_type,
             subject: n.subject,
-            post_id: n.post_id,
-            user_id: n.user_id,
-            profile_pic: n.profile_pic,
-            first_name: n.f_name || n.first_name,
-            last_name: n.l_name || n.last_name,
+            post_id: postId,
+            user_id: userId,
+            profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic,
+            first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
+            last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
           };
         } catch (transformError) {
           console.warn('Error transforming notification:', transformError);
@@ -119,24 +141,76 @@ const NotificationScreen = () => {
       return;
     }
   
+    // Debug: Log the notification data to see what we're working with
+    console.log('Notification pressed:', {
+      notif_type: item.notif_type,
+      name: item.name,
+      post_id: item.post_id,
+      user_id: item.user_id,
+      subject: item.subject,
+      message: item.message
+    });
+  
     const type = item.notif_type?.toLowerCase();
+    const name = item.name?.toLowerCase();
+    const message = item.message?.toLowerCase();
   
     // When a user follows me → go to their profile
-    if (type === 'follow' && item.user_id) {
-      router.push({
-        pathname: '/otheruser/otheruser',
-        params: { viewUserId: item.user_id },
-      });
-      return;
+    if (type === 'follow' || name?.includes('follow') || message?.includes('follow')) {
+      if (item.user_id) {
+        router.push({
+          pathname: '/otheruser/otheruser',
+          params: { viewUserId: item.user_id },
+        });
+        return;
+      } else {
+        // If no user_id, try to extract from message or go to general profile
+        Alert.alert('Follow Notification', 'Unable to navigate to user profile - user ID not found.');
+        return;
+      }
     }
   
-    // When user interacts with my post/repost → go to that post's comments
-    if (['like', 'comment', 'repost'].includes(type || '') && item.post_id) {
-      router.push({
-        pathname: '/posts/comments',
-        params: { postId: item.post_id },
-      });
-      return;
+    // When user likes my post/repost → go to that post's comments
+    if (type === 'like' || name?.includes('like') || message?.includes('like')) {
+      if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { postId: item.post_id },
+        });
+        return;
+      } else {
+        // If no post_id, try to navigate to posts page or show alert
+        Alert.alert('Like Notification', 'Unable to navigate to post - post ID not found.');
+        return;
+      }
+    }
+  
+    // When user comments on my post/repost → go to that post's comments
+    if (type === 'comment' || name?.includes('comment') || message?.includes('comment')) {
+      if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { postId: item.post_id },
+        });
+        return;
+      } else {
+        Alert.alert('Comment Notification', 'Unable to navigate to post - post ID not found.');
+        return;
+      }
+    }
+  
+    // When user reposts my post → go to that post's comments
+    if (type === 'repost' || name?.includes('repost') || message?.includes('repost')) {
+      if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { postId: item.post_id },
+        });
+        return;
+      } else {
+        Alert.alert('Repost Notification', 'Unable to navigate to post - post ID not found.');
+        return;
+      }
     }
   
     // Special case: forms/tracker notifications
@@ -148,8 +222,9 @@ const NotificationScreen = () => {
       return;
     }
   
-    // Fallback: just do nothing or alert
-    Alert.alert('Notification', 'This notification type is not yet handled.');
+    // Fallback: Show debug info and alert
+    console.log('Unhandled notification type:', { type, name, item });
+    Alert.alert('Notification', `This notification type is not yet handled.\nType: ${type}\nName: ${name}\nPost ID: ${item.post_id}\nUser ID: ${item.user_id}`);
   };
   
 
@@ -198,6 +273,7 @@ const NotificationScreen = () => {
   };
 
   const renderAvatar = (item: NotificationItem) => {
+    // Special case: CCICT/system notifications
     if (
       item.notif_type?.toLowerCase() === 'ccict' ||
       (item.subject && item.subject.toLowerCase().includes('tracker'))
@@ -210,6 +286,8 @@ const NotificationScreen = () => {
         />
       );
     }
+    
+    // For user notifications, use UserAvatar with proper fallback
     return (
       <UserAvatar
         profilePic={item.profile_pic}

@@ -1,19 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, RefreshControl } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useRouter, useFocusEffect } from 'expo-router';
 import type { Href } from 'expo-router';
 import { listConversations } from '../../services/api';
-
-const samplePic = require('../../assets/images/sample_pic.jpg');
+import UserAvatar from '../../components/UserAvatar';
 
 type Row = {
   id: number;
   name: string;
   lastMessage: string;
   date: string;
-  avatarImage: any;
+  profilePic?: string;
+  firstName?: string;
+  lastName?: string;
   unread: number;
 };
 
@@ -27,14 +28,24 @@ const MessageScreen = () => {
     setLoading(true);
     try {
       const data = await listConversations();
-      const mapped: Row[] = (data || []).map((c) => ({
-        id: c.conversation_id,
-        name: c.other_participant?.name || 'Conversation',
-        lastMessage: c.last_message?.content || '',
-        date: new Date(c.updated_at).toLocaleDateString(),
-        avatarImage: samplePic,
-        unread: c.unread_count || 0,
-      }));
+      const mapped: Row[] = (data || []).map((c) => {
+        // Parse the full name to extract first and last names
+        const fullName = c.other_participant?.name || 'Conversation';
+        const nameParts = fullName.split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+        
+        return {
+          id: c.conversation_id,
+          name: fullName,
+          lastMessage: c.last_message?.content || '',
+          date: new Date(c.updated_at).toLocaleDateString(),
+          profilePic: c.other_participant?.avatar_url || undefined,
+          firstName,
+          lastName,
+          unread: c.unread_count || 0,
+        };
+      });
       setRows(mapped);
     } catch (e) {
       console.warn('Failed to load conversations', e);
@@ -73,7 +84,13 @@ const MessageScreen = () => {
             style={styles.messageCard}
             onPress={() => router.push({ pathname: '/messages/chatmessage', params: { conversationId: String(item.id), name: item.name } })}
           >
-            <Image source={item.avatarImage} style={styles.avatar} />
+            <UserAvatar
+              profilePic={item.profilePic}
+              firstName={item.firstName}
+              lastName={item.lastName}
+              size={44}
+              style={styles.avatar}
+            />
             <View style={styles.messageBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text style={styles.name}>{item.name}</Text>

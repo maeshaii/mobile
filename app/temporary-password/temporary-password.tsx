@@ -9,6 +9,7 @@ import {
   TextInput,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
 export default function TemporaryPasswordScreen() {
@@ -83,35 +84,59 @@ export default function TemporaryPasswordScreen() {
         <View style={styles.content}>
           <View style={styles.card}>
             <View style={styles.header}>
-              <Text style={styles.title}>{first ? 'First Time Log In' : 'Temporary Password Generated'}</Text>
+              <Text style={styles.title}>
+                {first ? 'First Time Log In' : 'Temporary Password Generated'}
+              </Text>
             </View>
             {first ? (
               <>
                 <Text style={styles.subtitle}>Please change your password to continue.</Text>
                 <Text style={styles.instructionsTitle}>Old Password</Text>
                 <View style={styles.inputWithIcon}>
-                  <TextInput style={styles.modalInput as any} value={oldPassword} onChangeText={setOldPassword} secureTextEntry={!showOld} />
+                  <TextInput
+                    style={styles.modalInput as any}
+                    value={oldPassword}
+                    onChangeText={setOldPassword}
+                    secureTextEntry={!showOld}
+                  />
                   <TouchableOpacity style={styles.eyeButton} onPress={() => setShowOld((s) => !s)}>
-                    <Text style={styles.eyeText}>{showOld ? '🙈' : '👁️'}</Text>
+                    <Ionicons name={showOld ? 'eye-off' : 'eye'} size={24} color="black" />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.instructionsTitle}>New Password</Text>
                 <View style={styles.inputWithIcon}>
-                  <TextInput style={styles.modalInput as any} value={newPassword} onChangeText={setNewPassword} secureTextEntry={!showNew} />
+                  <TextInput
+                    style={styles.modalInput as any}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry={!showNew}
+                  />
                   <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNew((s) => !s)}>
-                    <Text style={styles.eyeText}>{showNew ? '🙈' : '👁️'}</Text>
+                    <Ionicons name={showNew ? 'eye-off' : 'eye'} size={24} color="black" />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.instructionsTitle}>Confirm Password</Text>
                 <View style={styles.inputWithIcon}>
-                  <TextInput style={styles.modalInput as any} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={!showConfirm} />
-                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowConfirm((s) => !s)}>
-                    <Text style={styles.eyeText}>{showConfirm ? '🙈' : '👁️'}</Text>
+                  <TextInput
+                    style={styles.modalInput as any}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showConfirm}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowConfirm((s) => !s)}
+                  >
+                    <Ionicons name={showConfirm ? 'eye-off' : 'eye'} size={24} color="black" />
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.instructionText}>Must be 10+ chars with upper, lower, number, and symbol.</Text>
+                <Text style={styles.instructionText}>
+                  Must be 10+ chars with upper, lower, number, and symbol.
+                </Text>
                 {error ? <Text style={{ color: '#ffb3b3', marginBottom: 8 }}>{error}</Text> : null}
-                {success ? <Text style={{ color: '#b2f2bb', marginBottom: 8 }}>{success}</Text> : null}
+                {success ? (
+                  <Text style={{ color: '#b2f2bb', marginBottom: 8 }}>{success}</Text>
+                ) : null}
                 <TouchableOpacity style={styles.loginButton} onPress={onConfirmFirstLogin}>
                   <Text style={styles.loginButtonText}>Confirm</Text>
                 </TouchableOpacity>
@@ -119,7 +144,8 @@ export default function TemporaryPasswordScreen() {
             ) : (
               <>
                 <Text style={styles.subtitle}>
-                  Hello {userName || 'User'}, your temporary password has been generated successfully.
+                  Hello {userName || 'User'}, your temporary password has been generated
+                  successfully.
                 </Text>
                 <View style={styles.passwordContainer}>
                   <Text style={styles.passwordLabel}>Your Temporary Password:</Text>
@@ -138,8 +164,12 @@ export default function TemporaryPasswordScreen() {
                 <View style={styles.instructionsContainer}>
                   <Text style={styles.instructionsTitle}>Important Instructions:</Text>
                   <Text style={styles.instructionText}>• Use this password to log in to your account</Text>
-                  <Text style={styles.instructionText}>• Change your password immediately after logging in</Text>
-                  <Text style={styles.instructionText}>• This password is temporary and should not be shared</Text>
+                  <Text style={styles.instructionText}>
+                    • Change your password immediately after logging in
+                  </Text>
+                  <Text style={styles.instructionText}>
+                    • This password is temporary and should not be shared
+                  </Text>
                 </View>
                 <TouchableOpacity style={styles.loginButton} onPress={handleGoToLogin}>
                   <Text style={styles.loginButtonText}>Go to Login</Text>

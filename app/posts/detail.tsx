@@ -245,39 +245,33 @@ export default function PostDetailScreen() {
           )}
         </View>
 
-        {/* Viewers Section */}
-        <View style={styles.viewersSection}>
-          <TouchableOpacity
-            style={styles.viewerButton}
-            onPress={() => {
-              setSelectedPost(post);
-              setViewerType('likes');
-              setViewerVisible(true);
-            }}
-          >
-            <Text style={styles.viewerButtonText}>
-              View {post.likes_count || 0} {post.likes_count === 1 ? 'like' : 'likes'}
-            </Text>
+        {/* Stats */}
+        <View style={styles.actionsCountsRow}>
+          <TouchableOpacity onPress={() => {
+            setSelectedPost(post);
+            setViewerType('likes');
+            setViewerVisible(true);
+          }}>
+            <Text style={styles.countText}>{post.likes_count || 0} {post.likes_count === 1 ? 'like' : 'likes'}</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.viewerButton}
-            onPress={() => {
-              setSelectedPost(post);
-              setViewerType('reposts');
-              setViewerVisible(true);
-            }}
-          >
-            <Text style={styles.viewerButtonText}>
-              View {post.reposts_count || 0} {post.reposts_count === 1 ? 'share' : 'shares'}
-            </Text>
+          <TouchableOpacity onPress={() => {
+            // Scroll to comments section
+          }}>
+            <Text style={styles.countText}>{comments.length} comments</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => {
+            setSelectedPost(post);
+            setViewerType('reposts');
+            setViewerVisible(true);
+          }}>
+            <Text style={styles.countText}>{post.reposts_count || 0} reposts</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Post Actions */}
-        <View style={styles.postActions}>
-          <TouchableOpacity
-            style={styles.actionButton}
+        {/* Actions */}
+        <View style={styles.actions}>
+          <TouchableOpacity 
+            style={styles.actionIcon} 
             onPress={async () => {
               if (!postId || actionLoading) return;
               try {
@@ -307,25 +301,21 @@ export default function PostDetailScreen() {
               size={18} 
               color={isLiked ? "#1e3a8a" : "#555"} 
             />
-            <Text style={[styles.actionText, isLiked && { color: '#1e3a8a' }]}>
-              {post.likes_count || 0} {post.likes_count === 1 ? 'like' : 'likes'}
-            </Text>
+            <Text style={[styles.actionText, isLiked && styles.likedText]}>Like</Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity
-            style={styles.actionButton}
+            style={styles.actionIcon}
             onPress={() => {
               // Scroll to comments section
             }}
           >
             <FontAwesome name="comment-o" size={18} color="#555" />
-            <Text style={styles.actionText}>
-              {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
-            </Text>
+            <Text style={styles.actionText}>Comment</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.actionButton}
+
+          <TouchableOpacity 
+            style={styles.actionIcon} 
             onPress={async () => {
               if (!postId || actionLoading) return;
               try {
@@ -343,9 +333,7 @@ export default function PostDetailScreen() {
             }}
           >
             <FontAwesome name="retweet" size={18} color="#555" />
-            <Text style={styles.actionText}>
-              {post.reposts_count || 0} {post.reposts_count === 1 ? 'share' : 'shares'}
-            </Text>
+            <Text style={styles.actionText}>Repost</Text>
           </TouchableOpacity>
         </View>
 
@@ -455,15 +443,16 @@ export default function PostDetailScreen() {
           <View style={styles.viewerModal}>
             <View style={styles.viewerHeader}>
               <Text style={styles.viewerTitle}>
-                {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Shares' : 'Viewer'}
+                {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Reposts' : 'Viewer'}
               </Text>
               <TouchableOpacity onPress={() => setViewerVisible(false)}>
                 <Ionicons name="close" size={24} color="#1f2937" />
               </TouchableOpacity>
             </View>
-            <View style={styles.viewerContent}>
+            <ScrollView style={styles.viewerContent}>
               {viewerType === 'likes' && selectedPost.likes && selectedPost.likes.map((like: any, index: number) => (
                 <View key={index} style={styles.viewerItem}>
+                  <Image source={renderAvatar(like.user?.profile_pic)} style={styles.viewerAvatar} />
                   <Text style={styles.viewerItemText}>
                     {like.user?.f_name} {like.user?.l_name}
                   </Text>
@@ -471,12 +460,18 @@ export default function PostDetailScreen() {
               ))}
               {viewerType === 'reposts' && selectedPost.reposts && selectedPost.reposts.map((repost: any, index: number) => (
                 <View key={index} style={styles.viewerItem}>
-                  <Text style={styles.viewerItemText}>
-                    {repost.user?.f_name} {repost.user?.l_name}
-                  </Text>
+                  <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.viewerAvatar} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.viewerItemText}>
+                      {repost.user?.f_name} {repost.user?.l_name}
+                    </Text>
+                    {repost.repost_date && (
+                      <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>
+                    )}
+                  </View>
                 </View>
               ))}
-            </View>
+            </ScrollView>
           </View>
         </View>
       )}
@@ -622,15 +617,31 @@ const styles = StyleSheet.create({
   },
   viewerContent: {
     padding: 16,
+    maxHeight: 400,
   },
   viewerItem: {
-    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
+  },
+  viewerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e5e7eb',
+    marginRight: 12,
   },
   viewerItemText: {
     fontSize: 16,
     color: '#111827',
+    fontWeight: '500',
+  },
+  viewerSubText: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
   },
   
   // Post Header Styles
@@ -710,44 +721,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#e5e7eb',
   },
   
-  // Post Actions Styles
-  postActions: {
+  // Stats and Actions Styles (matching postCard.tsx)
+  actionsCountsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    marginTop: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingBottom: 8,
+  },
+  countText: { 
+    fontSize: 12, 
+    color: '#666' 
+  },
+  actions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 12,
+    marginTop: 15,
     borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#e5e7eb',
+    borderTopColor: '#eee',
+    paddingTop: 10,
   },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    gap: 4,
+  actionIcon: { 
+    alignItems: 'center', 
+    gap: 2 
   },
-  actionText: {
-    fontSize: 14,
-    color: '#6b7280',
-    fontWeight: '500',
+  actionText: { 
+    fontSize: 12, 
+    color: '#555' 
   },
-  
-  // Viewers Section Styles
-  viewersSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  viewerButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  viewerButtonText: {
-    fontSize: 14,
-    color: '#1e3a8a',
-    fontWeight: '500',
+  likedText: { 
+    color: '#1e3a8a', 
+    fontWeight: 'bold' 
   },
   
   // Comments Section Styles

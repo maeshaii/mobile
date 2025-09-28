@@ -177,7 +177,7 @@ export default function RepostScreen() {
           <ActivityIndicator size="small" color="#222" />
         ) : (
           <Text style={styles.postBtn}>
-            {caption.trim().length > 0 ? 'Save' : 'Share'}
+            {caption.trim().length > 0 ? 'Repost' : 'Repost'}
           </Text>
         )}
       </TouchableOpacity>

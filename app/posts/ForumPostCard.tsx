@@ -280,7 +280,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
-            <Text style={styles.countText}>{repostCount} shares</Text>
+            <Text style={styles.countText}>{repostCount} reposts</Text>
           </TouchableOpacity>
         </View>
 
@@ -302,7 +302,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
           <TouchableOpacity style={styles.actionIcon} onPress={handleRepost}>
             <FontAwesome name="retweet" size={18} color="#555" />
-            <Text style={styles.actionText}>Share</Text>
+            <Text style={styles.actionText}>Repost</Text>
           </TouchableOpacity>
         </View>
       </View>

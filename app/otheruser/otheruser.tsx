@@ -7,11 +7,13 @@ import {
   StyleSheet, 
   RefreshControl, 
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { 
+  API_BASE_URL,
   getAlumniDetails, 
   followUser, 
   unfollowUser, 
@@ -24,6 +26,7 @@ import {
 } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
+import RepostCard from '../repost/RepostCard';
 import FollowModal from '../follow/follow';
 
 interface UserProfile {
@@ -58,13 +61,43 @@ interface Post {
   reposts_count?: number;
   created_at: string;
   is_liked?: boolean;
+  item_type: 'post';
 }
+
+interface FeedRepost {
+  repost_id: number;
+  created_at: string;
+  user: {
+    f_name: string;
+    l_name: string;
+    profile_pic?: string;
+    user_id?: number;
+  };
+  caption?: string;
+  original_post: Post;
+  likes_count?: number;
+  comments_count?: number;
+  reposts_count?: number;
+  is_liked?: boolean;
+  item_type: 'repost';
+}
+
+type FeedItem = Post | FeedRepost;
+
+// Type guards
+const isRepost = (item: FeedItem): item is FeedRepost => {
+  return item.item_type === 'repost';
+};
+
+const isPost = (item: FeedItem): item is Post => {
+  return item.item_type === 'post';
+};
 
 export default function OtherUserPage() {
   const router = useRouter();
   const { viewUserId } = useLocalSearchParams();
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -72,6 +105,11 @@ export default function OtherUserPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
+
+  // viewer (likes/reposts)
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
+  const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
 
   const loadUserData = useCallback(async () => {
     if (!viewUserId) return;
@@ -118,13 +156,84 @@ export default function OtherUserPage() {
       try {
         const allPosts = await getPosts();
         console.log('All posts:', allPosts);
-        // Filter posts by the current user and exclude forum posts
-        const userPosts = allPosts.filter((post: any) => 
-          (post.user?.user_id === Number(viewUserId) || post.user?.id === Number(viewUserId)) &&
-          post.type !== 'forum'
+        
+        // Create feed items that include both posts and reposts
+        const feedItems: FeedItem[] = [];
+        
+        // Get posts created by the user
+        const userPosts = (allPosts || []).filter((p: any) => 
+          (p.user?.user_id === Number(viewUserId) || p.user?.id === Number(viewUserId)) &&
+          p.type !== 'forum'
         );
-        console.log('User posts:', userPosts);
-        setPosts(userPosts);
+        
+        // Get reposts made by the user (from all posts)
+        const userReposts: any[] = [];
+        (allPosts || []).forEach((post: any) => {
+          if (Array.isArray(post.reposts)) {
+            post.reposts.forEach((repost: any) => {
+              if (repost.user?.user_id === Number(viewUserId) || repost.user?.id === Number(viewUserId)) {
+                userReposts.push({
+                  ...repost,
+                  original_post: post
+                });
+              }
+            });
+          }
+        });
+        
+        // Add original posts created by the user
+        userPosts.forEach((post: any) => {
+          const likesArr = Array.isArray(post?.likes) ? post.likes : [];
+          const likedByMe = Number(viewUserId) ? likesArr.some((l: any) => l?.user_id === Number(viewUserId) || l?.user?.user_id === Number(viewUserId)) : false;
+          
+          feedItems.push({
+            ...post,
+            created_at: post.created_at || new Date().toISOString(),
+            is_liked: !!likedByMe,
+            item_type: 'post'
+          });
+        });
+        
+        // Add reposts made by the user
+        userReposts.forEach((repost: any) => {
+          const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
+          const repostLikedByMe = Number(viewUserId) ? repostLikesArr.some((l: any) => l?.user_id === Number(viewUserId) || l?.user?.user_id === Number(viewUserId)) : false;
+          
+          feedItems.push({
+            repost_id: repost.repost_id,
+            created_at: repost.repost_date || new Date().toISOString(),
+            user: repost.user,
+            caption: repost.caption,
+            original_post: {
+              post_id: repost.original_post.post_id,
+              post_title: repost.original_post.post_title,
+              post_content: repost.original_post.post_content,
+              post_image: repost.original_post.post_image,
+              user: repost.original_post.user,
+              created_at: repost.original_post.created_at || new Date().toISOString(),
+              likes_count: repost.original_post.likes_count,
+              comments_count: repost.original_post.comments_count,
+              reposts_count: repost.original_post.reposts_count,
+              is_liked: false, // This is the original post, not the repost
+              item_type: 'post'
+            },
+            likes_count: repost.likes_count || 0,
+            comments_count: repost.comments_count || 0,
+            reposts_count: repost.reposts_count || 0,
+            is_liked: !!repostLikedByMe,
+            item_type: 'repost'
+          });
+        });
+        
+        // Sort by creation date (newest first)
+        feedItems.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0).getTime();
+          const dateB = new Date(b.created_at || 0).getTime();
+          return dateB - dateA;
+        });
+        
+        console.log('User feed items:', feedItems);
+        setPosts(feedItems);
       } catch (error) {
         console.error('Error loading user posts:', error);
         setPosts([]);
@@ -206,16 +315,9 @@ export default function OtherUserPage() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <FontAwesome name="arrow-left" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView 
+      <ScrollView
         style={styles.scrollContainer}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={{ flexGrow: 1 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -225,64 +327,74 @@ export default function OtherUserPage() {
           />
         }
       >
-        {/* Profile Card */}
-        <View style={styles.profileCard}>
-          <View style={styles.profileImageWrapper}>
-            <UserAvatar 
-              profilePic={user.profile_pic}
-              firstName={user.f_name}
-              lastName={user.l_name}
-              size={100}
-              style={styles.profileImage}
-            />
-          </View>
+      {/* Blue Header */}
+      <View style={styles.headerContainer}>
+        <View style={styles.headerBg} />
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <FontAwesome name="arrow-left" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
 
-          <Text style={styles.profileName}>{userName}</Text>
-          <Text style={styles.profileUsername}>@{user.id}</Text>
-          
-          {user.profile_bio && (
-            <Text style={styles.bioText}>{user.profile_bio}</Text>
-          )}
-
-          {/* Action Buttons */}
-          <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.followButton, isFollowing && styles.followingButton]}
-              onPress={handleFollow}
-              disabled={followLoading}
-            >
-              <Text style={[styles.actionButtonText, isFollowing && styles.followingButtonText]}>
-                {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.actionButton, styles.messageButton]}
-              onPress={handleMessage}
-            >
-              <Text style={styles.messageButtonText}>Message</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Stats */}
-          <View style={styles.statsContainer}>
-            <TouchableOpacity 
-              style={styles.statItem}
-              onPress={() => setShowFollowers(true)}
-            >
-              <Text style={styles.statNumber}>{user.followers_count ?? 0}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.statItem}
-              onPress={() => setShowFollowing(true)}
-            >
-              <Text style={styles.statNumber}>{user.following_count ?? 0}</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </TouchableOpacity>
-          </View>
+      {/* Profile Card */}
+      <View style={styles.profileCard}>
+        <View style={styles.profileImageWrapper}>
+          <UserAvatar 
+            profilePic={user.profile_pic}
+            firstName={user.f_name}
+            lastName={user.l_name}
+            size={100}
+            style={styles.profileImage}
+          />
         </View>
+
+        <Text style={styles.profileName}>{userName}</Text>
+        <Text style={styles.profileUsername}>@{user.id}</Text>
+        
+        {user.profile_bio && (
+          <View style={styles.bioRow}>
+            <Text style={styles.bioText}>{user.profile_bio}</Text>
+          </View>
+        )}
+
+        {/* Action Buttons */}
+        <View style={styles.actionButtons}>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.followButton, isFollowing && styles.followingButton]}
+            onPress={handleFollow}
+            disabled={followLoading}
+          >
+            <Text style={[styles.actionButtonText, isFollowing && styles.followingButtonText]}>
+              {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.messageButton]}
+            onPress={handleMessage}
+          >
+            <Text style={styles.messageButtonText}>Message</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Stats */}
+        <View style={styles.statsContainer}>
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => setShowFollowers(true)}
+          >
+            <Text style={styles.statNumber}>{user.followers_count ?? 0}</Text>
+            <Text style={styles.statLabel}>Followers</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => setShowFollowing(true)}
+          >
+            <Text style={styles.statNumber}>{user.following_count ?? 0}</Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
         {/* Posts Section */}
         <View style={styles.postsSection}>
@@ -292,23 +404,124 @@ export default function OtherUserPage() {
               <Text style={styles.noPostsText}>No posts yet</Text>
             </View>
           ) : (
-            posts.map((post) => (
-              <PostCard
-                key={post.post_id}
-                post={post}
-                currentUserId={currentUser?.id}
-              />
-            ))
+            posts.map((item) => {
+              if (isRepost(item)) {
+                return (
+                  <RepostCard
+                    key={`repost-${item.repost_id}`}
+                    repost={item}
+                    currentUserId={currentUser?.id}
+                    onLikeToggle={(repostId, liked) => {
+                      setPosts(prev => prev.map(p => 
+                        isRepost(p) && p.repost_id === repostId 
+                          ? { ...p, is_liked: liked, likes_count: liked ? (p.likes_count || 0) + 1 : Math.max(0, (p.likes_count || 0) - 1) } 
+                          : p
+                      ));
+                    }}
+                    onOpenViewer={(repost, type) => {
+                      setSelectedPostStats(repost);
+                      setViewerType(type);
+                      setViewerVisible(true);
+                    }}
+                    onEdited={(repostId, newCaption) => {
+                      setPosts(prev => prev.map(p => 
+                        isRepost(p) && p.repost_id === repostId 
+                          ? { ...p, caption: newCaption } 
+                          : p
+                      ));
+                    }}
+                    onDeleted={(repostId) => {
+                      setPosts(prev => prev.filter(p => !(isRepost(p) && p.repost_id === repostId)));
+                    }}
+                  />
+                );
+              } else {
+                return (
+                  <PostCard
+                    key={`post-${item.post_id}`}
+                    post={item}
+                    currentUserId={currentUser?.id}
+                    onLikeToggle={(postId, isLiked) => {
+                      setPosts(prev => prev.map(p => 
+                        isPost(p) && p.post_id === postId 
+                          ? { ...p, is_liked: isLiked, likes_count: isLiked ? (p.likes_count || 0) + 1 : Math.max(0, (p.likes_count || 0) - 1) } 
+                          : p
+                      ));
+                    }}
+                    onOpenViewer={(post, type) => {
+                      setSelectedPostStats(post);
+                      setViewerType(type);
+                      setViewerVisible(true);
+                    }}
+                    onEdited={(postId, newContent) => {
+                      setPosts(prev => prev.map(p => 
+                        isPost(p) && p.post_id === postId 
+                          ? { ...p, post_content: newContent } 
+                          : p
+                      ));
+                    }}
+                    onDeleted={(postId) => {
+                      setPosts(prev => prev.filter(p => !(isPost(p) && p.post_id === postId)));
+                    }}
+                  />
+                );
+              }
+            })
           )}
         </View>
       </ScrollView>
+
+      {/* Viewer (likes/reposts) */}
+      <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewerModal}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.modalTitle}>{viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}</Text>
+              <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320 }}>
+              {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
+                <View key={idx} style={styles.listItemRow}>
+                  <UserAvatar 
+                    profilePic={u.profile_pic}
+                    firstName={u.f_name}
+                    lastName={u.l_name}
+                    size={36}
+                    style={styles.listAvatar}
+                  />
+                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                </View>
+              ))}
+
+              {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
+                <View key={r.repost_id} style={styles.listItemRow}>
+                  <UserAvatar 
+                    profilePic={r.user?.profile_pic}
+                    firstName={r.user?.f_name}
+                    lastName={r.user?.l_name}
+                    size={36}
+                    style={styles.listAvatar}
+                  />
+                  <View>
+                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Followers Modal */}
       <FollowModal
         visible={showFollowers}
         onClose={() => setShowFollowers(false)}
         type="followers"
-        userId={user.id}
+        userId={user?.id || 0}
       />
 
       {/* Following Modal */}
@@ -316,7 +529,7 @@ export default function OtherUserPage() {
         visible={showFollowing}
         onClose={() => setShowFollowing(false)}
         type="following"
-        userId={user.id}
+        userId={user?.id || 0}
       />
     </View>
   );
@@ -327,92 +540,85 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  errorText: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 20,
-  },
-  retryButton: {
-    backgroundColor: '#174f84',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  header: {
-    backgroundColor: '#174f84',
-    paddingTop: 50,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backButton: {
-    marginRight: 16,
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
   scrollContainer: {
     flex: 1,
+    backgroundColor: '#fff',
+    paddingHorizontal: 0,
   },
-  scrollContent: {
-    flexGrow: 1,
+  headerContainer: {
+    position: 'relative',
+  },
+  headerBg: {
+    height: 160,
+    backgroundColor: '#174f84',
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    width: '100%',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 16,
+    zIndex: 10,
+    padding: 8,
+    borderRadius: 20,
   },
   profileCard: {
+    backgroundColor: '#fff',
+    borderRadius: 2,
     alignItems: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 20,
+    marginTop: -30,
+    paddingTop: 60,
+    paddingBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+    width: '100%',
   },
   profileImageWrapper: {
-    marginBottom: 15,
-  },
-  profileImage: {
+    position: 'absolute',
+    top: -40,
+    left: '50%',
+    marginLeft: -50,
+    zIndex: 2,
+    borderWidth: 4,
+    borderColor: '#fff',
+    borderRadius: 50,
     width: 100,
     height: 100,
+    overflow: 'visible',
+    backgroundColor: '#eee',
+  },
+  profileImage: {
+    width: 90,
+    height: 90,
     borderRadius: 50,
   },
   profileName: {
     fontSize: 20,
     fontWeight: 'bold',
+    marginTop: 10,
     color: '#222',
-    marginBottom: 4,
+    textAlign: 'center',
   },
   profileUsername: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
+    color: '#888',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  bioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '90%',
+    marginBottom: 8,
   },
   bioText: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 8,
-    marginBottom: 12,
-    textAlign: 'center',
-    paddingHorizontal: 20,
+    color: '#444',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -467,7 +673,7 @@ const styles = StyleSheet.create({
   },
   postsSection: {
     paddingHorizontal: 16,
-    paddingBottom: 20,
+    paddingTop: 20,
   },
   postsHeader: {
     fontSize: 16,
@@ -477,10 +683,83 @@ const styles = StyleSheet.create({
   },
   noPostsContainer: {
     alignItems: 'center',
-    paddingVertical: 30,
+    padding: 40,
   },
   noPostsText: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#666',
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#174f84',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#666',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#174f84',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  // Viewer modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  viewerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '92%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  listItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e0e7ef',
+    marginRight: 10,
+  },
+  listText: {
+    fontSize: 14,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  listSubText: {
+    fontSize: 12,
+    color: '#888',
   },
 });
