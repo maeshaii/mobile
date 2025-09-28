@@ -211,7 +211,6 @@ export default function OtherUserPage() {
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <FontAwesome name="arrow-left" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
       </View>
 
       <ScrollView 

@@ -7,6 +7,7 @@ import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
   repostPost, deleteRepost
 } from '../services/api';
+import UserAvatar from '../components/UserAvatar';
 
 export default function DashboardScreen() {
   const [user, setUser] = useState<any>(null);
@@ -316,21 +317,33 @@ export default function DashboardScreen() {
                 {viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}
               </Text>
               <TouchableOpacity onPress={() => setViewerVisible(false)}>
-                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView style={{ maxHeight: 320 }}>
               {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => (
                 <View key={idx} style={styles.listItemRow}>
-                  <Image source={{ uri: u.profile_pic || 'https://randomuser.me/api/portraits/men/45.jpg' }} style={styles.listAvatar} />
+                  <UserAvatar 
+                    profilePic={u.profile_pic}
+                    firstName={u.f_name}
+                    lastName={u.l_name}
+                    size={36}
+                    style={styles.listAvatar}
+                  />
                   <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
                 </View>
               ))}
 
               {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => (
                 <View key={r.repost_id} style={styles.listItemRow}>
-                  <Image source={{ uri: r.user?.profile_pic || 'https://randomuser.me/api/portraits/men/46.jpg' }} style={styles.listAvatar} />
+                  <UserAvatar 
+                    profilePic={r.user?.profile_pic}
+                    firstName={r.user?.f_name}
+                    lastName={r.user?.l_name}
+                    size={36}
+                    style={styles.listAvatar}
+                  />
                   <View>
                     <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
@@ -339,12 +352,16 @@ export default function DashboardScreen() {
               ))}
 
               {viewerType === 'comments' && selectedPost?.comments?.map((c: any) => (
-                <View key={c.comment_id} style={styles.listItemRow}>
-                  <Image source={{ uri: c.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.listAvatar} />
+                <View key={c.comment_id} style={styles.commentRow}>
+                  <Image source={{ uri: c.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.commentAvatar} />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.listText}>{c.user?.f_name} {c.user?.l_name}</Text>
+                    <View style={styles.commentHeaderRow}>
+                      <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                      <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.commentBubble}>
                     <Text style={styles.commentBody}>{c.comment_content}</Text>
-                    <Text style={styles.listSubText}>{new Date(c.date_created).toLocaleString()}</Text>
+                    </View>
                   </View>
                 </View>
               ))}
@@ -704,16 +721,51 @@ const styles = StyleSheet.create({
   },
   listText: {
     fontSize: 14,
-    color: '#174f84',
+    color: '#1e3a8a',
     fontWeight: '600',
   },
   listSubText: {
     fontSize: 12,
     color: '#888',
   },
+  commentRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
+  },
+  commentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  commentName: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  commentMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginLeft: 'auto',
+  },
+  commentBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
   commentBody: {
-    fontSize: 14,
-    color: '#333',
+    color: '#111827',
   },
   commentInputRow: {
     flexDirection: 'row',

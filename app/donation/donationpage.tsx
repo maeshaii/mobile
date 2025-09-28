@@ -6,12 +6,12 @@ import { followUser, getUserInfo, checkFollowStatus, getDonationPosts } from '..
 import UserAvatar from '../../components/UserAvatar';
 import DonationPostCard from '../posts/DonationPostCard';
 
-const donationLogo = require('../../assets/images/ccict_logo.jpg'); // Using CCICT logo for now
+const donationLogo = require('../../assets/images/wny_logo.jpg');
 
 const orgInfo = {
-  name: 'CCICT Donation',
-  username: '@CCICT_DONATION',
-  bio: 'Support CCICT through donations',
+  name: 'Donation Page',
+  username: '@Alumni_donation',
+  bio: 'Support through donations',
   profile_pic: donationLogo,
 };
 
@@ -166,7 +166,7 @@ export default function DonationPage() {
       ))}
 
       {/* Likes/Reposts Viewer Modal */}
-      <Modal visible={viewerVisible} transparent animationType="fade" onRequestClose={() => setViewerVisible(false)}>
+      <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.viewerModal}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -174,19 +174,19 @@ export default function DonationPage() {
                 {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Shares' : 'Comments'}
               </Text>
               <TouchableOpacity onPress={() => setViewerVisible(false)}>
-                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 360, marginTop: 8 }}>
+            <ScrollView style={{ maxHeight: 320 }}>
               {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
                 <View key={idx} style={styles.listItemRow}>
                   <UserAvatar 
                     profilePic={u.profile_pic}
                     firstName={u.f_name}
                     lastName={u.l_name}
-                    size={40}
-                    style={styles.avatar}
+                    size={36}
+                    style={styles.listAvatar}
                   />
                   <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
                 </View>
@@ -198,12 +198,12 @@ export default function DonationPage() {
                     profilePic={r.user?.profile_pic}
                     firstName={r.user?.f_name}
                     lastName={r.user?.l_name}
-                    size={40}
-                    style={styles.avatar}
+                    size={36}
+                    style={styles.listAvatar}
                   />
                   <View>
                     <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
-                    <Text style={styles.postMeta}>{new Date(r.repost_date).toLocaleString()}</Text>
+                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
               ))}
@@ -333,32 +333,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   viewerModal: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    width: '80%',
-    maxHeight: '60%',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '92%',
+    maxHeight: '80%',
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '700',
+    color: '#111827',
   },
   listItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e0e7ef',
+    marginRight: 10,
   },
   listText: {
     fontSize: 14,
-    color: '#333',
-    marginLeft: 12,
+    color: '#1e3a8a',
+    fontWeight: '600',
   },
-  postMeta: {
+  listSubText: {
     fontSize: 12,
     color: '#888',
-    marginLeft: 12,
   },
 });

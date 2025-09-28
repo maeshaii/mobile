@@ -177,10 +177,14 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
           <View style={styles.commentsSection}>
             {comments.slice(0, 2).map((comment) => (
               <View key={comment.id} style={styles.commentItem}>
-                <Text style={styles.commentAuthor}>
-                  {comment.user.first_name} {comment.user.last_name}:
-                </Text>
-                <Text style={styles.commentText}>{comment.comment_content}</Text>
+                <View style={styles.commentHeaderRow}>
+                  <Text style={styles.commentAuthor}>
+                    {comment.user.first_name} {comment.user.last_name}
+                  </Text>
+                </View>
+                <View style={styles.commentBubble}>
+                  <Text style={styles.commentText}>{comment.comment_content}</Text>
+                </View>
               </View>
             ))}
             {comments.length > 2 && (
@@ -213,13 +217,20 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
             <View style={styles.commentsList}>
               {comments.map((comment) => (
                 <View key={comment.id} style={styles.modalCommentItem}>
-                  <Text style={styles.modalCommentAuthor}>
-                    {comment.user.first_name} {comment.user.last_name}
-                  </Text>
-                  <Text style={styles.modalCommentText}>{comment.comment_content}</Text>
-                  <Text style={styles.modalCommentDate}>
-                    {formatDate(comment.created_at)}
-                  </Text>
+                  <View style={styles.modalCommentAvatar} />
+                  <View style={styles.modalCommentContent}>
+                    <View style={styles.modalCommentHeaderRow}>
+                      <Text style={styles.modalCommentAuthor}>
+                        {comment.user.first_name} {comment.user.last_name}
+                      </Text>
+                      <Text style={styles.modalCommentDate}>
+                        {formatDate(comment.created_at)}
+                      </Text>
+                    </View>
+                    <View style={styles.modalCommentBubble}>
+                      <Text style={styles.modalCommentText}>{comment.comment_content}</Text>
+                    </View>
+                  </View>
                 </View>
               ))}
             </View>
@@ -328,16 +339,27 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   commentItem: {
+    marginBottom: 8,
+  },
+  commentHeaderRow: {
     marginBottom: 4,
   },
   commentAuthor: {
+    fontWeight: '600',
+    color: '#111827',
     fontSize: 12,
-    fontWeight: 'bold',
-    color: '#222',
+  },
+  commentBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
   commentText: {
+    color: '#111827',
     fontSize: 12,
-    color: '#333',
   },
   viewMoreComments: {
     fontSize: 12,
@@ -373,22 +395,46 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalCommentItem: {
-    marginBottom: 16,
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
+  },
+  modalCommentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
+  },
+  modalCommentContent: {
+    flex: 1,
+  },
+  modalCommentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
   },
   modalCommentAuthor: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#222',
-    marginBottom: 4,
-  },
-  modalCommentText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 4,
+    fontWeight: '600',
+    color: '#111827',
   },
   modalCommentDate: {
     fontSize: 12,
-    color: '#888',
+    color: '#6b7280',
+    marginLeft: 'auto',
+  },
+  modalCommentBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  modalCommentText: {
+    color: '#111827',
   },
   commentInputContainer: {
     flexDirection: 'row',

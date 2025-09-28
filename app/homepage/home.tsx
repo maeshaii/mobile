@@ -8,7 +8,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
 import PostCard from '../posts/postCard';
-import RepostCard from '../posts/RepostCard';
+import RepostCard from '../repost/RepostCard';
 import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
 import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
@@ -175,6 +175,10 @@ const HomeScreen = () => {
           // Add each repost as a separate feed item
           if (Array.isArray(post.reposts)) {
             post.reposts.forEach((repost: any) => {
+              // Check if current user liked this repost
+              const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
+              const repostLikedByMe = meId ? repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+              
               feedItems.push({
                 repost_id: repost.repost_id,
                 created_at: repost.repost_date,
@@ -192,10 +196,10 @@ const HomeScreen = () => {
                   reposts_count: post.reposts_count,
                   is_liked: !!likedByMe
                 },
-                likes_count: 0, // TODO: Get repost likes from API
-                comments_count: 0, // TODO: Get repost comments from API
-                reposts_count: 0, // TODO: Get repost reposts from API
-                is_liked: false, // TODO: Check if user liked this repost
+                likes_count: repost.likes_count || 0,
+                comments_count: repost.comments_count || 0,
+                reposts_count: repost.reposts_count || 0,
+                is_liked: !!repostLikedByMe,
                 item_type: 'repost'
               });
             });
@@ -670,18 +674,22 @@ const HomeScreen = () => {
                 ))}
 
                 {viewerType === 'comments' && selectedPost && isPost(selectedPost) && selectedPost.comments?.map((c: any) => (
-                  <View key={c.comment_id} style={styles.listItemRow}>
+                  <View key={c.comment_id} style={styles.commentRow}>
                     <UserAvatar 
                       profilePic={c.user?.profile_pic}
                       firstName={c.user?.f_name}
                       lastName={c.user?.l_name}
                       size={32}
-                      style={styles.listAvatar}
+                      style={styles.commentAvatar}
                     />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.listText}>{c.user?.f_name} {c.user?.l_name}</Text>
-                      <Text style={styles.commentBody}>{c.comment_content}</Text>
-                      <Text style={styles.listSubText}>{new Date(c.date_created).toLocaleString()}</Text>
+                      <View style={styles.commentHeaderRow}>
+                        <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                        <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                      </View>
+                      <View style={styles.commentBubble}>
+                        <Text style={styles.commentBody}>{c.comment_content}</Text>
+                      </View>
                     </View>
                   </View>
                 ))}
@@ -1141,9 +1149,44 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
   },
+  commentRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
+  },
+  commentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  commentName: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  commentMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginLeft: 'auto',
+  },
+  commentBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
   commentBody: {
-    fontSize: 14,
-    color: '#333',
+    color: '#111827',
   },
   commentInputRow: {
     flexDirection: 'row',

@@ -23,7 +23,7 @@ import {
 import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
-import RepostCard from '../posts/RepostCard';
+import RepostCard from '../repost/RepostCard';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -163,6 +163,9 @@ export default function ProfilePage() {
             // Add each repost as a separate feed item
             if (Array.isArray(post.reposts)) {
               post.reposts.forEach((repost: any) => {
+                // Check if current user liked this repost
+                const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
+                const repostLikedByMe = profileUserId ? repostLikesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
                 feedItems.push({
                   repost_id: repost.repost_id,
                   created_at: repost.repost_date || new Date().toISOString(),
@@ -181,10 +184,10 @@ export default function ProfilePage() {
                     is_liked: !!likedByMe,
                     item_type: 'post'
                   },
-                  likes_count: 0, // TODO: Get repost likes from API
-                  comments_count: 0, // TODO: Get repost comments from API
-                  reposts_count: 0, // TODO: Get repost reposts from API
-                  is_liked: false, // TODO: Check if user liked this repost
+                  likes_count: repost.likes_count || 0,
+                  comments_count: repost.comments_count || 0,
+                  reposts_count: repost.reposts_count || 0,
+                  is_liked: !!repostLikedByMe,
                   item_type: 'repost'
                 });
               });
@@ -254,6 +257,9 @@ export default function ProfilePage() {
             // Add each repost as a separate feed item
             if (Array.isArray(post.reposts)) {
               post.reposts.forEach((repost: any) => {
+                // Check if current user liked this repost
+                const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
+                const repostLikedByMe = profileUserId ? repostLikesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
                 feedItems.push({
                   repost_id: repost.repost_id,
                   created_at: repost.repost_date || new Date().toISOString(),
@@ -272,10 +278,10 @@ export default function ProfilePage() {
                     is_liked: !!likedByMe,
                     item_type: 'post'
                   },
-                  likes_count: 0, // TODO: Get repost likes from API
-                  comments_count: 0, // TODO: Get repost comments from API
-                  reposts_count: 0, // TODO: Get repost reposts from API
-                  is_liked: false, // TODO: Check if user liked this repost
+                  likes_count: repost.likes_count || 0,
+                  comments_count: repost.comments_count || 0,
+                  reposts_count: repost.reposts_count || 0,
+                  is_liked: !!repostLikedByMe,
                   item_type: 'repost'
                 });
               });
@@ -336,9 +342,13 @@ export default function ProfilePage() {
         // Add each repost as a separate feed item
         if (Array.isArray(post.reposts)) {
           post.reposts.forEach((repost: any) => {
+            // Check if current user liked this repost
+            const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
+            const repostLikedByMe = profileUserId ? repostLikesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
+
             feedItems.push({
               repost_id: repost.repost_id,
-              created_at: repost.repost_date,
+              created_at: repost.repost_date || new Date().toISOString(),
               user: repost.user,
               caption: repost.caption,
               original_post: {
@@ -347,17 +357,17 @@ export default function ProfilePage() {
                 post_content: post.post_content,
                 post_image: post.post_image,
                 user: post.user,
-                created_at: post.created_at,
+                created_at: post.created_at || new Date().toISOString(),
                 likes_count: post.likes_count,
                 comments_count: post.comments_count,
                 reposts_count: post.reposts_count,
                 is_liked: !!likedByMe,
                 item_type: 'post'
               },
-              likes_count: 0, // TODO: Get repost likes from API
-              comments_count: 0, // TODO: Get repost comments from API
-              reposts_count: 0, // TODO: Get repost reposts from API
-              is_liked: false, // TODO: Check if user liked this repost
+              likes_count: repost.likes_count || 0,
+              comments_count: repost.comments_count || 0,
+              reposts_count: repost.reposts_count || 0,
+              is_liked: !!repostLikedByMe,
               item_type: 'repost'
             });
           });
@@ -707,30 +717,42 @@ export default function ProfilePage() {
       </Modal>
 
       {/* Viewer (likes/reposts) */}
-      <Modal visible={viewerVisible} transparent animationType="fade" onRequestClose={() => setViewerVisible(false)}>
+      <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.viewerModalLarge}>
+          <View style={styles.viewerModal}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.modalTitle}>{viewerType === 'likes' ? 'Likes' : 'Reposts'}</Text>
+              <Text style={styles.modalTitle}>{viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}</Text>
               <TouchableOpacity onPress={() => setViewerVisible(false)}>
-                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 360, marginTop: 8 }}>
+            <ScrollView style={{ maxHeight: 320 }}>
               {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
                 <View key={idx} style={styles.listItemRow}>
-                  <Image source={{ uri: u.profile_pic || 'https://randomuser.me/api/portraits/men/45.jpg' }} style={styles.avatar} />
+                  <UserAvatar 
+                    profilePic={u.profile_pic}
+                    firstName={u.f_name}
+                    lastName={u.l_name}
+                    size={36}
+                    style={styles.listAvatar}
+                  />
                   <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
                 </View>
               ))}
 
               {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
                 <View key={r.repost_id} style={styles.listItemRow}>
-                  <Image source={{ uri: r.user?.profile_pic || 'https://randomuser.me/api/portraits/men/46.jpg' }} style={styles.avatar} />
+                  <UserAvatar 
+                    profilePic={r.user?.profile_pic}
+                    firstName={r.user?.f_name}
+                    lastName={r.user?.l_name}
+                    size={36}
+                    style={styles.listAvatar}
+                  />
                   <View>
                     <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
-                    <Text style={styles.postMeta}>{new Date(r.repost_date).toLocaleString()}</Text>
+                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
               ))}
@@ -1026,24 +1048,38 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 420,
   },
-  viewerModalLarge: {
-    backgroundColor: '#fff',
+  viewerModal: {
+    backgroundColor: 'white',
     borderRadius: 12,
     padding: 16,
     width: '92%',
-    maxWidth: 720,
     maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
   },
   listItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    paddingVertical: 8,
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e0e7ef',
+    marginRight: 10,
   },
   listText: {
-    fontSize: 16,
-    color: '#222',
+    fontSize: 14,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  listSubText: {
+    fontSize: 12,
+    color: '#888',
   },
 
   modalContent: {
@@ -1078,12 +1114,6 @@ const styles = StyleSheet.create({
   editTabTextActive: {
     color: '#174f84',
     fontWeight: 'bold',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#174f84',
   },
   modalInput: {
     width: '100%',

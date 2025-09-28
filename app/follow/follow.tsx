@@ -11,7 +11,7 @@ import {
   RefreshControl
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import UserAvatar from '../../components/UserAvatar';
 import { fetchFollowers, fetchFollowing, followUser, unfollowUser, getUserInfo } from '../../services/api';
 
@@ -45,54 +45,54 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
       setLoading(false);
       return;
     }
-    
+
     try {
       setLoading(true);
-      
-      // Extract the users from the response
-    const data = type === 'followers' 
+
+      // Always get data from API
+      const data = type === 'followers'
         ? await fetchFollowers(userId)
         : await fetchFollowing(userId);
 
-    const rawUsers = type === 'followers' ? data?.followers : data?.following;
+      // Force users array extraction
+      let usersArray: any[] = [];
+      if (type === 'followers' && Array.isArray(data?.followers)) {
+        usersArray = data.followers;
+      } else if (type === 'following' && Array.isArray(data?.following)) {
+        usersArray = data.following;
+      } else if (Array.isArray(data)) {
+        usersArray = data;
+      } else if (Array.isArray(data?.results)) {
+        usersArray = data.results;
+      }
 
-    // Try different possible response structures
-    let usersArray = rawUsers;
-    if (!usersArray && data.results) {
-      usersArray = data.results;
-    }
-    if (!usersArray && Array.isArray(data)) {
-      usersArray = data;
-    }
-    
-    // Normalize user objects
-    const users = (usersArray || []).map((u: any) => ({
-    user_id: u.user_id || u.id, // support both keys
-    ctu_id: u.ctu_id,
-    name: u.name || `${u.f_name || u.first_name || ''} ${u.l_name || u.last_name || ''}`.trim(),
-    f_name: u.f_name || u.first_name || '',
-    l_name: u.l_name || u.last_name || '',
-    profile_pic: u.profile_pic,
-    }));
-    
-    console.log(`Normalized ${type} users:`, users);
-    setUsers(users);
-      
-      // Check follow status for each user
-      if (users && users.length > 0) {
+      const normalizedUsers = (usersArray || []).map((u: any) => ({
+        user_id: u.user_id || u.id,
+        ctu_id: u.ctu_id,
+        name: u.name || `${u.f_name || u.first_name || ''} ${u.l_name || u.last_name || ''}`.trim(),
+        f_name: u.f_name || u.first_name || '',
+        l_name: u.l_name || u.last_name || '',
+        profile_pic: u.profile_pic,
+        followed_at: u.followed_at,
+      }));
+
+      console.log(`Normalized ${type} users:`, normalizedUsers);
+      setUsers(normalizedUsers);
+
+      if (normalizedUsers.length > 0) {
         const currentUser = await getUserInfo();
         const currentUserId = currentUser?.id || currentUser?.user_id;
-        
-        const statusPromises = users.map(async (user: FollowUser) => {
+
+        const statusPromises = normalizedUsers.map(async (user: FollowUser) => {
           try {
             const { checkFollowStatus } = await import('../../services/api');
             const status = await checkFollowStatus(user.user_id);
             return { userId: user.user_id, isFollowing: status.is_following || false };
-          } catch (error) {
+          } catch {
             return { userId: user.user_id, isFollowing: false };
           }
         });
-        
+
         const statuses = await Promise.all(statusPromises);
         const statusMap: { [key: number]: boolean } = {};
         statuses.forEach(status => {
@@ -102,8 +102,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
       }
     } catch (error) {
       console.error(`Error loading ${type}:`, error);
-      console.error(`Full error details:`, JSON.stringify(error, null, 2));
-      Alert.alert('Debug Info', `Failed to load ${type} for user ${userId}. Check console for details.`);
+      Alert.alert('Error', `Failed to load ${type} for user ${userId}`);
       setUsers([]);
     } finally {
       setLoading(false);
@@ -125,9 +124,9 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const handleFollow = async (targetUserId: number) => {
     try {
       setFollowLoading(prev => ({ ...prev, [targetUserId]: true }));
-      
+
       const isCurrentlyFollowing = followStatuses[targetUserId];
-      
+
       if (isCurrentlyFollowing) {
         const res = await unfollowUser(targetUserId);
         if (res?.success) {
@@ -150,16 +149,16 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const renderUser = ({ item }: { item: FollowUser }) => {
     const isFollowing = followStatuses[item.user_id] || false;
     const isLoading = followLoading[item.user_id] || false;
-    
+
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.userItem}
         onPress={() => {
           onClose();
           router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: item.user_id } });
         }}
       >
-        <UserAvatar 
+        <UserAvatar
           profilePic={item.profile_pic}
           firstName={item.f_name}
           lastName={item.l_name}
@@ -167,13 +166,13 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
           style={styles.avatar}
         />
         <View style={styles.userInfo}>
-            <Text style={styles.userName}>{item.name}</Text>
-            <Text style={styles.userHandle}>@{item.ctu_id}</Text>
+          <Text style={styles.userName}>{item.name}</Text>
+          <Text style={styles.userHandle}>@{item.ctu_id}</Text>
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.followButton, isFollowing && styles.followingButton]}
           onPress={(e) => {
-            e.stopPropagation(); // Prevent navigation when clicking follow button
+            e.stopPropagation();
             handleFollow(item.user_id);
           }}
           disabled={isLoading}
@@ -195,7 +194,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
     >
       <View style={styles.overlay}>
         <View style={styles.container}>
-          {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>
               {type === 'followers' ? 'Followers' : 'Following'}
@@ -205,7 +203,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
             </TouchableOpacity>
           </View>
 
-          {/* Content */}
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#174f84" />
@@ -228,14 +225,12 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
               }
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
-                  <FontAwesome 
-                    name={type === 'followers' ? 'users' : 'user-plus'} 
-                    size={48} 
-                    color="#ccc" 
+                  <FontAwesome
+                    name={type === 'followers' ? 'users' : 'user-plus'}
+                    size={48}
+                    color="#ccc"
                   />
-                  <Text style={styles.emptyText}>
-                    No {type} yet
-                  </Text>
+                  <Text style={styles.emptyText}>No {type} yet</Text>
                 </View>
               }
             />

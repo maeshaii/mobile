@@ -17,7 +17,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
 // Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
-export const API_BASE_URL = normalizeBaseUrl('https://2ac1658c93d1.ngrok-free.app');
+export const API_BASE_URL = normalizeBaseUrl('https://a5ca217e8c56.ngrok-free.app');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -209,12 +209,13 @@ export const deleteNotifications = async (ids: number[]) => {
 // Mobile -> Backend: GET /api/alumni/{user_id}/followers/
 export const fetchFollowers = async (userId: number) => {
   const { data } = await api.get(`/api/alumni/${userId}/followers/`);
-  return data;
+  return data.followers || [];
 };
+
 // Mobile -> Backend: GET /api/alumni/{user_id}/following/
 export const fetchFollowing = async (userId: number) => {
   const { data } = await api.get(`/api/alumni/${userId}/following/`);
-  return data;
+  return data.following || [];
 };
 // Mobile -> Backend: POST /api/follow/{user_id}/
 export const followUser = async (userId: number) => {
@@ -354,14 +355,14 @@ export const updateComment = async (postId: number, commentId: number, content: 
 // Mobile -> Backend: DELETE /api/posts/{post_id}/comments/{comment_id}/
 export const deleteComment = async (postId: number, commentId: number) =>
   (await api.delete(`/api/posts/${postId}/comments/${commentId}/`)).data;
-// Mobile -> Backend: DELETE /api/posts/{post_id}/
+// Mobile -> Backend: DELETE /api/posts/delete/{post_id}/
 export const deletePost = async (postId: number) =>
-  (await api.delete(`/api/posts/${postId}/`)).data;
-// Mobile -> Backend: PUT /api/posts/{post_id}/
+  (await api.delete(`/api/posts/delete/${postId}/`)).data;
+// Mobile -> Backend: PUT /api/posts/{post_id}/edit/
 export const editPost = async (
   postId: number,
   postData: { post_title?: string; post_content?: string }
-) => (await api.put(`/api/posts/${postId}/`, postData)).data;
+) => (await api.put(`/api/posts/${postId}/edit/`, postData)).data;
 
 /** Categories */
 // Mobile -> Backend: GET /api/post-categories/
@@ -400,11 +401,51 @@ export const likeRepost = async (repostId: number) =>
 export const unlikeRepost = async (repostId: number) =>
   (await api.delete(`/api/reposts/${repostId}/like/`)).data;
 
+// Mobile -> Backend: GET /api/reposts/{repost_id}/
+export const getRepostDetail = async (repostId: number) => {
+  const { data } = await api.get(`/api/reposts/${repostId}/`);
+  return data;
+};
+
 // Mobile -> Backend: GET /api/reposts/{repost_id}/likes/
 export const getRepostLikes = async (repostId: number) => {
   const { data } = await api.get(`/api/reposts/${repostId}/likes/`);
   return Array.isArray(data) ? data : data?.likes || [];
 };
+
+// Repost comments
+export const getRepostComments = async (repostId: number) => {
+  console.log('[API] getRepostComments called with repostId:', repostId);
+  try {
+    const response = await api.get(`/api/reposts/${repostId}/comments/`);
+    console.log('[API] getRepostComments response:', response.data);
+    return response.data?.comments || [];
+  } catch (error) {
+    console.error('[API] getRepostComments error:', error);
+    throw error;
+  }
+};
+
+export const commentOnRepost = async (repostId: number, comment: string) => {
+  console.log('[API] commentOnRepost called with repostId:', repostId, 'comment:', comment);
+  try {
+    const response = await api.post(`/api/reposts/${repostId}/comments/`, { comment_content: comment });
+    console.log('[API] commentOnRepost response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('[API] commentOnRepost error:', error);
+    throw error;
+  }
+};
+
+export const updateRepostComment = async (
+  repostId: number,
+  commentId: number,
+  content: string
+) => (await api.put(`/api/reposts/${repostId}/comments/${commentId}/`, { comment_content: content })).data;
+
+export const deleteRepostComment = async (repostId: number, commentId: number) =>
+  (await api.delete(`/api/reposts/${repostId}/comments/${commentId}/`)).data;
 
 /** Forum (separate storage) */
 // Mobile -> Backend: GET /api/forum/

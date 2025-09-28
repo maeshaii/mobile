@@ -14,6 +14,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useRouter } from 'expo-router';
 import { getNotifications, deleteNotifications, getUserInfo } from '../../services/api';
+import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
 
 interface NotificationItem {
@@ -44,7 +45,7 @@ const NotificationScreen = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const user = await getUserInfo();
       const userId = user?.id || user?.user_id;
 
@@ -117,21 +118,40 @@ const NotificationScreen = () => {
       toggleSelect(item.id || 0);
       return;
     }
-
-    if (item.notif_type?.toLowerCase() === 'follow' && item.user_id) {
-      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: item.user_id } });
-    } else if (
-      ['like', 'comment', 'repost'].includes(item.notif_type?.toLowerCase() || '') &&
-      item.post_id
-    ) {
-      router.push({ pathname: '/posts/comments', params: { postId: item.post_id } });
-    } else if (
-      item.notif_type?.toLowerCase() === 'ccict' ||
+  
+    const type = item.notif_type?.toLowerCase();
+  
+    // When a user follows me → go to their profile
+    if (type === 'follow' && item.user_id) {
+      router.push({
+        pathname: '/otheruser/otheruser',
+        params: { viewUserId: item.user_id },
+      });
+      return;
+    }
+  
+    // When user interacts with my post/repost → go to that post's comments
+    if (['like', 'comment', 'repost'].includes(type || '') && item.post_id) {
+      router.push({
+        pathname: '/posts/comments',
+        params: { postId: item.post_id },
+      });
+      return;
+    }
+  
+    // Special case: forms/tracker notifications
+    if (
+      type === 'ccict' ||
       (item.subject && item.subject.toLowerCase().includes('tracker'))
     ) {
       router.push('/forms/forms');
+      return;
     }
+  
+    // Fallback: just do nothing or alert
+    Alert.alert('Notification', 'This notification type is not yet handled.');
   };
+  
 
   const handleDeleteIndividual = async (notificationId: number) => {
     try {
@@ -201,39 +221,41 @@ const NotificationScreen = () => {
     );
   };
 
-
   const renderItem = ({ item }: { item: NotificationItem }) => {
     const isSelected = selectedIds.includes(item.id || 0);
 
-    return (
+    const renderRightActions = () => (
       <TouchableOpacity
-        style={[styles.notification, isSelected && styles.selectedNotification]}
-        onPress={() => handleNotificationPress(item)}
-        onLongPress={() => setSelectionMode(true)}
+        style={styles.swipeDeleteButton}
+        onPress={() => handleDeleteIndividual(item.id || 0)}
       >
-        {selectionMode && (
-          <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-            {isSelected && <FontAwesome name="check" size={12} color="#fff" />}
-          </View>
-        )}
-        {renderAvatar(item)}
-        <View style={styles.messageBox}>
-          <Text style={styles.name}>{item.name}</Text>
-          <Text style={styles.message}>{item.message}</Text>
-        </View>
-        <View style={styles.notificationActions}>
-          <Text style={styles.date}>{item.date}</Text>
-          {!selectionMode && (
-            <TouchableOpacity
-              style={styles.deleteButtonSmall}
-              onPress={() => handleDeleteIndividual(item.id || 0)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <FontAwesome name="trash" size={16} color="#666" />
-            </TouchableOpacity>
-          )}
-        </View>
+        <FontAwesome name="trash" size={20} color="#fff" />
       </TouchableOpacity>
+    );
+
+    return (
+      <Swipeable key={item.id} renderRightActions={renderRightActions}>
+        <TouchableOpacity
+          style={[styles.notification, isSelected && styles.selectedNotification]}
+          onPress={() => handleNotificationPress(item)}
+          onLongPress={() => setSelectionMode(true)}
+          activeOpacity={0.9}
+        >
+          {selectionMode && (
+            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+              {isSelected && <FontAwesome name="check" size={12} color="#fff" />}
+            </View>
+          )}
+          {renderAvatar(item)}
+          <View style={styles.messageBox}>
+            <Text style={styles.name}>{item.name}</Text>
+            <Text style={styles.message}>{item.message}</Text>
+          </View>
+          <View style={styles.notificationActions}>
+            <Text style={styles.date}>{item.date}</Text>
+          </View>
+        </TouchableOpacity>
+      </Swipeable>
     );
   };
 
@@ -272,7 +294,6 @@ const NotificationScreen = () => {
           </TouchableOpacity>
         )}
       </View>
-      <Text style={styles.earlier}>Earlier</Text>
 
       {error ? (
         <View style={styles.errorContainer}>
@@ -291,13 +312,13 @@ const NotificationScreen = () => {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#1e3a8a']} />
           }
           ListEmptyComponent={() =>
-              !loading ? (
-                <View style={styles.emptyContainer}>
-                  <FontAwesome name="bell-o" size={48} color="#ccc" />
-                  <Text style={styles.emptyText}>No notifications</Text>
-                </View>
-              ) : null
-            }
+            !loading ? (
+              <View style={styles.emptyContainer}>
+                <FontAwesome name="bell-o" size={48} color="#ccc" />
+                <Text style={styles.emptyText}>No notifications</Text>
+              </View>
+            ) : null
+          }
           contentContainerStyle={{ paddingBottom: 20 }}
         />
       )}
@@ -317,7 +338,12 @@ const styles = StyleSheet.create({
   notificationsTitle: { fontWeight: 'bold', fontSize: 22, color: '#222' },
   selectionActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cancelText: { color: '#666', fontSize: 14 },
-  deleteButton: { backgroundColor: '#dc3545', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  deleteButton: {
+    backgroundColor: '#dc3545',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
   deleteButtonText: { color: '#fff', fontWeight: 'bold' },
   earlier: {
     fontSize: 16,
@@ -368,8 +394,20 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 16, color: '#666', marginTop: 10 },
   errorContainer: { alignItems: 'center', padding: 40 },
   errorText: { fontSize: 16, color: '#dc3545', marginTop: 10, textAlign: 'center' },
-  retryButton: { backgroundColor: '#1e3a8a', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginTop: 15 },
+  retryButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 15,
+  },
   retryButtonText: { color: '#fff', fontWeight: 'bold' },
+  swipeDeleteButton: {
+    backgroundColor: '#dc3545',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 70,
+  },
 });
 
 export default NotificationScreen;

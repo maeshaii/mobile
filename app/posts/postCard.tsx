@@ -78,8 +78,28 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   };
 
   const handleRepost = async () => {
-    // Navigate to repost screen so user can add an optional caption
-    router.push(`/posts/repost?postId=${post.post_id}`);
+    // Check if current user already reposted this post
+    const meId = currentUserId;
+    const alreadyReposted = Array.isArray(post.reposts) 
+      ? post.reposts.find((r: any) => r.user?.user_id === meId)
+      : null;
+    
+    if (alreadyReposted) {
+      Alert.alert(
+        'Already Reposted',
+        'You have already reposted this post. Would you like to edit your repost?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Edit Repost', 
+            onPress: () => router.push(`/repost/repost?postId=${post.post_id}`)
+          }
+        ]
+      );
+    } else {
+      // Navigate to repost screen so user can add an optional caption
+      router.push(`/repost/repost?postId=${post.post_id}`);
+    }
   };
 
   const handleDelete = async () => {
@@ -98,8 +118,14 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
               Alert.alert('Deleted', 'Post removed successfully.');
               setShowActions(false);
               onDeleted?.(post.post_id);
-            } catch (error) {
-              Alert.alert('Error', 'Could not delete post.');
+            } catch (error: any) {
+              console.error('Delete post error:', error);
+              console.error('Error details:', {
+                message: error?.message,
+                response: error?.response?.data,
+                status: error?.response?.status
+              });
+              Alert.alert('Error', `Could not delete post: ${error?.response?.data?.error || error?.message || 'Unknown error'}`);
             }
           }
         }

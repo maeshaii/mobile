@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, ActivityIndicator, ScrollView, TextInput } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost } from '../../services/api';
+import { getRepostLikes } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+
+dayjs.extend(relativeTime);
 
 interface OriginalPost {
   post_id: number;
@@ -17,6 +21,9 @@ interface OriginalPost {
     profile_pic?: string;
     user_id?: number;
   };
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
   likes_count?: number;
   comments_count?: number;
   reposts_count?: number;
@@ -61,6 +68,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   const [editModal, setEditModal] = useState(false);
   const [editCaption, setEditCaption] = useState(repost.caption || '');
   const [editLoading, setEditLoading] = useState(false);
+  // Likes & Comments modals
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likesLoading, setLikesLoading] = useState(false);
+  const [likesUsers, setLikesUsers] = useState<any[]>([]);
+  // Removed comment modal state since we're using full-screen navigation
 
   const repostUserName = `${repost.user?.f_name || ''} ${repost.user?.l_name || ''}`.trim() || 'User';
   const originalUserName = `${repost.original_post.user?.f_name || ''} ${repost.original_post.user?.l_name || ''}`.trim() || 'User';
@@ -88,7 +100,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       }
       
       console.log('Successfully updated repost like status');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error liking repost:', error);
       console.error('Repost ID:', repost.repost_id);
       console.error('Error details:', JSON.stringify(error, null, 2));
@@ -98,13 +110,15 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       setLikeCount((c) => Math.max(0, c + (isLiked ? 1 : -1)));
       onLikeToggle?.(repost.repost_id, isLiked);
       
-      Alert.alert('Error', 'Repost likes are not yet supported. This feature is coming soon!');
+      // Show actual error message instead of generic message
+      const errorMessage = error?.response?.data?.error || error?.message || 'Failed to like repost';
+      Alert.alert('Error', errorMessage);
     }
   };
 
   const handleRepost = async () => {
     // Navigate to repost screen for the original post
-    router.push(`/posts/repost?postId=${repost.original_post.post_id}`);
+    router.push(`/repost/repost?postId=${repost.original_post.post_id}`);
   };
 
   const handleOriginalPostPress = () => {
@@ -153,6 +167,34 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     }
   };
 
+  const openLikes = async () => {
+    try {
+      setLikesModalVisible(true);
+      setLikesLoading(true);
+      const users = await getRepostLikes(repost.repost_id);
+      setLikesUsers(users);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to load likes');
+    } finally {
+      setLikesLoading(false);
+    }
+  };
+
+  const openCommentModal = async () => {
+    // Navigate to full-screen comments view instead of modal
+    router.push(`/repost/repost-comments?repostId=${repost.repost_id}`);
+  };
+
+  // Removed comment loading functions since we're using full-screen navigation
+
+  const renderAvatar = (src?: string) => {
+    if (!src) return require('../../assets/images/sample_pic.jpg');
+    const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
+    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+  };
+
+  // Removed comment functions since we're using full-screen navigation
+
   return (
     <View style={styles.card}>
       {/* Repost Header */}
@@ -164,8 +206,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
           size={24}
           style={styles.headerAvatar}
         />
-        <Text style={styles.repostText}>{repostUserName} reposted</Text>
-        <Text style={styles.repostMeta}>{dayjs(repost.created_at).fromNow()}</Text>
+        <Text style={styles.repostUser}>{repostUserName}</Text>
         {currentUserId === repost.user?.user_id && (
           <TouchableOpacity
             onPress={() => setShowActions(true)}
@@ -176,23 +217,10 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
           </TouchableOpacity>
         )}
       </View>
-
-      {/* Repost Caption (if exists) */}
-      {repost.caption && repost.caption.trim() && (
-        <View style={styles.captionContainer}>
-          <UserAvatar 
-            profilePic={repost.user?.profile_pic}
-            firstName={repost.user?.f_name}
-            lastName={repost.user?.l_name}
-            size={40}
-            style={styles.avatar}
-          />
-          <View style={styles.captionContent}>
-            <Text style={styles.captionUserName}>{repostUserName}</Text>
-            <Text style={styles.caption}>{repost.caption}</Text>
-          </View>
-        </View>
-      )}
+      {/* Caption (if exists) directly below header */}
+      {repost.caption && repost.caption.trim() ? (
+        <Text style={styles.caption}>{repost.caption}</Text>
+      ) : null}
 
       {/* Original Post (Embedded) */}
       <TouchableOpacity style={styles.originalPost} onPress={handleOriginalPostPress} activeOpacity={0.8}>
@@ -218,10 +246,10 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
       {/* Repost Stats */}
       <View style={styles.actionsCountsRow}>
-        <TouchableOpacity onPress={() => onOpenViewer?.(repost, 'likes')}>
+        <TouchableOpacity onPress={openLikes}>
           <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${repost.repost_id}`)}>
+        <TouchableOpacity onPress={openCommentModal}>
           <Text style={styles.countText}>{repost.comments_count || 0} comments</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => onOpenViewer?.(repost, 'reposts')}>
@@ -245,7 +273,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
         <TouchableOpacity
           style={styles.actionIcon}
-          onPress={() => router.push(`/posts/comments?postId=${repost.repost_id}`)}
+          onPress={openCommentModal}
         >
           <FontAwesome name="comment-o" size={18} color="#555" />
           <Text style={styles.actionText}>Comment</Text>
@@ -322,6 +350,41 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
           </View>
         </View>
       </Modal>
+
+      {/* Likes Modal */}
+      <Modal visible={likesModalVisible} transparent animationType="slide" onRequestClose={() => setLikesModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewerModal}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.modalTitle}>Likes</Text>
+              <TouchableOpacity onPress={() => setLikesModalVisible(false)}>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320 }}>
+              {likesLoading ? (
+                <ActivityIndicator size="small" color="#1e3a8a" />
+              ) : (
+                <>
+                  {likesUsers.length === 0 ? (
+                    <Text style={styles.emptyText}>No likes yet</Text>
+                  ) : (
+                    likesUsers.map((u, idx) => (
+                      <View key={idx} style={styles.listItemRow}>
+                        <UserAvatar profilePic={u.profile_pic} firstName={u.f_name} lastName={u.l_name} size={36} style={styles.listAvatar} />
+                        <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                      </View>
+                    ))
+                  )}
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Comment modal removed - now using full-screen navigation */}
     </View>
   );
 };
@@ -348,43 +411,18 @@ const styles = StyleSheet.create({
   headerAvatar: {
     marginRight: 8,
   },
-  repostText: {
+  repostUser: {
     fontSize: 14,
-    color: '#666',
+    color: '#111',
     marginLeft: 0,
-    fontWeight: '500',
+    fontWeight: '600',
     flex: 1,
-  },
-  repostMeta: {
-    fontSize: 12,
-    color: '#888',
-    marginLeft: 8,
-  },
-  captionContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
-    backgroundColor: '#ccc',
-  },
-  captionContent: {
-    flex: 1,
-  },
-  captionUserName: {
-    fontWeight: 'bold',
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 4,
   },
   caption: {
     fontSize: 14,
     color: '#333',
     lineHeight: 20,
+    marginBottom: 12,
   },
   originalPost: {
     backgroundColor: '#f8f9fa',
@@ -477,6 +515,41 @@ const styles = StyleSheet.create({
     width: '80%',
     maxWidth: 300,
   },
+  viewerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '92%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  listItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e0e7ef',
+    marginRight: 10,
+  },
+  listText: {
+    fontSize: 14,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  emptyText: { 
+    color: '#666', 
+    textAlign: 'center', 
+    paddingVertical: 12 
+  },
+  // Removed comment modal styles since we're using full-screen navigation
   modalButton: {
     paddingVertical: 12,
     paddingHorizontal: 16,

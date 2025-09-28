@@ -175,6 +175,8 @@ export default function PostCommentsScreen() {
 
   const renderComment = ({ item: c }: { item: CommentItem }) => {
     const isMine = c.user.user_id === meId;
+    const isPostOwner = post?.user?.user_id === meId || post?.user?.id === meId;
+    const canManage = isMine || isPostOwner;
     const isEditing = editingId === c.comment_id;
 
     return (
@@ -194,11 +196,11 @@ export default function PostCommentsScreen() {
               {!!c.date_created && (
                 <Text style={styles.cMeta}>{dayjs(c.date_created).fromNow()}</Text>
               )}
-              {isMine && !isEditing && (
-                <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
-                  <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
-                </TouchableOpacity>
-              )}
+              {canManage && !isEditing && (
+              <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
+                <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
+              </TouchableOpacity>
+            )}
             </View>
 
             {isEditing ? (
@@ -333,24 +335,30 @@ export default function PostCommentsScreen() {
         )}
       </KeyboardAvoidingView>
 
-      {/* Action Sheet */}
+      {/* Popup Modal */}
       {actionFor && (
-        <View style={styles.sheetOverlay}>
-          <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 8 }]}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.actionSheetTitle}>Comment Actions</Text>
+      <View style={styles.popupOverlay}>
+        <View style={styles.popupBox}>
+          <Text style={styles.popupTitle}>Comment Actions</Text>
+
+          {/* Edit: only show if comment is mine */}
+          {actionFor.user?.user_id === meId && (
             <TouchableOpacity
-              style={styles.sheetButton}
+              style={styles.popupButton}
               onPress={() => {
                 setEditingId(actionFor.comment_id);
                 setEditText(actionFor.comment_content);
                 setActionFor(null);
               }}
             >
-              <Text style={styles.sheetButtonText}>Edit</Text>
+              <Text style={styles.popupButtonText}>✏️ Edit</Text>
             </TouchableOpacity>
+          )}
+
+          {/* Delete: show if comment is mine OR I am the post owner */}
+          {(actionFor.user?.user_id === meId || post?.user?.user_id === meId || post?.user?.id === meId) && (
             <TouchableOpacity
-              style={[styles.sheetButton, { backgroundColor: '#fee2e2' }]}
+              style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
               onPress={() => {
                 Alert.alert(
                   'Delete Comment',
@@ -367,17 +375,20 @@ export default function PostCommentsScreen() {
                 setActionFor(null);
               }}
             >
-              <Text style={[styles.sheetButtonText, { color: '#dc2626' }]}>Delete</Text>
+              <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.sheetButton, { backgroundColor: '#f3f4f6' }]}
-              onPress={() => setActionFor(null)}
-            >
-              <Text style={[styles.sheetButtonText, { color: '#111827' }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+          )}
+
+          {/* Cancel: always show */}
+          <TouchableOpacity
+            style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
+            onPress={() => setActionFor(null)}
+          >
+            <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
+          </TouchableOpacity>
         </View>
-      )}
+      </View>
+    )}
     </SafeAreaView>
   );
 }
@@ -570,4 +581,47 @@ const styles = StyleSheet.create({
     marginVertical: 6,
   },
   sheetButtonText: { fontSize: 15, color: '#1e3a8a', fontWeight: '600' },
+  popupOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  popupBox: {
+    width: '85%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  popupTitle: {
+    fontWeight: '700',
+    fontSize: 18,
+    color: '#111827',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  popupButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    marginVertical: 6,
+    alignItems: 'center',
+  },
+  popupButtonText: {
+    fontSize: 15,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  
 });

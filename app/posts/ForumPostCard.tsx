@@ -376,17 +376,21 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
                     profilePic={comment.user?.profile_pic}
                     firstName={comment.user?.f_name}
                     lastName={comment.user?.l_name}
-                    size={36}
+                    size={32}
                     style={styles.commentAvatar}
                   />
                   <View style={styles.commentContent}>
-                    <Text style={styles.commentAuthor}>
-                      {comment.user?.f_name} {comment.user?.l_name}
-                    </Text>
-                    <Text style={styles.commentText}>{comment.comment_content}</Text>
-                    <Text style={styles.commentDate}>
-                      {formatDate(comment.date_created)}
-                    </Text>
+                    <View style={styles.commentHeaderRow}>
+                      <Text style={styles.commentAuthor}>
+                        {comment.user?.f_name} {comment.user?.l_name}
+                      </Text>
+                      <Text style={styles.commentMeta}>
+                        {formatDate(comment.date_created)}
+                      </Text>
+                    </View>
+                    <View style={styles.commentBubble}>
+                      <Text style={styles.commentText}>{comment.comment_content}</Text>
+                    </View>
                   </View>
                 </View>
               ))}
@@ -525,27 +529,45 @@ const styles = StyleSheet.create({
   },
   commentItem: {
     flexDirection: 'row',
-    marginBottom: 16,
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
   },
   commentAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
   },
   commentContent: {
     flex: 1,
   },
-  commentAuthor: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#222',
+  commentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 4,
   },
+  commentAuthor: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  commentMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginLeft: 'auto',
+  },
+  commentBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
   commentText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 4,
+    color: '#111827',
   },
   commentDate: {
     fontSize: 12,
