@@ -40,19 +40,25 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const [followStatuses, setFollowStatuses] = useState<{ [key: number]: boolean }>({});
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
+  console.log('FollowModal: Component rendered with props:', { visible, type, userId });
+
   const loadUsers = async () => {
     if (!userId) {
+      console.log('FollowModal: No userId provided, skipping load');
       setLoading(false);
       return;
     }
 
     try {
       setLoading(true);
+      console.log(`FollowModal: Loading ${type} for userId:`, userId);
 
       // Always get data from API
       const data = type === 'followers'
         ? await fetchFollowers(userId)
         : await fetchFollowing(userId);
+
+      console.log(`FollowModal: ${type} API response:`, data);
 
       // Force users array extraction
       let usersArray: any[] = [];
@@ -76,7 +82,8 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
         followed_at: u.followed_at,
       }));
 
-      console.log(`Normalized ${type} users:`, normalizedUsers);
+      console.log(`FollowModal: Normalized ${type} users:`, normalizedUsers);
+      console.log(`FollowModal: Found ${normalizedUsers.length} users`);
       setUsers(normalizedUsers);
 
       if (normalizedUsers.length > 0) {

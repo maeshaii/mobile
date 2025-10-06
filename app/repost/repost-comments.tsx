@@ -1,32 +1,12 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, Image, Modal, FlatList, KeyboardAvoidingView, Platform, RefreshControl } from 'react-native';
+import { FontAwesome, Ionicons } from '@expo/vector-icons';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { API_BASE_URL, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment, getRepostDetail, getUserInfo } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import {
-  API_BASE_URL,
-  commentOnRepost,
-  deleteRepostComment,
-  getRepostComments,
-  getRepostDetail,
-  getUserInfo,
-  updateRepostComment,
-} from '../../services/api';
 
 dayjs.extend(relativeTime);
 
@@ -44,51 +24,56 @@ type CommentItem = {
 
 export default function RepostCommentsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
-  const repostId = Number(params.repostId);
+  const { repostId } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
-
-  const [loading, setLoading] = useState(true);
-  const [repost, setRepost] = useState<any | null>(null);
+  
+  console.log('RepostCommentsScreen - repostId from params:', repostId);
+  
   const [comments, setComments] = useState<CommentItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
   const [commentText, setCommentText] = useState('');
   const [inputHeight, setInputHeight] = useState(44);
   const [submitting, setSubmitting] = useState(false);
-
-  const [me, setMe] = useState<any>(null);
-  
-  // Comment editing state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
+  const [repost, setRepost] = useState<any>(null);
+  const [me, setMe] = useState<any>(null);
   const [actionFor, setActionFor] = useState<CommentItem | null>(null);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+
+  const [now, setNow] = useState(dayjs());
+  useEffect(() => {
+    const t = setInterval(() => setNow(dayjs()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('[repost-comments] Loading repost comments for repostId:', repostId);
-      
-      const [repostData, user] = await Promise.all([
-        getRepostDetail(repostId),
+      const [repostData, commentsData, user] = await Promise.all([
+        getRepostDetail(Number(repostId)),
+        getRepostComments(Number(repostId)),
         getUserInfo()
       ]);
+      console.log('Repost detail data:', repostData);
+      console.log('Comments data:', commentsData);
+      console.log('RepostId from params:', repostId);
+      console.log('User data:', user);
       setMe(user);
-      setRepost(repostData || null);
+      setRepost(repostData);
+      setComments(Array.isArray(commentsData?.comments) ? commentsData.comments : []);
+    } catch (error: any) {
+      console.error('Error loading repost and comments:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
       
-      console.log('[repost-comments] Repost data:', repostData);
-      console.log('[repost-comments] Repost user:', repostData?.user);
-      console.log('[repost-comments] Original post:', repostData?.original);
-
-      console.log('[repost-comments] Fetching comments...');
-      const data = await getRepostComments(repostId);
-      console.log('[repost-comments] API response:', data);
-      console.log('[repost-comments] Comments array:', Array.isArray(data) ? data : []);
-      
-      setComments(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error('[repost-comments] load failed', e);
-      setComments([]);
+      // Handle specific error cases
+      if (error?.response?.status === 404) {
+        Alert.alert('Error', 'Repost not found. It may have been deleted.');
+      } else {
+        Alert.alert('Error', `Failed to load repost and comments: ${error?.message || 'Unknown error'}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -101,17 +86,18 @@ export default function RepostCommentsScreen() {
   const onRefresh = useCallback(async () => {
     try {
       setRefreshing(true);
-      const data = await getRepostComments(repostId);
-      setComments(Array.isArray(data) ? data : []);
+      const commentsData = await getRepostComments(Number(repostId));
+      setComments(Array.isArray(commentsData?.comments) ? commentsData.comments : []);
     } finally {
       setRefreshing(false);
     }
   }, [repostId]);
 
-  const renderAvatar = (src?: string) => {
+  const renderAvatar = (src?: string | null) => {
     if (!src) return require('../../assets/images/sample_pic.jpg');
     const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
-    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+    const imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
+    return { uri: imageUrl };
   };
 
   const meId = me?.id || me?.user_id;
@@ -121,33 +107,22 @@ export default function RepostCommentsScreen() {
     if (!canSend) return;
     try {
       setSubmitting(true);
-      console.log('[repost-comments] Submitting comment:', commentText.trim(), 'for repostId:', repostId);
-      const result = await commentOnRepost(repostId, commentText.trim());
-      console.log('[repost-comments] Comment submission result:', result);
+      await commentOnRepost(Number(repostId), commentText.trim());
       setCommentText('');
       setInputHeight(44);
       await onRefresh();
     } catch (err: any) {
-      console.error('[repost-comments] send failed', err);
+      console.error('[repost comments] send failed', err);
       Alert.alert('Error', 'Failed to add comment');
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleDelete(commentId: number) {
-    try {
-      await deleteRepostComment(repostId, commentId);
-      await onRefresh();
-    } catch {
-      Alert.alert('Error', 'Failed to delete comment');
-    }
-  }
-
   async function handleUpdate(commentId: number) {
     if (!editText.trim()) return;
     try {
-      await updateRepostComment(repostId, commentId, editText.trim());
+      await updateRepostComment(Number(repostId), commentId, editText.trim());
       setEditingId(null);
       setEditText('');
       await onRefresh();
@@ -156,30 +131,20 @@ export default function RepostCommentsScreen() {
     }
   }
 
-  const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
-  const commentCount = comments.length;
-  const headerTitle = `Comments · ${commentCount}`;
+  async function handleDelete(commentId: number) {
+            try {
+              await deleteRepostComment(Number(repostId), commentId);
+      await onRefresh();
+    } catch {
+              Alert.alert('Error', 'Failed to delete comment');
+            }
+          }
+
   const hideComposer = !!actionFor || editingId !== null;
+  const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
 
-  if (!repostId) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.title}>Invalid repost</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>Go back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1e3a8a" />
-        <Text style={styles.subtle}>Loading…</Text>
-      </View>
-    );
-  }
+  const commentCount = comments.length;
+  const headerTitle = useMemo(() => `Comments · ${commentCount}`, [commentCount]);
 
   const renderComment = ({ item: c }: { item: CommentItem }) => {
     const isMine = c.user.user_id === meId;
@@ -195,7 +160,13 @@ export default function RepostCommentsScreen() {
         activeOpacity={1}
       >
         <View style={styles.commentRow}>
-          <Image source={renderAvatar(c.user?.profile_pic)} style={styles.cAvatar} />
+          <UserAvatar 
+            profilePic={c.user?.profile_pic}
+            firstName={c.user?.f_name}
+            lastName={c.user?.l_name}
+            size={32}
+            style={styles.cAvatar}
+          />
           <View style={{ flex: 1 }}>
             <View style={styles.cHeaderRow}>
               <Text style={styles.cName}>
@@ -239,6 +210,26 @@ export default function RepostCommentsScreen() {
     );
   };
 
+  if (!repostId) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.title}>Invalid repost</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Text style={styles.backText}>Go back</Text>
+          </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#1e3a8a" />
+        <Text style={styles.subtle}>Loading…</Text>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
       {/* Top bar */}
@@ -266,70 +257,87 @@ export default function RepostCommentsScreen() {
           }
           contentContainerStyle={{
             paddingHorizontal: 12,
-            paddingBottom: 12,
+            paddingBottom: hideComposer ? insets.bottom + 12 : insets.bottom + 12,
           }}
           ListHeaderComponent={
             repost ? (
               <View style={styles.postCard}>
                 {/* Repost Header */}
-                <View style={styles.repostHeader}>
-                  <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.avatar} />
-                  <View style={{ flex: 1 }}>
+          <View style={styles.repostHeader}>
+            <UserAvatar 
+              profilePic={repost.user?.profile_pic}
+              firstName={repost.user?.f_name}
+              lastName={repost.user?.l_name}
+                    size={40}
+                    style={styles.avatar}
+            />
+                  <View>
                     <Text style={styles.name}>
                       {`${repost.user?.f_name || ''} ${repost.user?.l_name || ''}`.trim() || 'User'}
-                    </Text>
-                    {!!repost.created_at && (
-                      <Text style={styles.subtle}>{dayjs(repost.created_at).fromNow()}</Text>
+            </Text>
+                    {!!repost.repost_date && (
+                      <Text style={styles.subtle}>{dayjs(repost.repost_date).fromNow()}</Text>
                     )}
                   </View>
-                </View>
-                
-                {/* Repost Caption */}
-                {repost.caption && repost.caption.trim() && (
-                  <Text style={styles.caption}>{repost.caption}</Text>
+          </View>
+          
+                {repost.caption && repost.caption.trim() ? (
+                  <Text style={styles.postContent}>{repost.caption}</Text>
+                ) : (
+                  <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
+                    Repost caption unavailable
+                  </Text>
                 )}
-                
-                {/* Original Post */}
-                {repost.original && (
-                  <View style={styles.originalPost}>
-                    <View style={styles.originalHeader}>
-                      <Image source={renderAvatar(repost.original.user?.profile_pic)} style={styles.originalAvatar} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.originalUserName}>
-                          {`${repost.original.user?.f_name || ''} ${repost.original.user?.l_name || ''}`.trim() || 'User'}
-                        </Text>
-                        <Text style={styles.originalMeta}>Original post</Text>
-                      </View>
-                    </View>
-                    
-                    {repost.original.post_title && (
-                      <Text style={styles.originalTitle}>{repost.original.post_title}</Text>
-                    )}
-                    {repost.original.post_content && (
-                      <Text style={styles.originalContent}>{repost.original.post_content}</Text>
-                    )}
-                    {repost.original.post_image && (
-                      <Image
-                        source={{ 
-                          uri: String(repost.original.post_image).startsWith('http') 
-                            ? repost.original.post_image 
-                            : `${API_BASE_URL}${repost.original.post_image}` 
-                        }}
-                        style={styles.originalImage}
-                        resizeMode="cover"
+
+          {/* Original Post */}
+          {repost.original && (
+            <View style={styles.originalPostContainer}>
+              <View style={styles.originalHeader}>
+                <UserAvatar 
+                  profilePic={repost.original?.user?.profile_pic}
+                  firstName={repost.original?.user?.f_name}
+                  lastName={repost.original?.user?.l_name}
+                        size={40}
+                        style={styles.avatar}
                       />
-                    )}
-                  </View>
-                )}
-                
-                <Text style={styles.sectionTitle}>Comments</Text>
+                      <View>
+                        <Text style={styles.name}>
+                          {`${repost.original?.user?.f_name || ''} ${repost.original?.user?.l_name || ''}`.trim() || 'User'}
+                  </Text>
+                </View>
               </View>
+                    {repost.original?.post_content && repost.original.post_content.trim() ? (
+                      <Text style={styles.postContent}>{repost.original.post_content}</Text>
+                    ) : (
+                      <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
+                        Original post content unavailable
+                      </Text>
+                    )}
+                    {/* Original Post Image */}
+                    {repost.original?.post_image && (
+                    <Image
+                        source={renderAvatar(repost.original.post_image)}
+                        style={styles.postImage}
+                      resizeMode="cover"
+                        onError={(error) => {
+                          console.log('Repost Comments - Image load error:', error.nativeEvent.error);
+                          console.log('Repost Comments - Failed image URL:', repost.original.post_image);
+                        }}
+                        onLoad={() => {
+                          console.log('Repost Comments - Image loaded successfully:', repost.original.post_image);
+                        }}
+                      />
+                )}
+              </View>
+            )}
+                <Text style={styles.sectionTitle}>Comments</Text>
+            </View>
             ) : null
           }
           ListEmptyComponent={
             <View style={{ padding: 20 }}>
               <Text style={styles.subtle}>No comments yet</Text>
-            </View>
+        </View>
           }
         />
 
@@ -343,89 +351,89 @@ export default function RepostCommentsScreen() {
               },
             ]}
           >
-          <View style={styles.composerInputRow}>
-            <TextInput
-              style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
-              value={commentText}
-              onChangeText={setCommentText}
-              placeholder="Write a comment…"
-              placeholderTextColor="#9ca3af"
-              multiline
-              onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
-              returnKeyType="send"
-              blurOnSubmit
-              onSubmitEditing={handleSend}
-            />
-            <TouchableOpacity
-              disabled={!canSend}
-              onPress={handleSend}
-              style={[styles.sendBtn, !canSend && { opacity: 0.5 }]}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="send" size={18} color="#fff" />
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-        )}
-
-        {/* Action Modal */}
-        {actionFor && (
-          <View style={styles.popupOverlay}>
-            <View style={styles.popupBox}>
-              <Text style={styles.popupTitle}>Comment Actions</Text>
-
-              {/* Edit: only show if comment is mine */}
-              {actionFor.user?.user_id === meId && (
-                <TouchableOpacity
-                  style={styles.popupButton}
-                  onPress={() => {
-                    setEditingId(actionFor.comment_id);
-                    setEditText(actionFor.comment_content);
-                    setActionFor(null);
-                  }}
-                >
-                  <Text style={styles.popupButtonText}>✏️ Edit</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Delete: show if comment is mine OR I am the repost owner */}
-              {(actionFor.user?.user_id === meId || repost?.user?.user_id === meId || repost?.user?.id === meId) && (
-                <TouchableOpacity
-                  style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
-                  onPress={() => {
-                    Alert.alert(
-                      'Delete Comment',
-                      'Are you sure you want to delete this comment? This action cannot be undone.',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Delete',
-                          style: 'destructive',
-                          onPress: () => handleDelete(actionFor.comment_id),
-                        },
-                      ]
-                    );
-                    setActionFor(null);
-                  }}
-                >
-                  <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Cancel: always show */}
-              <TouchableOpacity
-                style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
-                onPress={() => setActionFor(null)}
+            <View style={styles.composerInputRow}>
+                    <TextInput
+                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
+                value={commentText}
+                onChangeText={setCommentText}
+                placeholder="Write a comment…"
+                placeholderTextColor="#9ca3af"
+                      multiline
+                onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
+                returnKeyType="send"
+                blurOnSubmit
+                onSubmitEditing={handleSend}
+                    />
+                      <TouchableOpacity
+                disabled={!canSend}
+                onPress={handleSend}
+                style={[styles.sendBtn, !canSend && { opacity: 0.5 }]}
               >
-                <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+                {submitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#fff" />
+                )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* Popup Modal */}
+      {actionFor && (
+        <View style={styles.popupOverlay}>
+          <View style={styles.popupBox}>
+            <Text style={styles.popupTitle}>Comment Actions</Text>
+
+            {/* Edit: only show if comment is mine */}
+            {actionFor.user?.user_id === meId && (
+                      <TouchableOpacity
+                style={styles.popupButton}
+                        onPress={() => {
+                  setEditingId(actionFor.comment_id);
+                  setEditText(actionFor.comment_content);
+                  setActionFor(null);
+                        }}
+                      >
+                <Text style={styles.popupButtonText}>✏️ Edit</Text>
+                      </TouchableOpacity>
+            )}
+                      
+            {/* Delete: show if comment is mine OR I am the repost owner */}
+            {(actionFor.user?.user_id === meId || repost?.user?.user_id === meId || repost?.user?.id === meId) && (
+                      <TouchableOpacity
+                style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
+                onPress={() => {
+                  Alert.alert(
+                    'Delete Comment',
+                    'Are you sure you want to delete this comment? This action cannot be undone.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: () => handleDelete(actionFor.comment_id),
+                      },
+                    ]
+                  );
+                  setActionFor(null);
+                }}
+              >
+                <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
+                      </TouchableOpacity>
+            )}
+
+            {/* Cancel: always show */}
+        <TouchableOpacity
+              style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
+              onPress={() => setActionFor(null)}
+            >
+              <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
+        </TouchableOpacity>
+      </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -480,6 +488,41 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#e5e7eb',
   },
+  repostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 8,
+    backgroundColor: '#e5e7eb',
+  },
+  name: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  postTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 6 },
+  postContent: { color: '#111827' },
+  originalPostContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    marginTop: 8,
+  },
+  originalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  postImage: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 10,
+    marginTop: 10,
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -519,6 +562,23 @@ const styles = StyleSheet.create({
   },
   cBody: { color: '#111827' },
 
+  // Edit state
+  editBox: { marginTop: 6 },
+  editInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 8,
+    color: '#111827',
+    minHeight: 40,
+  },
+  editActions: {
+    flexDirection: 'row',
+    marginTop: 6,
+    gap: 8,
+    justifyContent: 'flex-end',
+  },
+
   // Composer
   composerWrap: {
     backgroundColor: '#fff',
@@ -544,143 +604,55 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
   },
-  sendBtnText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  
-  // Edit functionality styles
-  editBox: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 4,
-  },
-  editInput: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 14,
-    color: '#111827',
-    minHeight: 60,
-    textAlignVertical: 'top',
-  },
-  editActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    marginTop: 8,
-  },
-  
-  // Action modal styles
+  sendBtnText: { color: '#fff', fontWeight: '700' },
+
+  // Popup Modal
   popupOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000,
+    padding: 20,
   },
   popupBox: {
+    width: '85%',
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    width: '80%',
-    maxWidth: 300,
+    borderRadius: 16,
+    padding: 20,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
   },
   popupTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    fontSize: 18,
     color: '#111827',
     marginBottom: 16,
     textAlign: 'center',
   },
   popupButton: {
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    marginVertical: 6,
+    alignItems: 'center',
   },
   popupButtonText: {
-    fontSize: 14,
-    textAlign: 'center',
-    color: '#111827',
-  },
-  
-  // Repost preview styles
-  repostHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#e5e7eb',
-    marginRight: 8,
-  },
-  name: {
-    fontSize: 14,
+    fontSize: 15,
+    color: '#1e3a8a',
     fontWeight: '600',
-    color: '#111827',
   },
-  caption: {
-    fontSize: 14,
-    color: '#374151',
-    lineHeight: 20,
-    marginVertical: 8,
+  imagesContainer: {
+    marginTop: 10,
   },
-  originalPost: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    marginVertical: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  originalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  originalAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#e5e7eb',
-    marginRight: 8,
-  },
-  originalUserName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  originalMeta: {
-    fontSize: 10,
-    color: '#6b7280',
-  },
-  originalTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  originalContent: {
-    fontSize: 13,
-    color: '#374151',
-    lineHeight: 18,
-    marginBottom: 8,
-  },
-  originalImage: {
-    width: '100%',
-    height: 120,
-    borderRadius: 6,
-    backgroundColor: '#e5e7eb',
+  imagesScrollContainer: {
+    paddingRight: 10,
   },
 });

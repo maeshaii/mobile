@@ -13,6 +13,9 @@ export default function RepostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
+  
+  console.log('RepostScreen - params:', params);
+  console.log('RepostScreen - postId:', postId);
   const [me, setMe] = useState<any>(null);
   const [original, setOriginal] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +23,8 @@ export default function RepostScreen() {
   const [caption, setCaption] = useState('');
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'reposts' | null>(null);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [myRepostId, setMyRepostId] = useState<number | null>(null); // Used by Mobile: existing repost id if already reposted
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
@@ -32,11 +37,14 @@ export default function RepostScreen() {
   useEffect(() => {
     const run = async () => {
       try {
+        console.log('RepostScreen - useEffect running with postId:', postId);
         setLoading(true);
         const [u, detail] = await Promise.all([
           getUserInfo(),
           postId ? getPostDetail(postId) : Promise.resolve(null),
         ]);
+        console.log('RepostScreen - getUserInfo result:', u);
+        console.log('RepostScreen - getPostDetail result:', detail);
         setMe(u);
         setOriginal(detail);
         // Detect if current user already reposted
@@ -44,9 +52,10 @@ export default function RepostScreen() {
           const meId = (u?.id || u?.user_id);
           const mine = Array.isArray(detail?.reposts) ? detail.reposts.find((r:any)=> (r.user?.user_id) === meId) : null;
           setMyRepostId(mine?.repost_id || null);
-          if (mine?.caption) setCaption(String(mine.caption));
+          if (mine?.repost_caption) setCaption(String(mine.repost_caption));
         } catch {}
       } catch (e) {
+        console.error('RepostScreen - Error loading post:', e);
         Alert.alert('Error', 'Failed to load post');
       } finally {
         setLoading(false);
@@ -66,6 +75,29 @@ export default function RepostScreen() {
   const imageUrl = original?.post_image
     ? (String(original.post_image).startsWith('http') || String(original.post_image).startsWith('data:') ? String(original.post_image) : `${API_BASE_URL}${original.post_image}`)
     : null;
+
+  // Get all images from both post_image and post_images array
+  const getAllImages = () => {
+    const images = [];
+    
+    // Add main post image if exists (backward compatibility)
+    if (imageUrl) {
+      images.push({
+        image_id: 0,
+        image_url: imageUrl,
+        order: 0
+      });
+    }
+    
+    // Add post_images array if exists (multiple images)
+    if (original?.post_images && Array.isArray(original.post_images)) {
+      images.push(...original.post_images);
+    }
+    
+    return images.sort((a, b) => a.order - b.order);
+  };
+
+  const allImages = getAllImages();
 
   const loadComments = async () => {
     if (!original?.post_id) return;
@@ -138,32 +170,48 @@ export default function RepostScreen() {
         <Text style={styles.headerTitle}>Repost</Text>
         <TouchableOpacity
         onPress={async () => {
-          if (!postId) return;
+          if (!postId) {
+            Alert.alert('Error', 'Invalid post ID. Cannot repost.');
+            return;
+          }
+          
+          console.log('Repost attempt - postId:', postId, 'caption:', caption);
+          
           try {
             setSubmitting(true);
             const cleaned = caption.trim();
         
             if (myRepostId) {
               // update my existing repost caption
+              console.log('Updating existing repost with ID:', myRepostId);
               await updateRepost(myRepostId, cleaned);
               Alert.alert(
-                cleaned ? 'Saved' : 'Saved',
+                'Success',
                 'Your repost caption has been updated',
                 [{ text: 'OK', onPress: () => router.back() }],
               );
             } else {
               // create repost; helper will omit caption if empty
-              await repostPost(postId, cleaned);
-              Alert.alert(
-                cleaned ? 'Reposted' : 'Shared',
-                'Your repost has been published',
-                [{ text: 'OK', onPress: () => router.back() }],
-              );
+              console.log('Creating new repost for postId:', postId);
+              const response = await repostPost(postId, cleaned);
+              console.log('Repost response:', response);
+              
+              if (response.success !== false) {
+                Alert.alert(
+                  'Success',
+                  'Your repost has been published',
+                  [{ text: 'OK', onPress: () => router.back() }],
+                );
+              } else {
+                Alert.alert('Error', response.message || 'Failed to repost');
+              }
             }
           } catch (e: any) {
+            console.error('Repost error:', e);
             const detail =
               e?.response?.data?.detail ??
-              (e?.response?.data ? JSON.stringify(e.response.data) : e?.message) ??
+              e?.response?.data?.error ??
+              e?.message ??
               'Failed to repost';
             Alert.alert('Error', detail);
           } finally {
@@ -225,8 +273,54 @@ export default function RepostScreen() {
             </View>
             {original?.post_title ? <Text style={styles.origTitle}>{original.post_title}</Text> : null}
             {original?.post_content ? <Text style={styles.origContent}>{original.post_content}</Text> : null}
-            {imageUrl && (
-              <Image source={{ uri: imageUrl }} style={styles.origImage} resizeMode="cover" />
+            
+            {/* Display all images */}
+            {allImages.length > 0 && (
+              <View style={styles.origImagesContainer}>
+                {allImages.length === 1 ? (
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setSelectedImageIndex(0);
+                      setImageViewerVisible(true);
+                    }}
+                  >
+                    <Image
+                      source={renderAvatar(allImages[0].image_url)}
+                      style={styles.origImage}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.origImageGrid}>
+                    {allImages.slice(0, 4).map((img, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        onPress={() => {
+                          setSelectedImageIndex(index);
+                          setImageViewerVisible(true);
+                        }}
+                        style={[
+                          styles.origGridImage,
+                          allImages.length === 2 && styles.origTwoImages,
+                          allImages.length === 3 && index === 0 && styles.origThreeImagesFirst,
+                          allImages.length === 3 && index > 0 && styles.origThreeImagesOther,
+                        ]}
+                      >
+                        <Image
+                          source={renderAvatar(img.image_url)}
+                          style={styles.origGridImageContent}
+                          resizeMode="cover"
+                        />
+                        {index === 3 && allImages.length > 4 && (
+                          <View style={styles.origMoreImagesOverlay}>
+                            <Text style={styles.origMoreImagesText}>+{allImages.length - 4}</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
             )}
           </TouchableOpacity>
 
@@ -478,6 +572,40 @@ export default function RepostScreen() {
           </Modal>
         </ScrollView>
       )}
+
+      {/* Image Viewer Modal */}
+      <Modal
+        visible={imageViewerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setImageViewerVisible(false)}
+      >
+        <View style={styles.imageViewerContainer}>
+          <TouchableOpacity
+            style={styles.imageViewerCloseButton}
+            onPress={() => setImageViewerVisible(false)}
+          >
+            <FontAwesome name="times" size={24} color="#fff" />
+          </TouchableOpacity>
+          
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={styles.imageScrollView}
+            contentOffset={{ x: selectedImageIndex * 400, y: 0 }}
+          >
+            {allImages.map((img, index) => (
+              <Image
+                key={index}
+                source={renderAvatar(img.image_url)}
+                style={styles.fullScreenImage}
+                resizeMode="contain"
+              />
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -737,6 +865,77 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1e3a8a',
     fontWeight: '600',
+  },
+  // Image viewer styles
+  imageViewerContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageScrollView: {
+    flex: 1,
+    width: '100%',
+  },
+  fullScreenImage: {
+    width: 400,
+    height: '100%',
+  },
+  // Original post images styles
+  origImagesContainer: {
+    marginTop: 8,
+  },
+  origImageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  origGridImage: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  origGridImageContent: {
+    width: '100%',
+    height: '100%',
+  },
+  origTwoImages: {
+    width: '48%',
+    aspectRatio: 1,
+  },
+  origThreeImagesFirst: {
+    width: '100%',
+    aspectRatio: 2,
+  },
+  origThreeImagesOther: {
+    width: '48%',
+    aspectRatio: 1,
+  },
+  origMoreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  origMoreImagesText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
 

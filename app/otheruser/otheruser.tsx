@@ -11,7 +11,7 @@ import {
   Modal
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { 
   API_BASE_URL,
   getAlumniDetails, 
@@ -21,6 +21,7 @@ import {
   getPostsByUserType,
   getUserInfo,
   getPosts,
+  getUserPosts,
   fetchFollowers,
   fetchFollowing
 } from '../../services/api';
@@ -36,6 +37,8 @@ interface UserProfile {
   l_name: string;
   profile_pic?: string;
   profile_bio?: string;
+  socialMedia?: string;
+  email?: string;
   year_graduated?: number;
   followers_count?: number;
   following_count?: number;
@@ -46,22 +49,45 @@ interface Post {
   post_id: number;
   post_title?: string;
   post_content: string;
-  post_image?: string;
+  post_image?: string | null;
+  post_images?: any[];
+  type?: string | null;
+  created_at?: string | null;
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
+  likes_count: number;
+  comments_count: number;
+  reposts_count?: number;
+  is_liked?: boolean;
+  item_type?: 'post';
+  user: { 
+    user_id: number; 
+    f_name: string; 
+    l_name: string; 
+    profile_pic?: string | null 
+  };
+}
+
+interface OriginalPost {
+  post_id: number;
+  post_title?: string;
+  post_content: string;
+  post_image?: string | null;
   user: {
     f_name: string;
     l_name: string;
     profile_pic?: string;
-    user_id?: number;
+    user_id: number;
   };
   likes?: any[];
   comments?: any[];
   reposts?: any[];
-  likes_count?: number;
-  comments_count?: number;
+  likes_count: number;
+  comments_count: number;
   reposts_count?: number;
   created_at: string;
   is_liked?: boolean;
-  item_type: 'post';
 }
 
 interface FeedRepost {
@@ -74,7 +100,7 @@ interface FeedRepost {
     user_id?: number;
   };
   caption?: string;
-  original_post: Post;
+  original_post: OriginalPost;
   likes_count?: number;
   comments_count?: number;
   reposts_count?: number;
@@ -142,8 +168,15 @@ export default function OtherUserPage() {
       const userWithCounts = {
         ...userProfile,
         followers_count: followersCount,
-        following_count: followingCount
+        following_count: followingCount,
+        socialMedia: userProfile?.social_media || '',
+        email: userProfile?.email || ''
       };
+      
+      console.log('Final user object:', userWithCounts);
+      console.log('Final user socialMedia:', userWithCounts.socialMedia);
+      console.log('Final user email:', userWithCounts.email);
+      console.log('Final user profile_pic:', userWithCounts.profile_pic);
       
       setUser(userWithCounts);
       setCurrentUser(currentUserData);
@@ -154,82 +187,40 @@ export default function OtherUserPage() {
       
       // Load user posts
       try {
-        const allPosts = await getPosts();
-        console.log('All posts:', allPosts);
+        const userPostsData = await getUserPosts(Number(viewUserId));
+        console.log('User posts data:', userPostsData);
+        
+        const postsData = userPostsData?.posts || [];
+        console.log('Posts data:', postsData);
         
         // Create feed items that include both posts and reposts
         const feedItems: FeedItem[] = [];
         
-        // Get posts created by the user
-        const userPosts = (allPosts || []).filter((p: any) => 
-          (p.user?.user_id === Number(viewUserId) || p.user?.id === Number(viewUserId)) &&
-          p.type !== 'forum'
-        );
-        
-        // Get reposts made by the user (from all posts)
-        const userReposts: any[] = [];
-        (allPosts || []).forEach((post: any) => {
-          if (Array.isArray(post.reposts)) {
-            post.reposts.forEach((repost: any) => {
-              if (repost.user?.user_id === Number(viewUserId) || repost.user?.id === Number(viewUserId)) {
-                userReposts.push({
-                  ...repost,
-                  original_post: post
-                });
-              }
+        // Process posts and reposts from API response
+        postsData.forEach((item: any) => {
+          if (item.item_type === 'post') {
+            // Handle original posts
+            const likesArr = Array.isArray(item?.likes) ? item.likes : [];
+            const likedByMe = currentUserData?.id ? likesArr.some((l: any) => l?.user_id === currentUserData.id || l?.user?.user_id === currentUserData.id) : false;
+            
+            feedItems.push({
+              ...item,
+              created_at: item.created_at || new Date().toISOString(),
+              is_liked: !!likedByMe,
+              item_type: 'post'
+            });
+          } else if (item.item_type === 'repost') {
+            // Handle reposts
+            const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
+            const repostLikedByMe = currentUserData?.id ? repostLikesArr.some((l: any) => l?.user_id === currentUserData.id || l?.user?.user_id === currentUserData.id) : false;
+            
+            feedItems.push({
+              ...item,
+              created_at: item.repost_date || new Date().toISOString(),
+              is_liked: !!repostLikedByMe,
+              item_type: 'repost'
             });
           }
-        });
-        
-        // Add original posts created by the user
-        userPosts.forEach((post: any) => {
-          const likesArr = Array.isArray(post?.likes) ? post.likes : [];
-          const likedByMe = Number(viewUserId) ? likesArr.some((l: any) => l?.user_id === Number(viewUserId) || l?.user?.user_id === Number(viewUserId)) : false;
-          
-          feedItems.push({
-            ...post,
-            created_at: post.created_at || new Date().toISOString(),
-            is_liked: !!likedByMe,
-            item_type: 'post'
-          });
-        });
-        
-        // Add reposts made by the user
-        userReposts.forEach((repost: any) => {
-          const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
-          const repostLikedByMe = Number(viewUserId) ? repostLikesArr.some((l: any) => l?.user_id === Number(viewUserId) || l?.user?.user_id === Number(viewUserId)) : false;
-          
-          feedItems.push({
-            repost_id: repost.repost_id,
-            created_at: repost.repost_date || new Date().toISOString(),
-            user: repost.user,
-            caption: repost.caption,
-            original_post: {
-              post_id: repost.original_post.post_id,
-              post_title: repost.original_post.post_title,
-              post_content: repost.original_post.post_content,
-              post_image: repost.original_post.post_image,
-              user: repost.original_post.user,
-              created_at: repost.original_post.created_at || new Date().toISOString(),
-              likes_count: repost.original_post.likes_count,
-              comments_count: repost.original_post.comments_count,
-              reposts_count: repost.original_post.reposts_count,
-              is_liked: false, // This is the original post, not the repost
-              item_type: 'post'
-            },
-            likes_count: repost.likes_count || 0,
-            comments_count: repost.comments_count || 0,
-            reposts_count: repost.reposts_count || 0,
-            is_liked: !!repostLikedByMe,
-            item_type: 'repost'
-          });
-        });
-        
-        // Sort by creation date (newest first)
-        feedItems.sort((a, b) => {
-          const dateA = new Date(a.created_at || 0).getTime();
-          const dateB = new Date(b.created_at || 0).getTime();
-          return dateB - dateA;
         });
         
         console.log('User feed items:', feedItems);
@@ -282,14 +273,25 @@ export default function OtherUserPage() {
   };
 
   const handleMessage = () => {
-    // Implement messaging functionality
-    Alert.alert('Message', 'Messaging feature coming soon!');
+    // Navigate to chat screen with the user
+    if (user?.id) {
+      const userName = `${user.f_name || ''} ${user.l_name || ''}`.trim() || 'User';
+      router.push(`/messages/chatmessage?conversationId=${user.id}&name=${encodeURIComponent(userName)}`);
+    }
   };
 
 
   useEffect(() => {
     loadUserData();
   }, [loadUserData]);
+
+  // Reload data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('Other user profile page focused, reloading data...');
+      loadUserData();
+    }, [loadUserData])
+  );
 
   if (loading) {
     return (
@@ -356,6 +358,8 @@ export default function OtherUserPage() {
           </View>
         )}
 
+      
+
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <TouchableOpacity 
@@ -396,6 +400,27 @@ export default function OtherUserPage() {
         </View>
       </View>
 
+      {/* Details Card */}
+      {(user.socialMedia || user.email) && (
+          <View style={styles.detailsCard}>
+            <Text style={styles.detailsTitle}>Details</Text>
+            
+            {user.socialMedia && (
+              <View style={styles.detailRow}>
+                <FontAwesome name="globe" size={16} color="#666" style={styles.detailIcon} />
+                <Text style={styles.detailText}>{user.socialMedia}</Text>
+              </View>
+            )}
+            
+            {user.email && (
+              <View style={styles.detailRow}>
+                <FontAwesome name="envelope" size={16} color="#666" style={styles.detailIcon} />
+                <Text style={styles.detailText}>{user.email}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Posts Section */}
         <View style={styles.postsSection}>
           <Text style={styles.postsHeader}>Posts</Text>
@@ -408,7 +433,7 @@ export default function OtherUserPage() {
               if (isRepost(item)) {
                 return (
                   <RepostCard
-                    key={`repost-${item.repost_id}`}
+                    key={`otheruser-repost-${item.repost_id}`}
                     repost={item}
                     currentUserId={currentUser?.id}
                     onLikeToggle={(repostId, liked) => {
@@ -433,12 +458,24 @@ export default function OtherUserPage() {
                     onDeleted={(repostId) => {
                       setPosts(prev => prev.filter(p => !(isRepost(p) && p.repost_id === repostId)));
                     }}
+                    onOriginalPostReposted={(originalPostId) => {
+                      // Update the original post's repost count when it's reposted from a RepostCard
+                      setPosts(prev => prev.map(p => {
+                        if (isPost(p) && p.post_id === originalPostId) {
+                          return {
+                            ...p,
+                            reposts_count: (p.reposts_count || 0) + 1
+                          };
+                        }
+                        return p;
+                      }));
+                    }}
                   />
                 );
               } else {
                 return (
                   <PostCard
-                    key={`post-${item.post_id}`}
+                    key={`otheruser-post-${item.post_id}`}
                     post={item}
                     currentUserId={currentUser?.id}
                     onLikeToggle={(postId, isLiked) => {
@@ -462,6 +499,18 @@ export default function OtherUserPage() {
                     }}
                     onDeleted={(postId) => {
                       setPosts(prev => prev.filter(p => !(isPost(p) && p.post_id === postId)));
+                    }}
+                    onRepostToggle={(postId, isReposted) => {
+                      // Update repost count when a repost is created/deleted
+                      setPosts(prev => prev.map(p => {
+                        if (isPost(p) && p.post_id === postId) {
+                          return {
+                            ...p,
+                            reposts_count: Math.max(0, (p.reposts_count || 0) + (isReposted ? 1 : -1))
+                          };
+                        }
+                        return p;
+                      }));
                     }}
                   />
                 );
@@ -517,20 +566,24 @@ export default function OtherUserPage() {
       </Modal>
 
       {/* Followers Modal */}
-      <FollowModal
-        visible={showFollowers}
-        onClose={() => setShowFollowers(false)}
-        type="followers"
-        userId={user?.id || 0}
-      />
+      {user?.id && (
+        <FollowModal
+          visible={showFollowers}
+          onClose={() => setShowFollowers(false)}
+          type="followers"
+          userId={user.id}
+        />
+      )}
 
       {/* Following Modal */}
-      <FollowModal
-        visible={showFollowing}
-        onClose={() => setShowFollowing(false)}
-        type="following"
-        userId={user?.id || 0}
-      />
+      {user?.id && (
+        <FollowModal
+          visible={showFollowing}
+          onClose={() => setShowFollowing(false)}
+          type="following"
+          userId={user.id}
+        />
+      )}
     </View>
   );
 }
@@ -619,6 +672,42 @@ const styles = StyleSheet.create({
   bioText: {
     fontSize: 14,
     color: '#444',
+  },
+  detailsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+    width: '100%',
+  },
+  detailsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  detailIcon: {
+    marginRight: 12,
+    width: 16,
+  },
+  detailText: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
   },
   actionButtons: {
     flexDirection: 'row',

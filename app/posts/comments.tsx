@@ -23,10 +23,12 @@ import {
   commentOnPost,
   deleteComment,
   getPostComments,
+  getPostDetail,
   getPosts,
   getUserInfo,
   updateComment,
 } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 
 dayjs.extend(relativeTime);
 
@@ -72,10 +74,12 @@ export default function PostCommentsScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [posts, user] = await Promise.all([getPosts(), getUserInfo()]);
+      const [postDetail, user] = await Promise.all([getPostDetail(postId), getUserInfo()]);
       setMe(user);
-      const found = Array.isArray(posts) ? posts.find((p: any) => p.post_id === postId) : null;
-      setPost(found || null);
+      setPost(postDetail || null);
+      console.log('Comments - Post detail loaded:', postDetail);
+      console.log('Comments - Post images:', postDetail?.post_images);
+      console.log('Comments - Post image:', postDetail?.post_image);
 
       const data = await getPostComments(postId);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
@@ -104,7 +108,9 @@ export default function PostCommentsScreen() {
   const renderAvatar = (src?: string) => {
     if (!src) return require('../../assets/images/sample_pic.jpg');
     const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
-    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+    const imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
+    console.log('Comments - renderAvatar - src:', src, 'imageUrl:', imageUrl);
+    return { uri: imageUrl };
   };
 
   const meId = me?.id || me?.user_id;
@@ -187,7 +193,13 @@ export default function PostCommentsScreen() {
         activeOpacity={1}
       >
         <View style={styles.commentRow}>
-          <Image source={renderAvatar(c.user?.profile_pic)} style={styles.cAvatar} />
+          <UserAvatar 
+            profilePic={c.user?.profile_pic}
+            firstName={c.user?.f_name}
+            lastName={c.user?.l_name}
+            size={32}
+            style={styles.cAvatar}
+          />
           <View style={{ flex: 1 }}>
             <View style={styles.cHeaderRow}>
               <Text style={styles.cName}>
@@ -264,7 +276,13 @@ export default function PostCommentsScreen() {
             post ? (
               <View style={styles.postCard}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Image source={renderAvatar(post.user?.profile_pic)} style={styles.avatar} />
+                  <UserAvatar 
+                    profilePic={post.user?.profile_pic}
+                    firstName={post.user?.f_name}
+                    lastName={post.user?.l_name}
+                    size={40}
+                    style={styles.avatar}
+                  />
                   <View>
                     <Text style={styles.name}>
                       {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
@@ -278,13 +296,66 @@ export default function PostCommentsScreen() {
                 {!!post.post_content && (
                   <Text style={styles.postContent}>{post.post_content}</Text>
                 )}
-                {!!post.post_image && (
-                  <Image
-                    source={renderAvatar(post.post_image)}
-                    style={styles.postImage}
-                    resizeMode="cover"
-                  />
-                )}
+                {/* Images - support multiple images */}
+                {(() => {
+                  const images: any[] = [];
+                  
+                  // Add main post image if exists (backward compatibility)
+                  if (post.post_image) {
+                    images.push({
+                      image_id: 0,
+                      image_url: post.post_image,
+                      order: 0
+                    });
+                  }
+                  
+                  // Add post_images array if exists (multiple images)
+                  if (post.post_images && Array.isArray(post.post_images)) {
+                    images.push(...post.post_images);
+                  }
+                  
+                  console.log('Comments - Images to display:', images);
+                  return images.length > 0 && (
+                    <View style={styles.imagesContainer}>
+                      {images.length === 1 ? (
+                        <Image
+                          source={renderAvatar(images[0].image_url)}
+                          style={styles.postImage}
+                          resizeMode="cover"
+                          onError={(error) => {
+                            console.log('Comments - Image load error:', error.nativeEvent.error);
+                            console.log('Comments - Failed image URL:', images[0].image_url);
+                          }}
+                          onLoad={() => {
+                            console.log('Comments - Image loaded successfully:', images[0].image_url);
+                          }}
+                        />
+                      ) : (
+                        <FlatList
+                          horizontal
+                          data={images}
+                          keyExtractor={(item, index) => `image-${item.image_id || index}`}
+                          renderItem={({ item }) => (
+                            <Image
+                              source={renderAvatar(item.image_url)}
+                              style={styles.postImage}
+                              resizeMode="cover"
+                              onError={(error) => {
+                                console.log('Comments - Image load error:', error.nativeEvent.error);
+                                console.log('Comments - Failed image URL:', item.image_url);
+                              }}
+                              onLoad={() => {
+                                console.log('Comments - Image loaded successfully:', item.image_url);
+                              }}
+                            />
+                          )}
+                          showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={styles.imagesScrollContainer}
+                        />
+                      )}
+                    </View>
+                  );
+                })()}
                 <Text style={styles.sectionTitle}>Comments</Text>
               </View>
             ) : null
@@ -622,6 +693,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1e3a8a',
     fontWeight: '600',
+  },
+  imagesContainer: {
+    marginTop: 10,
+  },
+  imagesScrollContainer: {
+    paddingRight: 10,
   },
   
 });

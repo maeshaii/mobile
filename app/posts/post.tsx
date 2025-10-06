@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL, createPost, createForumPost, getPostCategories, getUserInfo } from '../../services/api';
+import { API_BASE_URL, createPost, createForumPost, getUserInfo } from '../../services/api';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 
@@ -14,13 +14,6 @@ interface UserInfo {
   profile_pic?: string;
 }
 
-interface PostCategory {
-  post_cat_id: number;
-  events: boolean;
-  announcements: boolean;
-  donation: boolean;
-  personal: boolean;
-}
 
 export default function PostScreen() {
   const router = useRouter();
@@ -29,38 +22,19 @@ export default function PostScreen() {
   // Removed title as requested
   const [postContent, setPostContent] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
-  const [categories, setCategories] = useState<PostCategory[]>([]);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]); // Multiple images
   const [submitting, setSubmitting] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Fetch user info and categories on component mount
+  // Fetch user info on component mount
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [userInfo, categoriesResponse] = await Promise.all([
-          getUserInfo(),
-          getPostCategories()
-        ]);
-        
+        const userInfo = await getUserInfo();
         setUser(userInfo);
-        // Extract categories from the response
-        const categoriesData = categoriesResponse.categories || [];
-        console.log('Categories response:', categoriesResponse);
-        console.log('Categories data:', categoriesData);
-        setCategories(categoriesData);
-        
-        // Set default category to personal (assuming personal has post_cat_id = 4)
-        const personalCategory = categoriesData.find((cat: PostCategory) => cat.personal);
-        if (personalCategory) {
-          setSelectedCategory(personalCategory.post_cat_id);
-        } else {
-          console.log('No personal category found');
-        }
       } catch (error) {
-        console.error('Error fetching data:', error);
+        console.error('Error fetching user data:', error);
         Alert.alert('Error', 'Failed to load user data');
       } finally {
         setLoading(false);
@@ -77,15 +51,36 @@ export default function PostScreen() {
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
+        allowsMultipleSelection: true, // Enable multiple image selection
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setSelectedImage(result.assets[0].uri);
+        const maxImages = 15;
+        const newImages = result.assets.slice(0, maxImages - selectedImages.length);
+        
+        // Convert to base64 for each image
+        const base64Images: string[] = [];
+        for (const asset of newImages) {
+          try {
+            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+              encoding: FileSystem.EncodingType?.Base64 || 'base64',
+            });
+            base64Images.push(`data:image/jpeg;base64,${base64}`);
+          } catch (error) {
+            console.error('Error converting image to base64:', error);
+          }
+        }
+        
+        setSelectedImages(prev => [...prev, ...base64Images]);
       }
     } catch (error) {
       console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image');
     }
+  };
+
+  const removeImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async () => {
@@ -95,19 +90,19 @@ export default function PostScreen() {
     }
 
     const postType = (typeof params.type === 'string' && params.type) ? params.type : 'personal';
-    
-    // Only require category for non-forum posts
-    if (postType !== 'forum' && !selectedCategory) {
-      Alert.alert('Error', 'Please select a category');
-      return;
-    }
 
     try {
       setSubmitting(true);
       
-      // Handle image - convert local file to base64 if needed
+      // Handle images - use multiple images if available, fallback to single image
       let postImage = '';
-      if (selectedImage) {
+      let postImages: string[] = [];
+      
+      if (selectedImages.length > 0) {
+        // Use multiple images
+        postImages = selectedImages;
+      } else if (selectedImage) {
+        // Fallback to single image for backward compatibility
         if (selectedImage.startsWith('file://')) {
           try {
             // Convert local file to base64
@@ -124,33 +119,28 @@ export default function PostScreen() {
         }
       }
       
-      const postType = (typeof params.type === 'string' && params.type) ? params.type : 'personal';
-      
       console.log('Post type detected:', postType);
-      console.log('Selected category:', selectedCategory);
-      console.log('Categories available:', categories);
 
       if (postType === 'forum') {
         // Use forum API for forum posts
         const forumData = {
           title: '', // Forum posts don't require title
           content: postContent.trim(),
-          image: postImage
+          image: postImages.length > 0 ? postImages[0] : postImage // Use first image if multiple, fallback to single
         };
         console.log('Submitting forum post data:', forumData);
         await createForumPost(forumData);
       } else {
         // Use regular post API for all other posts
         const postData = {
-          post_title: '',
           post_content: postContent.trim(),
-          post_image: postImage,
-          post_cat_id: selectedCategory!,  // We've already validated it's not null for non-forum posts
+          post_image: postImage, // Backward compatibility
+          post_images: postImages.length > 0 ? postImages : undefined, // Multiple images
           type: postType,
         };
         console.log('Submitting regular post data:', postData);
         console.log('Post image data:', postImage ? 'Present' : 'Not present');
-        console.log('Post image length:', postImage ? postImage.length : 0);
+        console.log('Post images data:', postImages.length > 0 ? `${postImages.length} images` : 'No images');
         await createPost(postData);
       }
       
@@ -212,67 +202,7 @@ export default function PostScreen() {
           <Image source={userAvatar} style={styles.avatar} />
           <Text style={styles.userName}>{userName}</Text>
         </View>
-        {/* Category Chip - Only show for non-forum posts */}
-        {(typeof params.type !== 'string' || params.type !== 'forum') && (
-          <View style={styles.categoryRow}>
-            <TouchableOpacity style={styles.categoryChip} onPress={() => setCategoryModalVisible(true)}>
-              <FontAwesome name="bookmark" size={12} color="#174f84" style={{ marginRight: 6 }} />
-              <Text style={styles.categoryChipText}>Category</Text>
-              <FontAwesome name="caret-up" size={12} color="#174f84" style={{ marginLeft: 6 }} />
-            </TouchableOpacity>
-          </View>
-        )}
 
-        {/* Category Modal */}
-        <Modal
-          visible={categoryModalVisible}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setCategoryModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select Category</Text>
-                <TouchableOpacity
-                  onPress={() => setCategoryModalVisible(false)}
-                  style={styles.closeButton}
-                >
-                  <Text style={styles.closeButtonText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={styles.categoryList}>
-                {categories.map((category) => (
-                  <TouchableOpacity
-                    key={category.post_cat_id}
-                    style={[
-                      styles.categoryItem,
-                      selectedCategory === category.post_cat_id && styles.selectedCategoryItem
-                    ]}
-                    onPress={() => {
-                      console.log('Category selected:', category);
-                      setSelectedCategory(category.post_cat_id);
-                      setCategoryModalVisible(false);
-                    }}
-                  >
-                    <Text style={[
-                      styles.categoryItemText,
-                      selectedCategory === category.post_cat_id && styles.selectedCategoryItemText
-                    ]}>
-                      {category.personal ? 'Personal' : 
-                       category.events ? 'Events' : 
-                       category.announcements ? 'Announcements' : 
-                       category.donation ? 'Donation' : 'Other'}
-                    </Text>
-                    {selectedCategory === category.post_cat_id && (
-                      <FontAwesome name="check" size={16} color="#fff" />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
 
 
         {/* Post Input */}
@@ -290,26 +220,45 @@ export default function PostScreen() {
         <Text style={styles.charCount}>{postContent.length}/1000</Text>
       </View> 
 
-      {/* Add Image Section */}
-      <View style={styles.addImageContainer}>
-        <TouchableOpacity style={styles.addImageRow} onPress={pickImage}>
-          <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
-          <Text style={styles.addImageText}>
-            {selectedImage ? 'Image Selected' : 'Add Image'}
-          </Text>
-        </TouchableOpacity>
-        {selectedImage && (
-          <View style={styles.selectedImageContainer}>
-            <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
-            <TouchableOpacity 
-              style={styles.removeImageButton}
-              onPress={() => setSelectedImage(null)}
-            >
-              <Text style={styles.removeImageText}>Remove</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+        {/* Add Image Section */}
+        <View style={styles.addImageContainer}>
+          <TouchableOpacity style={styles.addImageRow} onPress={pickImage}>
+            <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
+            <Text style={styles.addImageText}>
+              {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Image(s)'}
+            </Text>
+          </TouchableOpacity>
+          
+          {/* Display multiple selected images */}
+          {selectedImages.length > 0 && (
+            <ScrollView horizontal style={styles.imagesContainer}>
+              {selectedImages.map((image, index) => (
+                <View key={index} style={styles.selectedImageContainer}>
+                  <Image source={{ uri: image }} style={styles.selectedImage} />
+                  <TouchableOpacity 
+                    style={styles.removeImageButton}
+                    onPress={() => removeImage(index)}
+                  >
+                    <Text style={styles.removeImageText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+          
+          {/* Fallback for single image (backward compatibility) */}
+          {selectedImages.length === 0 && selectedImage && (
+            <View style={styles.selectedImageContainer}>
+              <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
+              <TouchableOpacity 
+                style={styles.removeImageButton}
+                onPress={() => setSelectedImage(null)}
+              >
+                <Text style={styles.removeImageText}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       
 
     </View>
@@ -574,6 +523,10 @@ topBarButtonRight: {
   },
   disabledButton: {
     opacity: 0.7,
+  },
+  imagesContainer: {
+    marginTop: 10,
+    maxHeight: 150,
   },
 
 });

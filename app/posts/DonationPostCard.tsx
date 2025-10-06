@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, ScrollView } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { API_BASE_URL, likeDonationPost, unlikeDonationPost, commentOnDonationPost, getDonationDetail, repostDonationPost, deleteDonationPost, editDonationPost, followUser, unfollowUser, checkFollowStatus, getUserInfo } from '../../services/api';
@@ -10,6 +10,7 @@ interface Post {
   post_title?: string;
   post_content: string;
   post_image?: string | null;
+  post_images?: any[];
   type?: string | null;
   created_at?: string | null;
   likes_count: number;
@@ -43,11 +44,34 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowButton, setShowFollowButton] = useState(false);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
 
-  const imageUrl = post.post_image
-    ? (String(post.post_image).startsWith('http') ? post.post_image : `${API_BASE_URL}${post.post_image}`)
+  // Handle both single image and multiple images
+  const getImagesFromPost = (post: any) => {
+    const images = [];
+    
+    // Add main post image if exists (backward compatibility)
+    if (post.post_image) {
+      images.push({
+        image_id: 0,
+        image_url: post.post_image,
+        order: 0
+      });
+    }
+    
+    // Add post_images array if exists (multiple images)
+    if (post.post_images && Array.isArray(post.post_images)) {
+      images.push(...post.post_images);
+    }
+    
+    return images.sort((a, b) => a.order - b.order);
+  };
+
+  const images = getImagesFromPost(post);
+  const imageUrl = images.length > 0 
+    ? (String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}`)
     : null;
 
   const formatDate = (dateString?: string | null) => {
@@ -93,13 +117,25 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   };
 
   const handleRepost = async () => {
+    if (!post.post_id) {
+      Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
+      return;
+    }
+
     try {
-      await repostDonationPost(post.post_id);
-      setRepostCount(prev => prev + 1);
-      Alert.alert('Success', 'Post reposted successfully!');
-    } catch (error) {
+      console.log('DonationPostCard - Reposting donation post with ID:', post.post_id);
+      const response = await repostDonationPost(post.post_id);
+      console.log('DonationPostCard - Repost response:', response);
+      
+      if (response.success !== false) {
+        setRepostCount(prev => prev + 1);
+        Alert.alert('Success', 'Post reposted successfully!');
+      } else {
+        Alert.alert('Error', response.message || 'Failed to repost');
+      }
+    } catch (error: any) {
       console.error('Error reposting:', error);
-      Alert.alert('Error', 'Failed to repost');
+      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to repost');
     }
   };
 
@@ -114,11 +150,16 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteDonationPost(post.post_id);
-              onDeleted?.(post.post_id);
-            } catch (error) {
+              const response = await deleteDonationPost(post.post_id);
+              if (response.success !== false) {
+                Alert.alert('Success', 'Post deleted successfully.');
+                onDeleted?.(post.post_id);
+              } else {
+                Alert.alert('Error', response.message || 'Failed to delete post.');
+              }
+            } catch (error: any) {
               console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post');
+              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to delete post');
             }
           },
         },
@@ -127,13 +168,23 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   };
 
   const handleEdit = async () => {
+    if (!editContent.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty.');
+      return;
+    }
+
     try {
-      await editDonationPost(post.post_id, editContent);
-      setEditModal(false);
-      onEdited?.(post.post_id, editContent);
-    } catch (error) {
+      const response = await editDonationPost(post.post_id, editContent.trim());
+      if (response.success !== false) {
+        Alert.alert('Success', 'Post updated successfully.');
+        setEditModal(false);
+        onEdited?.(post.post_id, editContent.trim());
+      } else {
+        Alert.alert('Error', response.message || 'Failed to update post.');
+      }
+    } catch (error: any) {
       console.error('Error editing post:', error);
-      Alert.alert('Error', 'Failed to edit post');
+      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to edit post');
     }
   };
 
@@ -221,10 +272,34 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
       {/* Post Content */}
       <TouchableOpacity onPress={() => router.push(`/posts/detail?postId=${post.post_id}`)}>
         <Text style={styles.content}>{post.post_content}</Text>
-        {imageUrl && (
-          <Image source={{ uri: imageUrl }} style={styles.postImage} />
-        )}
       </TouchableOpacity>
+      
+      {/* Images - support multiple images */}
+      {images.length > 0 && (
+        <View style={styles.imagesContainer}>
+          {images.length === 1 ? (
+            <TouchableOpacity 
+              onPress={() => setImageViewerVisible(true)}
+            >
+              <Image source={{ uri: imageUrl }} style={styles.postImage} />
+            </TouchableOpacity>
+          ) : (
+            <ScrollView horizontal style={styles.imagesScroll} showsHorizontalScrollIndicator={false}>
+              {images.map((image, index) => (
+                <TouchableOpacity 
+                  key={index}
+                  onPress={() => setImageViewerVisible(true)}
+                >
+                  <Image 
+                    source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                    style={styles.postImage} 
+                  />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
 
       {/* Action Buttons */}
       <View style={styles.actions}>
@@ -328,6 +403,25 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
             <TouchableOpacity style={styles.cancelOption} onPress={() => setShowActions(false)}>
               <Text style={styles.cancelOptionText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Viewer Modal */}
+      <Modal visible={imageViewerVisible} transparent animationType="fade">
+        <View style={styles.imageViewerOverlay}>
+          <TouchableOpacity 
+            style={styles.imageViewerCloseButton}
+            onPress={() => setImageViewerVisible(false)}
+          >
+            <Text style={styles.imageViewerCloseText}>✕</Text>
+          </TouchableOpacity>
+          <View style={styles.imageViewerContainer}>
+            <Image
+              source={{ uri: imageUrl }}
+              style={styles.imageViewerImage}
+              resizeMode="contain"
+            />
           </View>
         </View>
       </Modal>
@@ -533,6 +627,46 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     fontWeight: '600',
+  },
+  // Image Viewer Styles
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  imageViewerContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerImage: {
+    width: 400,
+    height: 400,
+  },
+  imagesContainer: {
+    marginTop: 10,
+  },
+  imagesScroll: {
+    maxHeight: 200,
   },
 });
 

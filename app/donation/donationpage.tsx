@@ -1,8 +1,8 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
-import { followUser, getUserInfo, checkFollowStatus, getDonationPosts } from '../../services/api';
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput } from 'react-native';
+import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import DonationPostCard from '../posts/DonationPostCard';
 
@@ -45,6 +45,9 @@ export default function DonationPage() {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
+  const [showDonationCreate, setShowDonationCreate] = useState(false);
+  const [donationMessage, setDonationMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -95,6 +98,36 @@ export default function DonationPage() {
     try { await loadDonationPosts(); } finally { setRefreshing(false); }
   };
 
+  const handleDonationSubmit = async () => {
+    if (!donationMessage.trim()) {
+      Alert.alert('Error', 'Please provide a description of your need');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await createDonationPost({
+        description: donationMessage.trim(),
+        images: [] // For now, no images - can be enhanced later
+      });
+      
+      if (response.success) {
+        Alert.alert('Success', 'Your donation request has been posted!');
+        setDonationMessage('');
+        setShowDonationCreate(false);
+        // Refresh the donation posts
+        await loadDonationPosts();
+      } else {
+        Alert.alert('Error', response.message || 'Failed to submit donation request');
+      }
+    } catch (error) {
+      console.error('Error creating donation request:', error);
+      Alert.alert('Error', 'Failed to submit donation request. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <ScrollView
       style={styles.scrollContainer}
@@ -129,8 +162,8 @@ export default function DonationPage() {
             size={40}
             style={styles.avatar}
           />
-          <TouchableOpacity style={styles.startPostInput} onPress={() => router.push({ pathname: '/posts/post', params: { type: 'donation' } })}>
-            <Text style={{ color: '#888' }}>Start a donation post</Text>
+          <TouchableOpacity style={styles.startPostInput} onPress={() => setShowDonationCreate(true)}>
+            <Text style={{ color: '#888' }}>Request help from your fellow alumni...</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -208,6 +241,68 @@ export default function DonationPage() {
                 </View>
               ))}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Donation Creation Modal */}
+      <Modal visible={showDonationCreate} transparent animationType="slide" onRequestClose={() => setShowDonationCreate(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.donationModal}>
+            <View style={styles.donationModalHeader}>
+              <Text style={styles.donationModalTitle}>💰 Request Help</Text>
+              <TouchableOpacity onPress={() => setShowDonationCreate(false)}>
+                <FontAwesome name="times" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.donationModalContent}>
+              <View style={styles.donationUserInfo}>
+                <UserAvatar 
+                  profilePic={user?.profile_pic}
+                  firstName={user?.f_name}
+                  lastName={user?.l_name}
+                  size={40}
+                  style={styles.donationAvatar}
+                />
+                <View>
+                  <Text style={styles.donationUserName}>{user?.f_name} {user?.l_name}</Text>
+                  <Text style={styles.donationUserSubtext}>is requesting help</Text>
+                </View>
+              </View>
+
+              <View style={styles.donationInputContainer}>
+                <Text style={styles.donationInputLabel}>Tell us about your need:</Text>
+                <TextInput
+                  style={styles.donationInput}
+                  placeholder="Describe your situation and how donations would help (e.g., therapy sessions, medical expenses, emergency fund, etc.)..."
+                  value={donationMessage}
+                  onChangeText={setDonationMessage}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              <View style={styles.donationModalActions}>
+                <TouchableOpacity 
+                  style={[styles.donationButton, styles.donationCancelButton]} 
+                  onPress={() => setShowDonationCreate(false)}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.donationCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.donationButton, styles.donationSubmitButton, isSubmitting && styles.donationButtonDisabled]} 
+                  onPress={handleDonationSubmit}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.donationSubmitButtonText}>
+                    {isSubmitting ? 'Posting...' : 'Post Request'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </View>
       </Modal>
@@ -364,5 +459,95 @@ const styles = StyleSheet.create({
   listSubText: {
     fontSize: 12,
     color: '#888',
+  },
+  // Donation Modal Styles
+  donationModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  donationModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  donationModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  donationModalContent: {
+    padding: 20,
+  },
+  donationUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  donationAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  donationUserName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  donationUserSubtext: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  donationInputContainer: {
+    marginBottom: 20,
+  },
+  donationInputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  donationInput: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  donationModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  donationButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  donationCancelButton: {
+    backgroundColor: '#f3f4f6',
+  },
+  donationSubmitButton: {
+    backgroundColor: '#1e3a8a',
+  },
+  donationButtonDisabled: {
+    opacity: 0.5,
+  },
+  donationCancelButtonText: {
+    color: '#374151',
+    fontWeight: '600',
+  },
+  donationSubmitButtonText: {
+    color: 'white',
+    fontWeight: '600',
   },
 });

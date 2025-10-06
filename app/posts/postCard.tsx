@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
@@ -10,21 +10,23 @@ interface Post {
   post_id: number;
   post_title?: string;
   post_content: string;
-  post_image?: string;
-  user: {
-    f_name: string;
-    l_name: string;
-    profile_pic?: string;
-    user_id?: number;
-  };
+  post_image?: string | null;
+  post_images?: any[];
+  type?: string | null;
+  created_at?: string | null;
   likes?: any[];
   comments?: any[];
   reposts?: any[];
-  likes_count?: number;
-  comments_count?: number;
+  likes_count: number;
+  comments_count: number;
   reposts_count?: number;
-  created_at: string;
   is_liked?: boolean;
+  user: { 
+    user_id: number; 
+    f_name: string; 
+    l_name: string; 
+    profile_pic?: string | null 
+  };
 }
 
 interface Props {
@@ -34,9 +36,10 @@ interface Props {
   onOpenViewer?: (post: Post, type: 'likes' | 'comments' | 'reposts') => void;
   onEdited?: (postId: number, newContent: string) => void;
   onDeleted?: (postId: number) => void;
+  onRepostToggle?: (postId: number, isReposted: boolean) => void;
 }
 
-const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted }) => {
+const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
 
   // Local state
@@ -46,16 +49,48 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   const [showActions, setShowActions] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editContent, setEditContent] = useState(post.post_content);
+  const [editLoading, setEditLoading] = useState(false);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+
+  // Update edit content when post content changes
+  useEffect(() => {
+    setEditContent(post.post_content);
+  }, [post.post_content]);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
 
-  const imageUrl = post.post_image
-    ? (String(post.post_image).startsWith('http') ? post.post_image : `${API_BASE_URL}${post.post_image}`)
+  // Handle both single image and multiple images
+  const getImagesFromPost = (post: any) => {
+    const images = [];
+    
+    // Add main post image if exists (backward compatibility)
+    if (post.post_image) {
+      images.push({
+        image_id: 0,
+        image_url: post.post_image,
+        order: 0
+      });
+    }
+    
+    // Add post_images array if exists (multiple images)
+    if (post.post_images && Array.isArray(post.post_images)) {
+      images.push(...post.post_images);
+    }
+    
+    return images.sort((a, b) => a.order - b.order);
+  };
+
+  const images = getImagesFromPost(post);
+  const imageUrl = images.length > 0 
+    ? (String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}`)
     : null;
 
-  // Debug logging for image
+  // Debug logging for images
   console.log('PostCard - Post ID:', post.post_id);
   console.log('PostCard - Post image field:', post.post_image);
+  console.log('PostCard - Post images array:', post.post_images);
+  console.log('PostCard - Processed images:', images);
   console.log('PostCard - Constructed imageUrl:', imageUrl);
 
   /** --- Actions --- **/
@@ -78,11 +113,23 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   };
 
   const handleRepost = async () => {
+    console.log('PostCard - handleRepost called');
+    console.log('PostCard - post.post_id:', post.post_id);
+    console.log('PostCard - post:', post);
+    
+    // Validate post ID
+    if (!post.post_id) {
+      Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
+      return;
+    }
+
     // Check if current user already reposted this post
     const meId = currentUserId;
     const alreadyReposted = Array.isArray(post.reposts) 
       ? post.reposts.find((r: any) => r.user?.user_id === meId)
       : null;
+    
+    console.log('PostCard - alreadyReposted:', alreadyReposted);
     
     if (alreadyReposted) {
       Alert.alert(
@@ -92,13 +139,19 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
           { text: 'Cancel', style: 'cancel' },
           { 
             text: 'Edit Repost', 
-            onPress: () => router.push(`/repost/repost?postId=${post.post_id}`)
+            onPress: () => {
+              console.log('PostCard - Navigating to repost screen for edit with postId:', post.post_id);
+              router.push(`/repost/repost?postId=${post.post_id}`);
+              // Note: Repost count will be updated when the user returns to this screen
+            }
           }
         ]
       );
     } else {
       // Navigate to repost screen so user can add an optional caption
+      console.log('PostCard - Navigating to repost screen with postId:', post.post_id);
       router.push(`/repost/repost?postId=${post.post_id}`);
+      // Note: Repost count will be updated when the user returns to this screen
     }
   };
 
@@ -114,18 +167,17 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
           style: 'destructive',
           onPress: async () => {
             try {
-              await deletePost(post.post_id);
-              Alert.alert('Deleted', 'Post removed successfully.');
-              setShowActions(false);
-              onDeleted?.(post.post_id);
+              const response = await deletePost(post.post_id);
+              if (response.success !== false) {
+                Alert.alert('Success', 'Post deleted successfully.');
+                setShowActions(false);
+                onDeleted?.(post.post_id);
+              } else {
+                Alert.alert('Error', response.message || 'Failed to delete post.');
+              }
             } catch (error: any) {
               console.error('Delete post error:', error);
-              console.error('Error details:', {
-                message: error?.message,
-                response: error?.response?.data,
-                status: error?.response?.status
-              });
-              Alert.alert('Error', `Could not delete post: ${error?.response?.data?.error || error?.message || 'Unknown error'}`);
+              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not delete post.');
             }
           }
         }
@@ -134,13 +186,28 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   };
 
   const handleEdit = async () => {
+    if (!editContent.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty.');
+      return;
+    }
+
+    if (editLoading) return;
+
     try {
-      await editPost(post.post_id, { post_content: editContent });
-      Alert.alert('Updated', 'Post updated successfully.');
-      setEditModal(false);
-      onEdited?.(post.post_id, editContent);
-    } catch (error) {
-      Alert.alert('Error', 'Could not update post.');
+      setEditLoading(true);
+      const response = await editPost(post.post_id, { post_content: editContent.trim() });
+      if (response.success !== false) {
+        Alert.alert('Success', 'Post updated successfully.');
+        setEditModal(false);
+        onEdited?.(post.post_id, editContent.trim());
+      } else {
+        Alert.alert('Error', response.message || 'Failed to update post.');
+      }
+    } catch (error: any) {
+      console.error('Edit post error:', error);
+      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not update post.');
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -173,7 +240,39 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
       {/* Content */}
       {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
       <Text style={styles.content}>{post.post_content}</Text>
-      {imageUrl && <Image source={{ uri: imageUrl }} style={styles.postImage} resizeMode="cover" />}
+      {/* Images - support multiple images */}
+      {images.length > 0 && (
+        <View style={styles.imagesContainer}>
+          {images.length === 1 ? (
+            <TouchableOpacity 
+              onPress={() => {
+                setSelectedImageIndex(0);
+                setImageViewerVisible(true);
+              }}
+            >
+              <Image source={{ uri: imageUrl }} style={styles.postImage} resizeMode="cover" />
+            </TouchableOpacity>
+          ) : (
+            <ScrollView horizontal style={styles.imagesScroll} showsHorizontalScrollIndicator={false}>
+              {images.map((image, index) => (
+                <TouchableOpacity 
+                  key={index}
+                  onPress={() => {
+                    setSelectedImageIndex(index);
+                    setImageViewerVisible(true);
+                  }}
+                >
+                  <Image 
+                    source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                    style={styles.postImage} 
+                    resizeMode="cover" 
+                  />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
 
       {/* Stats */}
       <View style={styles.actionsCountsRow}>
@@ -251,8 +350,16 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
               onChangeText={setEditContent}
               multiline
             />
-            <TouchableOpacity style={styles.button} onPress={handleEdit}>
-              <Text style={styles.buttonText}>Save</Text>
+            <TouchableOpacity 
+              style={[styles.button, editLoading && { opacity: 0.7 }]} 
+              onPress={handleEdit}
+              disabled={editLoading}
+            >
+              {editLoading ? (
+                <Text style={styles.buttonText}>Saving...</Text>
+              ) : (
+                <Text style={styles.buttonText}>Save</Text>
+              )}
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, { backgroundColor: 'gray' }]}
@@ -260,6 +367,45 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
             >
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Image Viewer Modal */}
+      <Modal visible={imageViewerVisible} transparent animationType="fade">
+        <View style={styles.imageViewerOverlay}>
+          <TouchableOpacity 
+            style={styles.imageViewerCloseButton}
+            onPress={() => setImageViewerVisible(false)}
+          >
+            <Text style={styles.imageViewerCloseText}>✕</Text>
+          </TouchableOpacity>
+          <View style={styles.imageViewerContainer}>
+            {images.length > 1 && (
+              <View style={styles.imageViewerCounter}>
+                <Text style={styles.imageViewerCounterText}>
+                  {selectedImageIndex + 1} of {images.length}
+                </Text>
+              </View>
+            )}
+            <ScrollView 
+              horizontal 
+              pagingEnabled 
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(event) => {
+                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
+                setSelectedImageIndex(index);
+              }}
+            >
+              {images.map((image, index) => (
+                <Image
+                  key={index}
+                  source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }}
+                  style={styles.imageViewerImage}
+                  resizeMode="contain"
+                />
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -272,10 +418,11 @@ export default PostCard;
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
-    padding: 15,
-    marginVertical: 8,
-    borderRadius: 12,
-    elevation: 3,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 16,
+    elevation: 2,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 6,
@@ -299,7 +446,13 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: '#666' },
   postTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, color: '#333' },
   content: { fontSize: 14, marginTop: 10, color: '#333' },
-  postImage: { width: '100%', height: 200, borderRadius: 10, marginTop: 10, backgroundColor: '#ccc' },
+  postImage: { width: 200, height: 200, borderRadius: 10, marginTop: 10, marginRight: 10, backgroundColor: '#ccc' },
+  imagesContainer: {
+    marginTop: 10,
+  },
+  imagesScroll: {
+    maxHeight: 200,
+  },
   actionsCountsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -326,4 +479,53 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' },
   button: { backgroundColor: '#1e3a8a', borderRadius: 8, padding: 12, marginVertical: 6 },
   buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
+  // Image Viewer Styles
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  imageViewerContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCounter: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1,
+  },
+  imageViewerCounterText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  imageViewerImage: {
+    width: 400,
+    height: 400,
+  },
 });

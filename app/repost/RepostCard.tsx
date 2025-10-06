@@ -4,8 +4,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost } from '../../services/api';
-import { getRepostLikes } from '../../services/api';
+import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost, getRepostLikes, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 
 dayjs.extend(relativeTime);
@@ -14,26 +13,27 @@ interface OriginalPost {
   post_id: number;
   post_title?: string;
   post_content: string;
-  post_image?: string;
-  user: {
-    f_name: string;
-    l_name: string;
-    profile_pic?: string;
-    user_id?: number;
-  };
+  post_image?: string | null;
+  type?: string | null;
+  created_at?: string | null;
   likes?: any[];
   comments?: any[];
   reposts?: any[];
-  likes_count?: number;
-  comments_count?: number;
+  likes_count: number;
+  comments_count: number;
   reposts_count?: number;
-  created_at: string;
   is_liked?: boolean;
+  user: { 
+    user_id: number; 
+    f_name: string; 
+    l_name: string; 
+    profile_pic?: string | null 
+  };
 }
 
 interface Repost {
   repost_id: number;
-  caption?: string;
+  repost_caption?: string;
   created_at: string;
   user: {
     f_name: string;
@@ -55,10 +55,15 @@ interface Props {
   onOpenViewer?: (repost: Repost, type: 'likes' | 'comments' | 'reposts') => void;
   onEdited?: (repostId: number, newCaption: string) => void;
   onDeleted?: (repostId: number) => void;
+  onOriginalPostReposted?: (originalPostId: number) => void;
 }
 
-const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted }) => {
+const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted }) => {
   const router = useRouter();
+
+  console.log('RepostCard - repost data:', repost);
+  console.log('RepostCard - repost caption:', repost.repost_caption);
+  console.log('RepostCard - original_post:', repost.original_post);
 
   // Local state for repost actions
   const [isLiked, setIsLiked] = useState(repost.is_liked || false);
@@ -66,19 +71,52 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   const [repostCount, setRepostCount] = useState(repost.reposts_count || 0);
   const [showActions, setShowActions] = useState(false);
   const [editModal, setEditModal] = useState(false);
-  const [editCaption, setEditCaption] = useState(repost.caption || '');
+  const [editCaption, setEditCaption] = useState(repost.repost_caption || '');
   const [editLoading, setEditLoading] = useState(false);
   // Likes & Comments modals
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesLoading, setLikesLoading] = useState(false);
   const [likesUsers, setLikesUsers] = useState<any[]>([]);
-  // Removed comment modal state since we're using full-screen navigation
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  
+  // Comment system
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [editingComment, setEditingComment] = useState<{ [key: number]: boolean }>({});
+  const [editCommentText, setEditCommentText] = useState<{ [key: number]: string }>({});
 
   const repostUserName = `${repost.user?.f_name || ''} ${repost.user?.l_name || ''}`.trim() || 'User';
   const originalUserName = `${repost.original_post.user?.f_name || ''} ${repost.original_post.user?.l_name || ''}`.trim() || 'User';
 
-  const originalImageUrl = repost.original_post.post_image
-    ? (String(repost.original_post.post_image).startsWith('http') ? repost.original_post.post_image : `${API_BASE_URL}${repost.original_post.post_image}`)
+  // Handle both single image and multiple images for repost
+  const getImagesFromRepostPost = (post: any) => {
+    const images = [];
+    
+    // Add main post image if exists (backward compatibility)
+    if (post.post_image) {
+      images.push({
+        image_id: 0,
+        image_url: post.post_image,
+        order: 0
+      });
+    }
+    
+    // Note: Backend repost detail only provides post_image (singular), not post_images (plural)
+    // Add post_images array if exists (multiple images) - for compatibility with other endpoints
+    if (post.post_images && Array.isArray(post.post_images)) {
+      images.push(...post.post_images);
+    }
+    
+    return images.sort((a, b) => a.order - b.order);
+  };
+
+  const originalImages = repost.original_post ? getImagesFromRepostPost(repost.original_post) : [];
+  const originalImageUrl = originalImages.length > 0 
+    ? (String(originalImages[0].image_url).startsWith('http') ? originalImages[0].image_url : `${API_BASE_URL}${originalImages[0].image_url}`)
     : null;
 
   /** --- Actions --- **/
@@ -117,8 +155,16 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   };
 
   const handleRepost = async () => {
+    // Validate original post ID
+    if (!repost.original_post?.post_id) {
+      Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
+      return;
+    }
+    
+    console.log('RepostCard - Navigating to repost screen with postId:', repost.original_post.post_id);
     // Navigate to repost screen for the original post
     router.push(`/repost/repost?postId=${repost.original_post.post_id}`);
+    // Note: Original post repost count will be updated when the user returns to this screen
   };
 
   const handleOriginalPostPress = () => {
@@ -139,10 +185,16 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteRepost(repost.repost_id);
-              onDeleted?.(repost.repost_id);
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete repost.');
+              const response = await deleteRepost(repost.repost_id);
+              if (response.success !== false) {
+                Alert.alert('Success', 'Repost deleted successfully.');
+                onDeleted?.(repost.repost_id);
+              } else {
+                Alert.alert('Error', response.message || 'Failed to delete repost.');
+              }
+            } catch (error: any) {
+              console.error('Delete repost error:', error);
+              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to delete repost.');
             }
           },
         },
@@ -169,12 +221,19 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
   const openLikes = async () => {
     try {
+      console.log('Opening likes for repost:', repost.repost_id);
       setLikesModalVisible(true);
       setLikesLoading(true);
-      const users = await getRepostLikes(repost.repost_id);
+      const response = await getRepostLikes(repost.repost_id);
+      console.log('Repost likes response:', response);
+      // Backend returns {likes: [...]} so we need to extract the likes array
+      const users = response?.likes || [];
+      console.log('Extracted likes users:', users);
       setLikesUsers(users);
     } catch (e) {
+      console.error('Error loading repost likes:', e);
       Alert.alert('Error', 'Failed to load likes');
+      setLikesUsers([]);
     } finally {
       setLikesLoading(false);
     }
@@ -182,10 +241,90 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
   const openCommentModal = async () => {
     // Navigate to full-screen comments view instead of modal
-    router.push(`/repost/repost-comments?repostId=${repost.repost_id}`);
+    console.log('RepostCard - Opening comment modal for repostId:', repost.repost_id);
+    try {
+      router.push(`/repost/repost-comments?repostId=${repost.repost_id}`);
+    } catch (error) {
+      console.error('Error navigating to comments:', error);
+      Alert.alert('Error', 'Unable to open comments. Please try again.');
+    }
   };
 
-  // Removed comment loading functions since we're using full-screen navigation
+  const loadComments = async () => {
+    try {
+      setCommentsLoading(true);
+      const commentsData = await getRepostComments(repost.repost_id);
+      setComments(Array.isArray(commentsData) ? commentsData : []);
+    } catch (error) {
+      console.error('Error loading comments:', error);
+      setComments([]);
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  const handleComment = async () => {
+    if (!commentText.trim()) {
+      Alert.alert('Error', 'Please enter a comment');
+      return;
+    }
+
+    try {
+      setSubmittingComment(true);
+      await commentOnRepost(repost.repost_id, commentText.trim());
+      setCommentText('');
+      await loadComments(); // Reload comments
+      Alert.alert('Success', 'Comment added successfully');
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      Alert.alert('Error', 'Failed to add comment');
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const handleEditComment = async (commentId: number) => {
+    const text = editCommentText[commentId];
+    if (!text?.trim()) {
+      Alert.alert('Error', 'Please enter a comment');
+      return;
+    }
+
+    try {
+      await updateRepostComment(repost.repost_id, commentId, text.trim());
+      setEditingComment(prev => ({ ...prev, [commentId]: false }));
+      setEditCommentText(prev => ({ ...prev, [commentId]: '' }));
+      await loadComments(); // Reload comments
+      Alert.alert('Success', 'Comment updated successfully');
+    } catch (error) {
+      console.error('Error editing comment:', error);
+      Alert.alert('Error', 'Failed to update comment');
+    }
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    Alert.alert(
+      'Delete Comment',
+      'Are you sure you want to delete this comment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteRepostComment(repost.repost_id, commentId);
+              await loadComments(); // Reload comments
+              Alert.alert('Success', 'Comment deleted successfully');
+            } catch (error) {
+              console.error('Error deleting comment:', error);
+              Alert.alert('Error', 'Failed to delete comment');
+            }
+          }
+        }
+      ]
+    );
+  };
 
   const renderAvatar = (src?: string) => {
     if (!src) return require('../../assets/images/sample_pic.jpg');
@@ -218,36 +357,73 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
         )}
       </View>
       {/* Caption (if exists) directly below header */}
-      {repost.caption && repost.caption.trim() ? (
-        <Text style={styles.caption}>{repost.caption}</Text>
+      {repost.repost_caption && repost.repost_caption.trim() ? (
+        <Text style={styles.caption}>{repost.repost_caption}</Text>
       ) : null}
 
       {/* Original Post (Embedded) */}
-      <TouchableOpacity style={styles.originalPost} onPress={handleOriginalPostPress} activeOpacity={0.8}>
-        <View style={styles.originalHeader}>
-          <UserAvatar 
-            profilePic={repost.original_post.user?.profile_pic}
-            firstName={repost.original_post.user?.f_name}
-            lastName={repost.original_post.user?.l_name}
-            size={36}
-            style={styles.originalAvatar}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.originalUserName}>{originalUserName}</Text>
-            <Text style={styles.originalMeta}>{dayjs(repost.original_post.created_at).fromNow()}</Text>
+      {repost.original_post && (
+        <TouchableOpacity style={styles.originalPost} onPress={handleOriginalPostPress} activeOpacity={0.8}>
+          <View style={styles.originalHeader}>
+            <UserAvatar 
+              profilePic={repost.original_post.user?.profile_pic}
+              firstName={repost.original_post.user?.f_name}
+              lastName={repost.original_post.user?.l_name}
+              size={36}
+              style={styles.originalAvatar}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.originalUserName}>{originalUserName}</Text>
+              {/* Note: Backend doesn't provide created_at for original post in repost detail */}
+            </View>
           </View>
-        </View>
 
-        {/* Original Content */}
-        {repost.original_post.post_title && <Text style={styles.originalTitle}>{repost.original_post.post_title}</Text>}
-        <Text style={styles.originalContent}>{repost.original_post.post_content}</Text>
-        {originalImageUrl && <Image source={{ uri: originalImageUrl }} style={styles.originalImage} resizeMode="cover" />}
-      </TouchableOpacity>
+          {/* Original Content */}
+          {/* Note: Backend doesn't provide post_title for original post in repost detail */}
+          <Text style={styles.originalContent}>{repost.original_post.post_content}</Text>
+        
+        {/* Original Images - support multiple images */}
+        {originalImages.length > 0 && (
+          <View style={styles.originalImagesContainer}>
+            {originalImages.length === 1 ? (
+              <TouchableOpacity 
+                onPress={() => {
+                  setSelectedImageIndex(0);
+                  setImageViewerVisible(true);
+                }}
+              >
+                <Image source={{ uri: originalImageUrl }} style={styles.originalImage} resizeMode="cover" />
+              </TouchableOpacity>
+            ) : (
+              <ScrollView horizontal style={styles.originalImagesScroll} showsHorizontalScrollIndicator={false}>
+                {originalImages.map((image, index) => (
+                  <TouchableOpacity 
+                    key={index}
+                    onPress={() => {
+                      setSelectedImageIndex(index);
+                      setImageViewerVisible(true);
+                    }}
+                  >
+                    <Image 
+                      source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                      style={styles.originalImage} 
+                      resizeMode="cover" 
+                    />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
+        </TouchableOpacity>
+      )}
 
       {/* Repost Stats */}
       <View style={styles.actionsCountsRow}>
         <TouchableOpacity onPress={openLikes}>
-          <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
+          <Text style={styles.countText}>
+            {likeCount} {likeCount === 1 ? 'like' : 'likes'}
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={openCommentModal}>
           <Text style={styles.countText}>{repost.comments_count || 0} comments</Text>
@@ -355,27 +531,44 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       <Modal visible={likesModalVisible} transparent animationType="slide" onRequestClose={() => setLikesModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.viewerModal}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.modalTitle}>Likes</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={styles.modalTitle}>Likes ({likesUsers.length})</Text>
               <TouchableOpacity onPress={() => setLikesModalVisible(false)}>
-                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold', fontSize: 16 }}>Close</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 320 }}>
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
               {likesLoading ? (
-                <ActivityIndicator size="small" color="#1e3a8a" />
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color="#1e3a8a" />
+                  <Text style={{ marginTop: 8, color: '#666' }}>Loading likes...</Text>
+                </View>
               ) : (
                 <>
-                  {likesUsers.length === 0 ? (
-                    <Text style={styles.emptyText}>No likes yet</Text>
+                  {!likesUsers || likesUsers.length === 0 ? (
+                    <View style={{ padding: 20, alignItems: 'center' }}>
+                      <Text style={styles.emptyText}>No likes yet</Text>
+                    </View>
                   ) : (
-                    likesUsers.map((u, idx) => (
-                      <View key={idx} style={styles.listItemRow}>
-                        <UserAvatar profilePic={u.profile_pic} firstName={u.f_name} lastName={u.l_name} size={36} style={styles.listAvatar} />
-                        <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
-                      </View>
-                    ))
+                    likesUsers.map((u, idx) => {
+                      // Add safety checks for user data
+                      if (!u) return null;
+                      return (
+                        <View key={`like-${u.user_id || idx}`} style={styles.listItemRow}>
+                          <UserAvatar 
+                            profilePic={u.profile_pic} 
+                            firstName={u.f_name || 'User'} 
+                            lastName={u.l_name || ''} 
+                            size={36} 
+                            style={styles.listAvatar} 
+                          />
+                          <Text style={styles.listText}>
+                            {u.f_name || 'User'} {u.l_name || ''}
+                          </Text>
+                        </View>
+                      );
+                    })
                   )}
                 </>
               )}
@@ -385,6 +578,45 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       </Modal>
 
       {/* Comment modal removed - now using full-screen navigation */}
+
+      {/* Image Viewer Modal */}
+      <Modal visible={imageViewerVisible} transparent animationType="fade">
+        <View style={styles.imageViewerOverlay}>
+          <TouchableOpacity 
+            style={styles.imageViewerCloseButton}
+            onPress={() => setImageViewerVisible(false)}
+          >
+            <Text style={styles.imageViewerCloseText}>✕</Text>
+          </TouchableOpacity>
+          <View style={styles.imageViewerContainer}>
+            {originalImages.length > 1 && (
+              <View style={styles.imageViewerCounter}>
+                <Text style={styles.imageViewerCounterText}>
+                  {selectedImageIndex + 1} of {originalImages.length}
+                </Text>
+              </View>
+            )}
+            <ScrollView 
+              horizontal 
+              pagingEnabled 
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(event) => {
+                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
+                setSelectedImageIndex(index);
+              }}
+            >
+              {originalImages.map((image, index) => (
+                <Image
+                  key={index}
+                  source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }}
+                  style={styles.imageViewerImage}
+                  resizeMode="contain"
+                />
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -393,7 +625,8 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    marginBottom: 16,
+    marginTop: 16,
+    marginBottom: 8,
     padding: 16,
     shadowColor: '#000',
     shadowOpacity: 0.08,
@@ -466,10 +699,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   originalImage: {
-    width: '100%',
+    width: 200,
     height: 150,
     borderRadius: 8,
     backgroundColor: '#ccc',
+    marginRight: 8,
+  },
+  originalImagesContainer: {
+    marginTop: 8,
+  },
+  originalImagesScroll: {
+    maxHeight: 150,
   },
   actionsCountsRow: {
     flexDirection: 'row',
@@ -547,7 +787,11 @@ const styles = StyleSheet.create({
   emptyText: { 
     color: '#666', 
     textAlign: 'center', 
-    paddingVertical: 12 
+    paddingVertical: 12
+  },
+  disabledText: {
+    color: '#999',
+    opacity: 0.6,
   },
   // Removed comment modal styles since we're using full-screen navigation
   modalButton: {
@@ -621,6 +865,55 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  // Image Viewer Styles
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  imageViewerContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCounter: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1,
+  },
+  imageViewerCounterText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  imageViewerImage: {
+    width: 400,
+    height: 400,
   },
 });
 

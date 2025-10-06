@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, ScrollView } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { API_BASE_URL, likeForumPost, unlikeForumPost, commentOnForumPost, getForumDetail, repostForumPost, deleteForumPost, editForumPost, followUser, unfollowUser, checkFollowStatus, getUserInfo } from '../../services/api';
+import { API_BASE_URL, likeForumPost, unlikeForumPost, repostForumPost, deleteForumPost, editForumPost, followUser, unfollowUser, checkFollowStatus } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 
 interface Post {
@@ -10,6 +10,7 @@ interface Post {
   post_title?: string;
   post_content: string;
   post_image?: string | null;
+  post_images?: any[];
   type?: string | null;
   created_at?: string | null;
   likes_count: number;
@@ -36,18 +37,37 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   const [showActions, setShowActions] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editContent, setEditContent] = useState(post.post_content);
-  const [commentModal, setCommentModal] = useState(false);
-  const [commentText, setCommentText] = useState('');
-  const [submittingComment, setSubmittingComment] = useState(false);
-  const [comments, setComments] = useState<any[]>([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowButton, setShowFollowButton] = useState(false);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
 
-  const imageUrl = post.post_image
-    ? (String(post.post_image).startsWith('http') ? post.post_image : `${API_BASE_URL}${post.post_image}`)
+  // Handle both single image and multiple images
+  const getImagesFromPost = (post: any) => {
+    const images = [];
+    
+    // Add main post image if exists (backward compatibility)
+    if (post.post_image) {
+      images.push({
+        image_id: 0,
+        image_url: post.post_image,
+        order: 0
+      });
+    }
+    
+    // Add post_images array if exists (multiple images)
+    if (post.post_images && Array.isArray(post.post_images)) {
+      images.push(...post.post_images);
+    }
+    
+    return images.sort((a, b) => a.order - b.order);
+  };
+
+  const images = getImagesFromPost(post);
+  const imageUrl = images.length > 0 
+    ? (String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}`)
     : null;
 
   // Debug logging for image
@@ -143,12 +163,25 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   };
 
   const handleRepost = async () => {
+    if (!post.post_id) {
+      Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
+      return;
+    }
+
     try {
-      await repostForumPost(post.post_id);
-      setRepostCount((c) => c + 1);
-      Alert.alert('Reposted', 'Post reposted successfully');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to repost');
+      console.log('ForumPostCard - Reposting forum post with ID:', post.post_id);
+      const response = await repostForumPost(post.post_id);
+      console.log('ForumPostCard - Repost response:', response);
+      
+      if (response.success !== false) {
+        setRepostCount((c) => c + 1);
+        Alert.alert('Success', 'Post reposted successfully');
+      } else {
+        Alert.alert('Error', response.message || 'Failed to repost');
+      }
+    } catch (error: any) {
+      console.error('ForumPostCard - Repost error:', error);
+      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to repost');
     }
   };
 
@@ -164,12 +197,17 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteForumPost(post.post_id);
-              Alert.alert('Deleted', 'Post removed successfully.');
-              setShowActions(false);
-              onDeleted?.(post.post_id);
-            } catch (error) {
-              Alert.alert('Error', 'Could not delete post.');
+              const response = await deleteForumPost(post.post_id);
+              if (response.success !== false) {
+                Alert.alert('Success', 'Post deleted successfully.');
+                setShowActions(false);
+                onDeleted?.(post.post_id);
+              } else {
+                Alert.alert('Error', response.message || 'Failed to delete post.');
+              }
+            } catch (error: any) {
+              console.error('Delete forum post error:', error);
+              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not delete post.');
             }
           }
         }
@@ -178,45 +216,26 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   };
 
   const handleEdit = async () => {
+    if (!editContent.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty.');
+      return;
+    }
+
     try {
-      await editForumPost(post.post_id, { post_content: editContent });
-      Alert.alert('Updated', 'Post updated successfully.');
-      setEditModal(false);
-      onEdited?.(post.post_id, editContent);
-    } catch (error) {
-      Alert.alert('Error', 'Could not update post.');
+      const response = await editForumPost(post.post_id, { post_content: editContent.trim() });
+      if (response.success !== false) {
+        Alert.alert('Success', 'Post updated successfully.');
+        setEditModal(false);
+        onEdited?.(post.post_id, editContent.trim());
+      } else {
+        Alert.alert('Error', response.message || 'Failed to update post.');
+      }
+    } catch (error: any) {
+      console.error('Edit forum post error:', error);
+      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not update post.');
     }
   };
 
-  const handleComment = async () => {
-    if (!commentText.trim()) return;
-
-    try {
-      setSubmittingComment(true);
-      await commentOnForumPost(post.post_id, commentText);
-      
-      // Refresh comments
-      const detail = await getForumDetail(post.post_id);
-      setComments(detail?.comments || []);
-      
-      setCommentText('');
-      setCommentModal(false);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to post comment');
-    } finally {
-      setSubmittingComment(false);
-    }
-  };
-
-  const openCommentModal = async () => {
-    try {
-      const detail = await getForumDetail(post.post_id);
-      setComments(detail?.comments || []);
-      setCommentModal(true);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load comments');
-    }
-  };
 
   return (
     <>
@@ -269,14 +288,41 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
         {/* Content */}
         {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
         <Text style={styles.content}>{post.post_content}</Text>
-        {imageUrl && <Image source={{ uri: imageUrl }} style={styles.postImage} resizeMode="cover" />}
+        
+        {/* Images - support multiple images */}
+        {images.length > 0 && (
+          <View style={styles.imagesContainer}>
+            {images.length === 1 ? (
+              <TouchableOpacity 
+                onPress={() => setImageViewerVisible(true)}
+              >
+                <Image source={{ uri: imageUrl }} style={styles.postImage} resizeMode="cover" />
+              </TouchableOpacity>
+            ) : (
+              <ScrollView horizontal style={styles.imagesScroll} showsHorizontalScrollIndicator={false}>
+                {images.map((image, index) => (
+                  <TouchableOpacity 
+                    key={index}
+                    onPress={() => setImageViewerVisible(true)}
+                  >
+                    <Image 
+                      source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                      style={styles.postImage} 
+                      resizeMode="cover" 
+                    />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
 
         {/* Stats */}
         <View style={styles.actionsCountsRow}>
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
             <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={openCommentModal}>
+          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
             <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
@@ -295,7 +341,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             <Text style={[styles.actionText, isLiked && styles.likedText]}>Like</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionIcon} onPress={openCommentModal}>
+          <TouchableOpacity style={styles.actionIcon} onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
             <FontAwesome name="comment-o" size={18} color="#555" />
             <Text style={styles.actionText}>Comment</Text>
           </TouchableOpacity>
@@ -358,64 +404,22 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
         </View>
       </Modal>
 
-      {/* Comment Modal */}
-      <Modal visible={commentModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.commentModalContent}>
-            <View style={styles.commentModalHeader}>
-              <Text style={styles.modalTitle}>Comments</Text>
-              <TouchableOpacity onPress={() => setCommentModal(false)}>
-                <FontAwesome name="times" size={20} color="#888" />
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.commentsList}>
-              {comments.map((comment) => (
-                <View key={comment.comment_id} style={styles.commentItem}>
-                  <UserAvatar 
-                    profilePic={comment.user?.profile_pic}
-                    firstName={comment.user?.f_name}
-                    lastName={comment.user?.l_name}
-                    size={32}
-                    style={styles.commentAvatar}
-                  />
-                  <View style={styles.commentContent}>
-                    <View style={styles.commentHeaderRow}>
-                      <Text style={styles.commentAuthor}>
-                        {comment.user?.f_name} {comment.user?.l_name}
-                      </Text>
-                      <Text style={styles.commentMeta}>
-                        {formatDate(comment.date_created)}
-                      </Text>
-                    </View>
-                    <View style={styles.commentBubble}>
-                      <Text style={styles.commentText}>{comment.comment_content}</Text>
-                    </View>
-                  </View>
-                </View>
-              ))}
-            </View>
 
-            <View style={styles.commentInputContainer}>
-              <TextInput
-                style={styles.commentInput}
-                placeholder="Write a comment..."
-                value={commentText}
-                onChangeText={setCommentText}
-                multiline
-              />
-              <TouchableOpacity 
-                style={[styles.sendCommentBtn, !commentText.trim() && styles.sendCommentBtnDisabled]}
-                onPress={handleComment}
-                disabled={!commentText.trim() || submittingComment}
-              >
-                {submittingComment ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <FontAwesome name="send" size={16} color="#fff" />
-                )}
-              </TouchableOpacity>
-            </View>
+      {/* Image Viewer Modal */}
+      <Modal visible={imageViewerVisible} transparent animationType="fade">
+        <View style={styles.imageViewerOverlay}>
+          <TouchableOpacity 
+            style={styles.imageViewerCloseButton}
+            onPress={() => setImageViewerVisible(false)}
+          >
+            <Text style={styles.imageViewerCloseText}>✕</Text>
+          </TouchableOpacity>
+          <View style={styles.imageViewerContainer}>
+            <Image
+              source={{ uri: imageUrl }}
+              style={styles.imageViewerImage}
+              resizeMode="contain"
+            />
           </View>
         </View>
       </Modal>
@@ -508,94 +512,44 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' },
   button: { backgroundColor: '#1e3a8a', borderRadius: 8, padding: 12, marginVertical: 6 },
   buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
-  commentModalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: '70%',
+  // Image Viewer Styles
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerCloseText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  imageViewerContainer: {
+    flex: 1,
     width: '100%',
-  },
-  commentModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
-  commentsList: {
-    flex: 1,
-    padding: 16,
+  imageViewerImage: {
+    width: 400,
+    height: 400,
   },
-  commentItem: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e5e7eb',
+  imagesContainer: {
+    marginTop: 10,
   },
-  commentAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#e5e7eb',
-  },
-  commentContent: {
-    flex: 1,
-  },
-  commentHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  commentAuthor: {
-    fontWeight: '600',
-    color: '#111827',
-  },
-  commentMeta: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginLeft: 'auto',
-  },
-  commentBubble: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignSelf: 'flex-start',
-    maxWidth: '100%',
-  },
-  commentText: {
-    color: '#111827',
-  },
-  commentDate: {
-    fontSize: 12,
-    color: '#888',
-  },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  commentInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-    maxHeight: 80,
-  },
-  sendCommentBtn: {
-    backgroundColor: '#1e3a8a',
-    padding: 10,
-    borderRadius: 20,
-  },
-  sendCommentBtnDisabled: {
-    backgroundColor: '#ccc',
+  imagesScroll: {
+    maxHeight: 200,
   },
 });
