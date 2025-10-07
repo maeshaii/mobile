@@ -7,6 +7,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment } from '../../services/api';
 import { ConversationWebSocket, TypingIndicator, WsEvent } from '../../services/websocketHelper';
+import { getFileIcon, getFileTypeDisplayName, formatFileSize, isImageFile, isVideoFile, isAudioFile, FileCategory } from '../../utils/fileUtils';
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
 
@@ -20,6 +21,12 @@ type UiMsg = {
   created_at?: string;
   attachment_url?: string | null;
   message_type?: string;
+  attachment_info?: {
+    file_name?: string;
+    file_type?: string;
+    file_category?: FileCategory;
+    file_size?: number;
+  };
 };
 
 const ChatMessageScreen = () => {
@@ -402,13 +409,13 @@ const ChatMessageScreen = () => {
 
   const handleAttachmentPress = async () => {
     try {
-      // Show action sheet for image vs document picker
+      // Show action sheet for different file types
       Alert.alert(
         'Select Attachment',
         'Choose the type of file you want to attach',
         [
           {
-            text: 'Photo/Video',
+            text: '📷 Photo/Image',
             onPress: async () => {
               try {
                 // Request permissions for image picker
@@ -419,8 +426,8 @@ const ChatMessageScreen = () => {
                 }
 
                 const result = await ImagePicker.launchImageLibraryAsync({
-                  mediaTypes: ImagePicker.MediaTypeOptions.All,
-                  allowsEditing: false, // Disable cropping
+                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                  allowsEditing: false,
                   quality: 0.8,
                 });
 
@@ -434,11 +441,48 @@ const ChatMessageScreen = () => {
             },
           },
           {
-            text: 'Document',
+            text: '🎥 Video',
+            onPress: async () => {
+              try {
+                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (status !== 'granted') {
+                  Alert.alert('Permission Required', 'Please grant permission to access your media library.');
+                  return;
+                }
+
+                const result = await ImagePicker.launchImageLibraryAsync({
+                  mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+                  allowsEditing: false,
+                  quality: 0.8,
+                });
+
+                if (!result.canceled && result.assets[0]) {
+                  await uploadAndSendAttachment(result.assets[0]);
+                }
+              } catch (error) {
+                console.error('Error with video picker:', error);
+                Alert.alert('Error', 'Failed to select video. Please try again.');
+              }
+            },
+          },
+          {
+            text: '📄 Documents (PDF, Word, Excel, etc.)',
             onPress: async () => {
               try {
                 const result = await DocumentPicker.getDocumentAsync({
-                  type: '*/*',
+                  type: [
+                    'application/pdf',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'application/vnd.ms-powerpoint',
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    'text/plain',
+                    'text/csv',
+                    'application/zip',
+                    'application/x-rar-compressed'
+                  ],
                   copyToCacheDirectory: true,
                 });
 
@@ -476,12 +520,46 @@ const ChatMessageScreen = () => {
       const attachment = await uploadAttachment(fileObj);
       console.log('Attachment uploaded:', attachment);
       
-      // Determine message type based on file type
-      const messageType = file.type?.startsWith('image/') ? 'image' : 'file';
+      // Determine message type and content based on file category
+      let messageType: 'image' | 'file' = 'file';
+      let messageContent = '📎 File';
+      
+      switch (attachment.file_category) {
+        case 'image':
+          messageType = 'image';
+          messageContent = '📷 Image';
+          break;
+        case 'pdf':
+          messageContent = '📄 PDF Document';
+          break;
+        case 'word':
+          messageContent = '📝 Word Document';
+          break;
+        case 'excel':
+          messageContent = '📊 Excel Spreadsheet';
+          break;
+        case 'powerpoint':
+          messageContent = '📈 PowerPoint Presentation';
+          break;
+        case 'video':
+          messageContent = '🎥 Video File';
+          break;
+        case 'audio':
+          messageContent = '🎵 Audio File';
+          break;
+        case 'archive':
+          messageContent = '📦 Archive File';
+          break;
+        case 'text':
+          messageContent = '📄 Text Document';
+          break;
+        default:
+          messageContent = `📎 ${attachment.file_name}`;
+      }
       
       // Send message with attachment
       const message = await sendMessageApi(Number(conversationId), { 
-        content: messageType === 'image' ? '📷 Image' : '📎 File',
+        content: messageContent,
         message_type: messageType,
         attachment_id: attachment.attachment_id
       });
@@ -490,13 +568,19 @@ const ChatMessageScreen = () => {
       // Add message to UI
       const newMessage: UiMsg = {
         id: String(message.message_id),
-        text: message.content || (messageType === 'image' ? '📷 Image' : '📎 File'),
+        text: message.content || messageContent,
         sent: true,
         sender_id: currentUser.id,
         sender_name: currentUser.name,
         created_at: message.created_at,
         attachment_url: attachment.file_url,
         message_type: messageType,
+        attachment_info: {
+          file_name: attachment.file_name,
+          file_type: attachment.file_type,
+          file_category: attachment.file_category as FileCategory,
+          file_size: attachment.file_size,
+        },
       };
       
       setMessages(prev => [...prev, newMessage]);
@@ -596,11 +680,77 @@ const ChatMessageScreen = () => {
                     
                     {/* Message content */}
                     {item.attachment_url ? (
-                      <Image 
-                        source={{ uri: item.attachment_url }} 
-                        style={styles.attachmentImage}
-                        resizeMode="cover"
-                      />
+                      <View>
+                        {item.attachment_info?.file_category === 'image' || isImageFile(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type) ? (
+                          <View>
+                            <Image 
+                              source={{ uri: item.attachment_url }} 
+                              style={styles.attachmentImage}
+                              resizeMode="cover"
+                            />
+                            {item.attachment_info?.file_name && (
+                              <Text style={[styles.attachmentFileName, isActuallyMine ? styles.attachmentFileNameSent : styles.attachmentFileNameReceived]}>
+                                {item.attachment_info.file_name}
+                              </Text>
+                            )}
+                          </View>
+                        ) : item.attachment_info?.file_category === 'video' || isVideoFile(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type) ? (
+                          <View>
+                            <TouchableOpacity style={styles.videoAttachment}>
+                              <FontAwesome name="play-circle" size={40} color="white" />
+                              <Text style={styles.videoAttachmentText}>Video</Text>
+                            </TouchableOpacity>
+                            {item.attachment_info?.file_name && (
+                              <Text style={[styles.attachmentFileName, isActuallyMine ? styles.attachmentFileNameSent : styles.attachmentFileNameReceived]}>
+                                {item.attachment_info.file_name}
+                              </Text>
+                            )}
+                          </View>
+                        ) : item.attachment_info?.file_category === 'audio' || isAudioFile(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type) ? (
+                          <View>
+                            <TouchableOpacity style={styles.audioAttachment}>
+                              <FontAwesome name="play-circle" size={30} color={isActuallyMine ? '#1C4E80' : '#666'} />
+                              <Text style={[styles.audioAttachmentText, isActuallyMine ? styles.audioAttachmentTextSent : styles.audioAttachmentTextReceived]}>
+                                Audio File
+                              </Text>
+                            </TouchableOpacity>
+                            {item.attachment_info?.file_name && (
+                              <Text style={[styles.attachmentFileName, isActuallyMine ? styles.attachmentFileNameSent : styles.attachmentFileNameReceived]}>
+                                {item.attachment_info.file_name}
+                              </Text>
+                            )}
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              const url = item.attachment_url;
+                              if (!url) return;
+                              // Use Linking to open the file URL
+                              try {
+                                // Avoid importing Linking at top just for single use; require inline
+                                const { Linking } = require('react-native');
+                                Linking.openURL(url).catch(() => {});
+                              } catch {}
+                            }}
+                            style={[styles.fileAttachment, isActuallyMine ? styles.fileAttachmentSent : styles.fileAttachmentReceived]}
+                          >
+                            <Text style={[styles.fileIcon, isActuallyMine ? styles.fileIconSent : styles.fileIconReceived]}>
+                              {getFileIcon(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type)}
+                            </Text>
+                            <View style={styles.fileInfo}>
+                              <Text style={[styles.fileName, isActuallyMine ? styles.fileNameSent : styles.fileNameReceived]} numberOfLines={1}>
+                                {item.attachment_info?.file_name || item.text}
+                              </Text>
+                              {item.attachment_info?.file_size && (
+                                <Text style={[styles.fileSize, isActuallyMine ? styles.fileSizeSent : styles.fileSizeReceived]}>
+                                  {formatFileSize(item.attachment_info.file_size)}
+                                </Text>
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     ) : (
                       <Text style={[
                         styles.messageText,
@@ -770,6 +920,112 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 12,
     marginVertical: 4,
+  },
+  attachmentFileName: {
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  attachmentFileNameSent: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  attachmentFileNameReceived: {
+    color: '#666',
+  },
+  videoAttachment: {
+    width: 200,
+    height: 120,
+    backgroundColor: '#333',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  videoAttachmentText: {
+    color: 'white',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  audioAttachment: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    marginVertical: 4,
+    minWidth: 200,
+  },
+  audioAttachmentText: {
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  audioAttachmentTextSent: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  audioAttachmentTextReceived: {
+    color: '#666',
+  },
+  fileAttachment: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 4,
+    minWidth: 200,
+    maxWidth: 300,
+    borderWidth: 1,
+  },
+  fileAttachmentSent: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.32)',
+  },
+  fileAttachmentReceived: {
+    backgroundColor: '#f1f3f4',
+    borderColor: '#dde3ea',
+  },
+  fileIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  fileIconSent: {
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  fileIconReceived: {
+    color: '#1a1a1a',
+  },
+  fileInfo: {
+    flex: 1,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  fileNameSent: {
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  fileNameReceived: {
+    color: '#1a1a1a',
+  },
+  fileSize: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  fileSizeSent: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  fileSizeReceived: {
+    color: '#555',
   },
   timestamp: {
     fontSize: 11,
