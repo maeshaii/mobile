@@ -812,22 +812,32 @@ export default function TrackerForm() {
         28. What is your current salary range? <Text style={{ fontStyle: 'italic' }}>(Current Employment)</Text></Text>
         <View style={styles.dropdownContainer}>
           <TouchableOpacity style={styles.dropdown} onPress={() => setShowSalaryRangeDropdown(!showSalaryRangeDropdown)}>
-            <Text style={{ color: form.salaryRange ? '#222' : '#aaa' }}>{form.salaryRange || 'Select salary range'}</Text>
+            <Text style={{ color: form.salaryRange ? '#222' : '#aaa' }}>
+              {form.salaryRange === 'below_5000' ? '5,000 below' :
+               form.salaryRange === '5001_10000' ? '5,001 to 10,000' :
+               form.salaryRange === '10001_20000' ? '10,001 to 20,000' :
+               form.salaryRange === '20001_30000' ? '20,001 to 30,000' :
+               form.salaryRange === 'above_30000' ? '30,000 above' :
+               'Select salary range'}
+            </Text>
             <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 170 }} />
           </TouchableOpacity>
           {showSalaryRangeDropdown && (
             <View style={styles.dropdownList}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'below_10k'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Below 10,000 Php</Text>
+              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'below_5000'); setShowSalaryRangeDropdown(false); }}>
+                <Text style={{ color: '#222' }}>5,000 below</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '10k_20k'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>10,001 Php – 20,000 Php</Text>
+              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '5001_10000'); setShowSalaryRangeDropdown(false); }}>
+                <Text style={{ color: '#222' }}>5,001 to 10,000</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '20k_30k'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>20,001 Php – 30,000 Php</Text>
+              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '10001_20000'); setShowSalaryRangeDropdown(false); }}>
+                <Text style={{ color: '#222' }}>10,001 to 20,000</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'above_30k'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Above 30,000 Php</Text>
+              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '20001_30000'); setShowSalaryRangeDropdown(false); }}>
+                <Text style={{ color: '#222' }}>20,001 to 30,000</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'above_30000'); setShowSalaryRangeDropdown(false); }}>
+                <Text style={{ color: '#222' }}>30,000 above</Text>
               </TouchableOpacity>
             </View>
           )}
