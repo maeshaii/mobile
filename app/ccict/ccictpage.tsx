@@ -69,9 +69,13 @@ export default function CCICTPage() {
   const fetchPosts = async () => {
     try {
       setLoading(true);
+      console.log('CCICT page - Fetching admin posts...');
       const postsData = await getPostsByUserType('admin');
+      console.log('CCICT page - Received posts data:', postsData);
+      console.log('CCICT page - Number of posts:', postsData?.length || 0);
       setPosts(postsData);
     } catch (error) {
+      console.error('CCICT page - Error fetching posts:', error);
       Alert.alert('Error', 'Failed to load CCICT posts. Please check your connection.');
     } finally {
       setLoading(false);

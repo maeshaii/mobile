@@ -263,6 +263,13 @@ export default function DonationPage() {
           onDeleted={(postId) => {
             setPosts(prev => prev.filter(p => p.post_id !== postId));
           }}
+          onRepostToggle={(postId, isReposted) => {
+            setPosts(prev => prev.map(p => 
+              p.post_id === postId 
+                ? { ...p, reposts_count: isReposted ? (p.reposts_count || 0) + 1 : Math.max(0, (p.reposts_count || 0) - 1) }
+                : p
+            ));
+          }}
         />
       ))}
 

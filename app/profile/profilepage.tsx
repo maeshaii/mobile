@@ -527,7 +527,7 @@ export default function ProfilePage() {
             }}
           >
             <Text style={styles.statNumber}>{following.length || user.following_count || 0}</Text>
-            <Text style={styles.statLabel}>Following</Text>
+            <Text style={styles.statLabel}>Followings</Text>
           </TouchableOpacity>
         </View>
       </View>

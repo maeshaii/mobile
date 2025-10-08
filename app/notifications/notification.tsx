@@ -29,7 +29,11 @@ interface NotificationItem {
   notif_type?: string;
   subject?: string;
   post_id?: number;
+  forum_id?: number;
+  comment_id?: number;
   user_id?: number;
+  repost_id?: number;
+  donation_id?: number;
 }
 
 const NotificationScreen = () => {
@@ -71,20 +75,55 @@ const NotificationScreen = () => {
           // Debug: Log the raw notification data
           console.log('Raw notification data:', n);
 
-          // Extract post ID and user ID from various possible fields
+          // Extract post ID, forum ID, comment ID, repost ID, donation ID and user ID from various possible fields
           let postId = n.post_id || n.postId || n.post_id || n.target_id || n.object_id;
+          let forumId = n.forum_id || n.forumId;
+          let commentId = n.comment_id || n.commentId;
+          let repostId = n.repost_id || n.repostId;
+          let donationId = n.donation_id || n.donationId;
           let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
 
           // Try to extract IDs from the message content if not found in fields
           if (!postId && fullMessage) {
-            const postIdMatch = fullMessage.match(/post[\/\s]*(\d+)/i) || fullMessage.match(/\/posts\/(\d+)/i);
+            const postIdMatch = fullMessage.match(/<!--POST_ID:(\d+)-->/i) || fullMessage.match(/post[\/\s]*(\d+)/i) || fullMessage.match(/\/posts\/(\d+)/i);
             if (postIdMatch) {
               postId = parseInt(postIdMatch[1]);
             }
           }
 
+          if (!forumId && fullMessage) {
+            const forumIdMatch = fullMessage.match(/<!--FORUM_ID:(\d+)-->/i);
+            if (forumIdMatch) {
+              forumId = parseInt(forumIdMatch[1]);
+            }
+          }
+
+          if (!commentId && fullMessage) {
+            const commentIdMatch = fullMessage.match(/<!--COMMENT_ID:(\d+)-->/i);
+            if (commentIdMatch) {
+              commentId = parseInt(commentIdMatch[1]);
+            }
+          }
+
+          if (!repostId && fullMessage) {
+            const repostIdMatch = fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) || fullMessage.match(/repost[\/\s]*(\d+)/i) || fullMessage.match(/\/repost\/(\d+)/i);
+            if (repostIdMatch) {
+              repostId = parseInt(repostIdMatch[1]);
+            }
+          }
+
+          if (!donationId && fullMessage) {
+            const donationIdMatch = fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) || fullMessage.match(/donation[\/\s]*(\d+)/i) || fullMessage.match(/\/donation\/(\d+)/i);
+            if (donationIdMatch) {
+              donationId = parseInt(donationIdMatch[1]);
+            }
+          }
+
           if (!userId && fullMessage) {
-            const userIdMatch = fullMessage.match(/profile[\/\s]*(\d+)/i) || fullMessage.match(/\/alumni\/profile\/(\d+)/i);
+            // Try different patterns for user ID extraction
+            const userIdMatch = fullMessage.match(/\|(\d+)\s+started following/i) || 
+                               fullMessage.match(/profile[\/\s]*(\d+)/i) || 
+                               fullMessage.match(/\/alumni\/profile\/(\d+)/i);
             if (userIdMatch) {
               userId = parseInt(userIdMatch[1]);
             }
@@ -98,7 +137,11 @@ const NotificationScreen = () => {
             notif_type: n.type || n.notification_type || n.action_type,
             subject: n.subject,
             post_id: postId,
+            forum_id: forumId,
+            comment_id: commentId,
             user_id: userId,
+            repost_id: repostId,
+            donation_id: donationId,
             profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic,
             first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
             last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
@@ -178,6 +221,15 @@ const NotificationScreen = () => {
           params: { postId: item.post_id },
         });
         return;
+      } else if (item.forum_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.forum_id,
+            isForumPost: 'true',
+          },
+        });
+        return;
       } else {
         // If no post_id, try to navigate to posts page or show alert
         Alert.alert('Like Notification', 'Unable to navigate to post - post ID not found.');
@@ -190,7 +242,20 @@ const NotificationScreen = () => {
       if (item.post_id) {
         router.push({
           pathname: '/posts/comments',
-          params: { postId: item.post_id },
+          params: { 
+            postId: item.post_id,
+            highlightCommentId: item.comment_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.forum_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.forum_id,
+            isForumPost: 'true',
+            highlightCommentId: item.comment_id?.toString(),
+          },
         });
         return;
       } else {
@@ -202,15 +267,45 @@ const NotificationScreen = () => {
     // When user reposts my post → go to that post's comments
     if (type === 'repost' || name?.includes('repost') || message?.includes('repost')) {
       if (item.post_id) {
+        // Check if this is a repost notification (has repost_id)
+        if (item.repost_id) {
+          router.push({
+            pathname: '/repost/repost-comments',
+            params: { 
+              repostId: item.repost_id,
+              highlightCommentId: item.comment_id?.toString(),
+            },
+          });
+        } else {
+          router.push({
+            pathname: '/posts/comments',
+            params: { 
+              postId: item.post_id,
+              highlightCommentId: item.comment_id?.toString(),
+            },
+          });
+        }
+        return;
+      } else if (item.forum_id) {
         router.push({
           pathname: '/posts/comments',
-          params: { postId: item.post_id },
+          params: { 
+            postId: item.forum_id,
+            isForumPost: 'true',
+            highlightCommentId: item.comment_id?.toString(),
+          },
         });
         return;
       } else {
         Alert.alert('Repost Notification', 'Unable to navigate to post - post ID not found.');
         return;
       }
+    }
+  
+    // When user interacts with my donation post → go to donation page
+    if (type === 'donation' || name?.includes('donation') || message?.includes('donation')) {
+      router.push('/donation/donationpage');
+      return;
     }
   
     // Special case: forms/tracker notifications

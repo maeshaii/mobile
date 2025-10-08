@@ -27,13 +27,15 @@ interface Props {
   onOpenViewer?: (post: Post, type: 'likes' | 'comments' | 'reposts') => void;
   onEdited?: (postId: number, newContent: string) => void;
   onDeleted?: (postId: number) => void;
+  onCommentCountUpdate?: (postId: number, newCount: number) => void;
 }
 
-const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted }) => {
+const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onCommentCountUpdate }) => {
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
+  const [commentCount, setCommentCount] = useState(post.comments_count || 0);
   const [showActions, setShowActions] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editContent, setEditContent] = useState(post.post_content);
@@ -91,6 +93,11 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
     };
     checkFollow();
   }, [currentUserId, post.user?.user_id]);
+
+  // Update comment count when post prop changes
+  useEffect(() => {
+    setCommentCount(post.comments_count || 0);
+  }, [post.comments_count]);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -322,8 +329,8 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
             <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-            <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
+          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isForumPost=true`)}>
+            <Text style={styles.countText}>{commentCount} comments</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
             <Text style={styles.countText}>{repostCount} reposts</Text>
@@ -341,7 +348,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             <Text style={[styles.actionText, isLiked && styles.likedText]}>Like</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionIcon} onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
+          <TouchableOpacity style={styles.actionIcon} onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isForumPost=true`)}>
             <FontAwesome name="comment-o" size={18} color="#555" />
             <Text style={styles.actionText}>Comment</Text>
           </TouchableOpacity>

@@ -17,7 +17,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
 // Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
-export const API_BASE_URL = normalizeBaseUrl('https://77c618a0f769.ngrok-free.app');
+export const API_BASE_URL = normalizeBaseUrl('https://c62817c9f479.ngrok-free.app');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -220,6 +220,12 @@ export const fetchFollowers = async (userId: number) => {
     console.log('fetchFollowers: Calling API for userId:', userId);
     const { data } = await api.get(`/api/alumni/${userId}/followers/`);
     console.log('fetchFollowers: API response:', data);
+    console.log('fetchFollowers: Response structure:', {
+      success: data?.success,
+      followersCount: data?.followers?.length || 0,
+      hasFollowers: Array.isArray(data?.followers),
+      sampleFollower: data?.followers?.[0] || null
+    });
     return data;
   } catch (error: any) {
     console.error('fetchFollowers error:', error);
@@ -238,6 +244,12 @@ export const fetchFollowing = async (userId: number) => {
     console.log('fetchFollowing: Calling API for userId:', userId);
     const { data } = await api.get(`/api/alumni/${userId}/following/`);
     console.log('fetchFollowing: API response:', data);
+    console.log('fetchFollowing: Response structure:', {
+      success: data?.success,
+      followingCount: data?.following?.length || 0,
+      hasFollowing: Array.isArray(data?.following),
+      sampleFollowing: data?.following?.[0] || null
+    });
     return data;
   } catch (error: any) {
     console.error('fetchFollowing error:', error);

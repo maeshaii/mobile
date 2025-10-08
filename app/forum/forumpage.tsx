@@ -1,6 +1,6 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
@@ -113,6 +113,13 @@ export default function CCICTPage() {
   }
 
   useEffect(() => { loadForumPosts(); }, []);
+
+  // Refresh forum posts when user returns to this screen (e.g., from comments)
+  useFocusEffect(
+    useCallback(() => {
+      loadForumPosts();
+    }, [])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -252,6 +259,13 @@ export default function CCICTPage() {
             }}
             onDeleted={(postId) => {
               setPosts(prev => prev.filter(p => p.post_id !== postId));
+            }}
+            onCommentCountUpdate={(postId, newCount) => {
+              setPosts(prev => prev.map(p =>
+                p.post_id === postId
+                  ? { ...p, comments_count: newCount }
+                  : p
+              ));
             }}
           />
         );

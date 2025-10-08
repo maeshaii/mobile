@@ -8,12 +8,14 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  RefreshControl
+  RefreshControl,
+  ScrollView,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import UserAvatar from '../../components/UserAvatar';
 import { fetchFollowers, fetchFollowing, followUser, unfollowUser, getUserInfo } from '../../services/api';
+import api from '../../services/api';
 
 interface FollowUser {
   user_id: number;
@@ -42,6 +44,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
 
   console.log('FollowModal: Component rendered with props:', { visible, type, userId });
 
+
   const loadUsers = async () => {
     if (!userId) {
       console.log('FollowModal: No userId provided, skipping load');
@@ -53,36 +56,33 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
       setLoading(true);
       console.log(`FollowModal: Loading ${type} for userId:`, userId);
 
-      // Always get data from API
-      const data = type === 'followers'
-        ? await fetchFollowers(userId)
-        : await fetchFollowing(userId);
+      // Get data from API - match web frontend approach
+      const response = await api.get(`/api/alumni/${userId}/${type}/`);
+      const data = response.data;
 
       console.log(`FollowModal: ${type} API response:`, data);
 
-      // Force users array extraction
+      // Extract users array - match web frontend logic
       let usersArray: any[] = [];
-      if (type === 'followers' && Array.isArray(data?.followers)) {
-        usersArray = data.followers;
-      } else if (type === 'following' && Array.isArray(data?.following)) {
-        usersArray = data.following;
-      } else if (Array.isArray(data)) {
-        usersArray = data;
-      } else if (Array.isArray(data?.results)) {
-        usersArray = data.results;
+      if (data.success && data[type]) {
+        usersArray = data[type];
+        console.log(`FollowModal: Extracted ${usersArray.length} ${type} from data.${type}`);
+      } else {
+        console.log(`FollowModal: No valid ${type} array found in response. Data structure:`, Object.keys(data || {}));
+        usersArray = [];
       }
 
-      const normalizedUsers = (usersArray || []).map((u: any) => ({
-        user_id: u.user_id || u.id,
+      // Use the data directly from backend - match web frontend approach
+      const normalizedUsers = usersArray.map((u: any) => ({
+        user_id: u.user_id,
         ctu_id: u.ctu_id,
-        name: u.name || `${u.f_name || u.first_name || ''} ${u.l_name || u.last_name || ''}`.trim(),
-        f_name: u.f_name || u.first_name || '',
-        l_name: u.l_name || u.last_name || '',
+        name: u.name,
+        f_name: u.f_name,
+        l_name: u.l_name,
         profile_pic: u.profile_pic,
         followed_at: u.followed_at,
       }));
 
-      console.log(`FollowModal: Normalized ${type} users:`, normalizedUsers);
       console.log(`FollowModal: Found ${normalizedUsers.length} users`);
       setUsers(normalizedUsers);
 
@@ -157,6 +157,15 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
     const isFollowing = followStatuses[item.user_id] || false;
     const isLoading = followLoading[item.user_id] || false;
 
+    console.log(`FollowModal: Rendering user:`, {
+      user_id: item.user_id,
+      name: item.name,
+      ctu_id: item.ctu_id,
+      f_name: item.f_name,
+      l_name: item.l_name
+    });
+
+
     return (
       <TouchableOpacity
         style={styles.userItem}
@@ -216,12 +225,11 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
               <Text style={styles.loadingText}>Loading {type}...</Text>
             </View>
           ) : (
-            <FlatList
-              data={users}
-              keyExtractor={(item) => item.user_id.toString()}
-              renderItem={renderUser}
+            <>
+            <ScrollView
               style={styles.list}
               contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={true}
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
@@ -230,7 +238,10 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                   tintColor="#174f84"
                 />
               }
-              ListEmptyComponent={
+            >
+              {users.length > 0 ? (
+                users.map((user) => renderUser({ item: user }))
+              ) : (
                 <View style={styles.emptyContainer}>
                   <FontAwesome
                     name={type === 'followers' ? 'users' : 'user-plus'}
@@ -239,8 +250,9 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                   />
                   <Text style={styles.emptyText}>No {type} yet</Text>
                 </View>
-              }
-            />
+              )}
+            </ScrollView>
+            </>
           )}
         </View>
       </View>
@@ -290,6 +302,8 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+    minHeight: 300,
+    maxHeight: 400,
   },
   listContent: {
     paddingBottom: 20,
@@ -300,6 +314,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f8f8f8',
+    backgroundColor: '#fff',
+    minHeight: 60,
   },
   avatar: {
     marginRight: 12,

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, ScrollView } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import dayjs from 'dayjs';
 import { API_BASE_URL, likeDonationPost, unlikeDonationPost, commentOnDonationPost, getDonationDetail, repostDonationPost, deleteDonationPost, editDonationPost, followUser, unfollowUser, checkFollowStatus, getUserInfo } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 
@@ -27,9 +28,10 @@ interface Props {
   onOpenViewer?: (post: Post, type: 'likes' | 'comments' | 'reposts') => void;
   onEdited?: (postId: number, newContent: string) => void;
   onDeleted?: (postId: number) => void;
+  onRepostToggle?: (postId: number, isReposted: boolean) => void;
 }
 
-const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted }) => {
+const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
@@ -37,10 +39,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   const [showActions, setShowActions] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editContent, setEditContent] = useState(post.post_content);
-  const [commentModal, setCommentModal] = useState(false);
-  const [commentText, setCommentText] = useState('');
-  const [submittingComment, setSubmittingComment] = useState(false);
-  const [comments, setComments] = useState<any[]>([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowButton, setShowFollowButton] = useState(false);
@@ -74,29 +72,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     ? (String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}`)
     : null;
 
-  const formatDate = (dateString?: string | null) => {
-    if (!dateString) return '';
-    try {
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMins = Math.floor(diffMs / (1000 * 60));
-      if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins}m`;
-      const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) return `${diffHours}h`;
-      const diffDays = Math.floor(diffHours / 24);
-      if (diffDays < 7) return `${diffDays}d`;
-      const diffWeeks = Math.floor(diffDays / 7);
-      if (diffWeeks < 5) return `${diffWeeks}w`;
-      const diffMonths = Math.floor(diffDays / 30);
-      if (diffMonths < 12) return `${diffMonths}mo`;
-      const diffYears = Math.floor(diffDays / 365);
-      return `${diffYears}y`;
-    } catch {
-      return '';
-    }
-  };
 
   const handleLike = async () => {
     try {
@@ -129,6 +104,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
       
       if (response.success !== false) {
         setRepostCount(prev => prev + 1);
+        onRepostToggle?.(post.post_id, true);
         Alert.alert('Success', 'Post reposted successfully!');
       } else {
         Alert.alert('Error', response.message || 'Failed to repost');
@@ -188,22 +164,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     }
   };
 
-  const handleComment = async () => {
-    if (!commentText.trim()) return;
-    
-    setSubmittingComment(true);
-    try {
-      await commentOnDonationPost(post.post_id, commentText.trim());
-      setCommentText('');
-      setCommentModal(false);
-      Alert.alert('Success', 'Comment added successfully!');
-    } catch (error) {
-      console.error('Error adding comment:', error);
-      Alert.alert('Error', 'Failed to add comment');
-    } finally {
-      setSubmittingComment(false);
-    }
-  };
 
   const handleFollow = async () => {
     if (followLoading) return;
@@ -236,48 +196,34 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   }, [currentUserId, post.user.user_id]);
 
   return (
-    <View style={styles.container}>
-      {currentUserId === post.user.user_id && (
-        <TouchableOpacity style={styles.ellipsisButton} onPress={() => setShowActions(true)}>
-          <FontAwesome name="ellipsis-h" size={18} color="#666" />
-        </TouchableOpacity>
-      )}
-      {/* Post Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.userInfo}
-          onPress={() => router.push(`/profile/profilepage?viewUserId=${post.user.user_id}`)}
-        >
-          <UserAvatar
-            profilePic={post.user.profile_pic}
-            firstName={post.user.f_name}
-            lastName={post.user.l_name}
-            size={40}
-            style={styles.avatar}
-          />
-          <View style={styles.userDetails}>
-            <Text style={styles.userName}>{userName}</Text>
-            <Text style={styles.timestamp}>{formatDate(post.created_at)}</Text>
-          </View>
-        </TouchableOpacity>
-        
-        {showFollowButton && (
+    <View style={styles.card}>
+      {/* Header */}
+      <View style={styles.cardHeader}>
+        <UserAvatar 
+          profilePic={post.user?.profile_pic}
+          firstName={post.user?.f_name}
+          lastName={post.user?.l_name}
+          size={40}
+          style={styles.avatar}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.name}>{userName}</Text>
+          <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
+        </View>
+        {currentUserId === post.user.user_id && (
           <TouchableOpacity
-            style={[styles.followButton, isFollowing && styles.followingButton]}
-            onPress={handleFollow}
-            disabled={followLoading}
+            onPress={() => setShowActions(true)}
+            style={{ padding: 6 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-              {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
-            </Text>
+            <FontAwesome name="ellipsis-h" size={18} color="#888" />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Post Content */}
-      <TouchableOpacity onPress={() => router.push(`/posts/detail?postId=${post.post_id}`)}>
-        <Text style={styles.content}>{post.post_content}</Text>
-      </TouchableOpacity>
+      {/* Content */}
+      {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
+      <Text style={styles.content}>{post.post_content}</Text>
       
       {/* Images - support multiple images */}
       {images.length > 0 && (
@@ -306,43 +252,42 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
         </View>
       )}
 
-      {/* Stats row (likes, comments, reposts) - aligned with PostCard */}
-      <View style={styles.countsRow}>
+      {/* Stats */}
+      <View style={styles.actionsCountsRow}>
         <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
-          <Text style={styles.countText}>{likeCount || 0} {likeCount === 1 ? 'like' : 'likes'}</Text>
+          <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setCommentModal(true)}>
+        <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
           <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'reposts')}>
-          <Text style={styles.countText}>{repostCount || 0} reposts</Text>
+          <Text style={styles.countText}>{repostCount} reposts</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Action Buttons - aligned with PostCard */}
+      {/* Actions */}
       <View style={styles.actions}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-          <FontAwesome 
-            name={isLiked ? 'thumbs-up' : 'thumbs-o-up'} 
-            size={18} 
-            color={isLiked ? '#1e3a8a' : '#555'} 
+        <TouchableOpacity style={styles.actionIcon} onPress={handleLike}>
+          <FontAwesome
+            name={isLiked ? 'thumbs-up' : 'thumbs-o-up'}
+            size={18}
+            color={isLiked ? '#1e3a8a' : '#555'}
           />
-          <Text style={[styles.actionText, isLiked && { color: '#1e3a8a', fontWeight: 'bold' }]}>Like</Text>
+          <Text style={[styles.actionText, isLiked && styles.likedText]}>Like</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.actionButton} 
-          onPress={() => setCommentModal(true)}
+        <TouchableOpacity
+          style={styles.actionIcon}
+          onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}
         >
-          <FontAwesome name="comment-o" size={18} color="#555" />
+          <FontAwesome name="comment-o" size={20} color="#555" />
           <Text style={styles.actionText}>Comment</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionButton} onPress={handleRepost}>
+        <TouchableOpacity style={styles.actionIcon} onPress={handleRepost}>
           <FontAwesome name="retweet" size={18} color="#555" />
           <Text style={styles.actionText}>Repost</Text>
         </TouchableOpacity>
-
       </View>
 
       {/* Edit Modal */}
@@ -369,37 +314,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
         </View>
       </Modal>
 
-      {/* Comment Modal */}
-      <Modal visible={commentModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.commentModal}>
-            <Text style={styles.modalTitle}>Add Comment</Text>
-            <TextInput
-              style={styles.commentInput}
-              value={commentText}
-              onChangeText={setCommentText}
-              multiline
-              placeholder="Write a comment..."
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setCommentModal(false)}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.saveButton, !commentText.trim() && styles.disabledButton]} 
-                onPress={handleComment}
-                disabled={submittingComment || !commentText.trim()}
-              >
-                {submittingComment ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Post</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* Actions Modal */}
       <Modal visible={showActions} transparent animationType="fade">
@@ -443,114 +357,61 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
 };
 
 const styles = StyleSheet.create({
-  container: {
+  card: {
     backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginVertical: 8,
-    borderRadius: 16,
     padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 16,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
-    elevation: 3,
-    position: 'relative',
+    shadowOffset: { width: 0, height: 2 },
+    width: '100%',
+    alignSelf: 'center',
   },
-  ellipsisButton: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    padding: 6,
-    zIndex: 2,
-  },
-  header: {
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+    marginBottom: 10,
   },
   avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    marginRight: 12,
-    backgroundColor: '#eee',
+    marginRight: 10,
+    backgroundColor: '#ccc',
   },
-  userDetails: {
-    flex: 1,
+  name: { fontWeight: 'bold', fontSize: 14 },
+  meta: { fontSize: 12, color: '#666' },
+  postTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, color: '#333' },
+  content: { fontSize: 14, marginTop: 10, color: '#333' },
+  postImage: { width: 200, height: 200, borderRadius: 10, marginTop: 10, marginRight: 10, backgroundColor: '#ccc' },
+  imagesContainer: {
+    marginTop: 10,
   },
-  userName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+  imagesScroll: {
+    maxHeight: 200,
   },
-  timestamp: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  followButton: {
-    backgroundColor: '#174f84',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  followingButton: {
-    backgroundColor: '#e0e0e0',
-  },
-  followButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  followingButtonText: {
-    color: '#666',
-  },
-  content: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 22,
-    marginBottom: 12,
-  },
-  postImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  countsRow: {
+  actionsCountsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    marginTop: 6,
+    paddingHorizontal: 8,
+    marginTop: 8,
   },
-  countText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  actionButton: {
+  countText: { fontSize: 12, color: '#666' },
+  actions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 24,
+    justifyContent: 'space-around',
+    marginTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    paddingTop: 10,
   },
-  actionText: {
-    marginLeft: 6,
-    fontSize: 14,
-    color: '#666',
-  },
+  actionIcon: { alignItems: 'center', gap: 2 },
+  actionText: { fontSize: 12, color: '#555' },
+  likedText: { color: '#1e3a8a', fontWeight: 'bold' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -558,13 +419,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   editModal: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    width: '90%',
-    maxHeight: '70%',
-  },
-  commentModal: {
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 20,
@@ -590,16 +444,6 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     minHeight: 100,
-    textAlignVertical: 'top',
-    marginBottom: 16,
-  },
-  commentInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 16,
-    minHeight: 80,
     textAlignVertical: 'top',
     marginBottom: 16,
   },
@@ -692,12 +536,6 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: 400,
     height: 400,
-  },
-  imagesContainer: {
-    marginTop: 10,
-  },
-  imagesScroll: {
-    maxHeight: 200,
   },
 });
 

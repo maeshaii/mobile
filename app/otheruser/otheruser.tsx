@@ -395,7 +395,7 @@ export default function OtherUserPage() {
             onPress={() => setShowFollowing(true)}
           >
             <Text style={styles.statNumber}>{user.following_count ?? 0}</Text>
-            <Text style={styles.statLabel}>Following</Text>
+            <Text style={styles.statLabel}>Followings</Text>
           </TouchableOpacity>
         </View>
       </View>

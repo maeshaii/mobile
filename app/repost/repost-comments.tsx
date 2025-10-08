@@ -24,7 +24,7 @@ type CommentItem = {
 
 export default function RepostCommentsScreen() {
   const router = useRouter();
-  const { repostId } = useLocalSearchParams();
+  const { repostId, highlightCommentId } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   
   console.log('RepostCommentsScreen - repostId from params:', repostId);
@@ -42,6 +42,7 @@ export default function RepostCommentsScreen() {
   const [actionFor, setActionFor] = useState<CommentItem | null>(null);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [highlightedCommentId, setHighlightedCommentId] = useState<number | null>(null);
 
   const [now, setNow] = useState(dayjs());
   useEffect(() => {
@@ -61,9 +62,24 @@ export default function RepostCommentsScreen() {
       console.log('Comments data:', commentsData);
       console.log('RepostId from params:', repostId);
       console.log('User data:', user);
+      console.log('Original post data:', repostData?.original);
+      console.log('Original post content:', repostData?.original?.post_content);
+      console.log('Original post user:', repostData?.original?.user);
       setMe(user);
       setRepost(repostData);
       setComments(Array.isArray(commentsData?.comments) ? commentsData.comments : []);
+      
+      // Highlight specific comment if provided
+      if (highlightCommentId && commentsData?.comments) {
+        const commentExists = commentsData.comments.some((c: CommentItem) => c.comment_id === Number(highlightCommentId));
+        if (commentExists) {
+          setHighlightedCommentId(Number(highlightCommentId));
+          // Remove highlight after 3 seconds
+          setTimeout(() => {
+            setHighlightedCommentId(null);
+          }, 3000);
+        }
+      }
     } catch (error: any) {
       console.error('Error loading repost and comments:', error);
       console.error('Error details:', JSON.stringify(error, null, 2));
@@ -200,7 +216,10 @@ export default function RepostCommentsScreen() {
                 </View>
               </View>
             ) : (
-              <View style={styles.bubble}>
+              <View style={[
+                styles.bubble,
+                highlightedCommentId === c.comment_id && styles.highlightedBubble
+              ]}>
                 <Text style={styles.cBody}>{c.comment_content}</Text>
               </View>
             )}
@@ -565,6 +584,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignSelf: 'flex-start',
     maxWidth: '100%',
+  },
+  highlightedBubble: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 2,
+    borderColor: '#f59e0b',
+    shadowColor: '#f59e0b',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   cBody: { color: '#111827' },
 

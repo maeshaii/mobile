@@ -418,14 +418,16 @@ export default function PostDetailScreen() {
                     <Image source={renderAvatar(c.user?.profile_pic)} style={styles.commentAvatar} />
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
-                        <Text style={styles.commentName}>
-                          {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
-                        </Text>
-                        {!!c.date_created && (
-                          <Text style={styles.commentMeta}>{dayjs(c.date_created).fromNow()}</Text>
-                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.commentName}>
+                            {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
+                          </Text>
+                          {!!c.date_created && (
+                            <Text style={styles.commentMeta}>{dayjs(c.date_created).fromNow()}</Text>
+                          )}
+                        </View>
                         {canManage && !isEditing && (
-                          <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4, marginLeft: 'auto' }}>
+                          <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
                             <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
                           </TouchableOpacity>
                         )}
@@ -846,7 +848,7 @@ const styles = StyleSheet.create({
   commentMeta: {
     fontSize: 12,
     color: '#6b7280',
-    marginLeft: 8,
+    marginTop: 2,
   },
   commentBubble: {
     backgroundColor: '#f3f4f6',

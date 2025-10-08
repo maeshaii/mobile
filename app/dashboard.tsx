@@ -356,8 +356,10 @@ export default function DashboardScreen() {
                   <Image source={{ uri: c.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.commentAvatar} />
                   <View style={{ flex: 1 }}>
                     <View style={styles.commentHeaderRow}>
-                      <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
-                      <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                        <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                      </View>
                     </View>
                     <View style={styles.commentBubble}>
                     <Text style={styles.commentBody}>{c.comment_content}</Text>
@@ -754,7 +756,7 @@ const styles = StyleSheet.create({
   commentMeta: {
     fontSize: 12,
     color: '#6b7280',
-    marginLeft: 'auto',
+    marginTop: 2,
   },
   commentBubble: {
     backgroundColor: '#f3f4f6',
