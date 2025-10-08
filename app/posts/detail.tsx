@@ -3,7 +3,8 @@ import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL } from '../../services/api';
+import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 import PostCard from './postCard';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -44,11 +45,13 @@ export default function PostDetailScreen() {
       setPost(detail);
       setMe(user);
       
-      // Check follow status
-      if (detail?.user?.user_id && user?.user_id) {
+      // Check follow status (support id or user_id)
+      const targetUserId = detail?.user?.user_id || detail?.user?.id;
+      const currentUserId = user?.user_id || user?.id;
+      if (targetUserId && currentUserId && targetUserId !== currentUserId) {
         try {
-          const followStatus = await checkFollowStatus(detail.user.user_id);
-          setIsFollowing(followStatus.is_following);
+          const followStatus = await checkFollowStatus(targetUserId);
+          setIsFollowing(!!followStatus?.is_following);
         } catch (error) {
           console.error('Error checking follow status:', error);
         }
@@ -146,6 +149,14 @@ export default function PostDetailScreen() {
     return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
   };
 
+  const getPostImages = (p: any): Array<{ image_url: string; order?: number }> => {
+    if (!p) return [];
+    const images: Array<{ image_url: string; order?: number }> = [];
+    if (p.post_image) images.push({ image_url: p.post_image, order: 0 });
+    if (Array.isArray(p.post_images)) images.push(...p.post_images);
+    return images.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  };
+
   const meId = me?.id || me?.user_id;
 
   useEffect(() => { load(); }, [postId]);
@@ -213,24 +224,44 @@ export default function PostDetailScreen() {
         {/* Post Header with Follow Button */}
         <View style={styles.postHeader}>
           <View style={styles.authorInfo}>
-            <View style={styles.avatarContainer}>
-              <Image source={renderAvatar(post.user?.profile_pic)} style={styles.authorAvatar} />
-            </View>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={() => {
+                const uid = post?.user?.user_id || post?.user?.id;
+                if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+              }}
+            >
+              <UserAvatar 
+                profilePic={post.user?.profile_pic}
+                firstName={post.user?.f_name}
+                lastName={post.user?.l_name}
+                size={48}
+                style={styles.authorAvatar}
+              />
+            </TouchableOpacity>
             <View style={styles.authorDetails}>
-              <Text style={styles.authorName}>
-                {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
-              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  const uid = post?.user?.user_id || post?.user?.id;
+                  if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.authorName}>
+                  {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
+                </Text>
+              </TouchableOpacity>
               <Text style={styles.postTime}>{dayjs(post.created_at).fromNow()}</Text>
             </View>
           </View>
-          {post.user?.user_id !== meId && (
+          {post.user?.user_id !== meId && (post.user?.id !== meId) && !isFollowing && (
             <TouchableOpacity
               style={[styles.followButton, isFollowing && styles.followingButton]}
               onPress={handleFollow}
               disabled={followLoading}
             >
               <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+                {followLoading ? '...' : 'Follow'}
               </Text>
             </TouchableOpacity>
           )}
@@ -240,17 +271,42 @@ export default function PostDetailScreen() {
         <View style={styles.postContent}>
           {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
           <Text style={styles.postText}>{post.post_content}</Text>
-          {post.post_image && renderImage(post.post_image) && (
-            <Image source={renderImage(post.post_image)!} style={styles.postImage} resizeMode="cover" />
-          )}
+          {(() => {
+            const images = getPostImages(post);
+            if (!images.length) return null;
+            if (images.length === 1) {
+              const uri = images[0].image_url;
+              return (
+                <Image source={renderImage(uri)!} style={styles.postImage} resizeMode="cover" />
+              );
+            }
+            return (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+                {images.map((img, idx) => (
+                  <Image key={idx} source={renderImage(img.image_url)!} style={[styles.postImage, { width: 220, marginRight: 8 }]} resizeMode="cover" />
+                ))}
+              </ScrollView>
+            );
+          })()}
         </View>
 
         {/* Stats */}
         <View style={styles.actionsCountsRow}>
-          <TouchableOpacity onPress={() => {
-            setSelectedPost(post);
-            setViewerType('likes');
-            setViewerVisible(true);
+          <TouchableOpacity onPress={async () => {
+            try {
+              // Fetch likes if not present or empty
+              let likesArray = Array.isArray(post?.likes) && post.likes.length > 0 ? post.likes : null;
+              if (!likesArray) {
+                likesArray = await getPostLikes(postId);
+              }
+              setSelectedPost({ ...post, likes: Array.isArray(likesArray) ? likesArray : [] });
+              setViewerType('likes');
+              setViewerVisible(true);
+            } catch (e) {
+              setSelectedPost({ ...post, likes: [] });
+              setViewerType('likes');
+              setViewerVisible(true);
+            }
           }}>
             <Text style={styles.countText}>{post.likes_count || 0} {post.likes_count === 1 ? 'like' : 'likes'}</Text>
           </TouchableOpacity>
@@ -369,7 +425,7 @@ export default function PostDetailScreen() {
                           <Text style={styles.commentMeta}>{dayjs(c.date_created).fromNow()}</Text>
                         )}
                         {canManage && !isEditing && (
-                          <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
+                          <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4, marginLeft: 'auto' }}>
                             <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
                           </TouchableOpacity>
                         )}

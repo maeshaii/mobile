@@ -4,14 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
-import DonationPostCard from '../posts/DonationPostCard';
+import DonationPostCard from './DonationPostCard';
 
 const donationLogo = require('../../assets/images/wny_logo.jpg');
 
 const orgInfo = {
   name: 'Donation Page',
-  username: '@Alumni_donation',
-  bio: 'Support through donations',
   profile_pic: donationLogo,
 };
 
@@ -81,8 +79,36 @@ export default function DonationPage() {
       setCurrentUserId(meId);
         const donationPosts = await getDonationPosts();
         console.log('Donation page - Raw donation posts:', donationPosts);
-        console.log('Donation page - First post image:', donationPosts[0]?.post_image);
-        setPosts(donationPosts as PostItem[]);
+        const arr = Array.isArray(donationPosts)
+          ? donationPosts
+          : Array.isArray(donationPosts?.donations)
+            ? donationPosts.donations
+            : [];
+
+        // Normalize DonationRequest -> PostItem used by cards
+        const normalized: PostItem[] = arr.map((d: any) => {
+          const imagesArray = Array.isArray(d.images)
+            ? d.images.map((img: any, idx: number) => ({
+                image_url: typeof img === 'string' ? img : (img.image_url || img.url || img.path),
+                order: img.order ?? idx,
+              }))
+            : [];
+          return {
+            post_id: d.donation_id ?? d.post_id ?? d.id,
+            post_title: d.post_title ?? undefined,
+            post_content: d.description ?? d.post_content ?? '',
+            post_image: d.post_image ?? (imagesArray[0]?.image_url || null),
+            type: d.type ?? 'donation',
+            created_at: d.created_at ?? d.donation_date ?? d.date_created ?? null,
+            likes_count: d.likes_count ?? (Array.isArray(d.likes) ? d.likes.length : 0),
+            comments_count: d.comments_count ?? (Array.isArray(d.comments) ? d.comments.length : 0),
+            reposts_count: d.reposts_count ?? (Array.isArray(d.reposts) ? d.reposts.length : 0),
+            is_liked: !!d.is_liked,
+            user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
+          } as PostItem;
+        });
+
+        setPosts(normalized);
       } catch (e) {
         setUser(null);
         setPosts([]);
@@ -141,16 +167,58 @@ export default function DonationPage() {
           <FontAwesome name="arrow-left" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
+
       {/* Org Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileImageWrapper}>
           <Image source={orgInfo.profile_pic} style={styles.profileImage} />
         </View>
-        <Text style={styles.profileName}>{orgInfo.name}</Text>
-        <Text style={styles.profileUsername}>{orgInfo.username}</Text>
-        <View style={styles.bioRow}>
-          <Text style={styles.bioText}>{orgInfo.bio}</Text>
+      </View>
+
+      {/* About Card */}
+      <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>About</Text>
+          <Text style={styles.infoText}>
+            Connect with your fellow alumni for mutual support. Share your needs and help others in their time of need - 
+            whether it's medical expenses, therapy, emergencies, or other important causes.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>          
+          </View>
         </View>
+
+      {/* Info Cards: Donation Request and About */}
+      <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+        {/* Donation Request Card */}
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>Donation Request</Text>
+          <Text style={styles.infoText}>
+          Support your fellow alumni by helping with their needs - 
+          medical expenses, therapy, emergencies, and other important causes.
+          </Text>
+          <View style={styles.bulletRow}>
+              <FontAwesome name="check" size={14} color="#1e3a8a" />
+              <Text style={styles.bulletText}> Medical expenses</Text>
+            </View>
+            <View style={styles.bulletRow}>
+              <FontAwesome name="check" size={14} color="#1e3a8a" />
+              <Text style={styles.bulletText}>Therapy sessions</Text>
+            </View>
+            <View style={styles.bulletRow}>
+              <FontAwesome name="check" size={14} color="#1e3a8a" />
+              <Text style={styles.bulletText}>Emergency funds</Text>
+            </View>
+            <View style={styles.bulletRow}>
+              <FontAwesome name="check" size={14} color="#1e3a8a" />
+              <Text style={styles.bulletText}>Educational support</Text>
+            </View>
+          <TouchableOpacity
+            style={styles.infoPrimaryBtn}
+            onPress={() => setShowDonationCreate(true)}
+          >
+            <Text style={styles.infoPrimaryBtnText}>Create Donation Request</Text>
+          </TouchableOpacity>
+        </View>
+
       </View>
       {/* Start a Post */}
       <View style={styles.startPostCard}>
@@ -359,31 +427,6 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 50,
   },
-  profileName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginTop: 10,
-    color: '#222',
-    textAlign: 'center',
-  },
-  profileUsername: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  bioRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '90%',
-    marginBottom: 8,
-  },
-  bioText: {
-    fontSize: 14,
-    color: '#444',
-    marginRight: 10,
-  },
   startPostCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -549,5 +592,49 @@ const styles = StyleSheet.create({
   donationSubmitButtonText: {
     color: 'white',
     fontWeight: '600',
+  },
+  // Info cards
+  infoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  infoText: {
+    color: '#4b5563',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  infoPrimaryBtn: {
+    backgroundColor: '#1e3a8a',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  infoPrimaryBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  bulletText: {
+    color: '#4b5563',
+    fontSize: 12,
   },
 });

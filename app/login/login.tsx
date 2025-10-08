@@ -11,7 +11,7 @@ import {
   Platform,
   ImageBackground,
 } from 'react-native';
-import { loginUser, clearAllTokens } from '../../services/api';
+import { loginUser, clearAllTokens, checkUserTrackerStatus } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
@@ -48,8 +48,18 @@ export default function LoginScreen() {
         }
         // Check account type (SAME LOGIC AS WEB)
         if (data.user.account_type.user) {
-          // Alumni user - redirect to homepage
-          router.replace('/homepage/home');
+          // Alumni user - check tracker status then redirect
+          try {
+            const tracker = await checkUserTrackerStatus();
+            // If not answered, navigate with a flag so home can show reminder modal
+            if (!tracker?.has_submitted) {
+              router.replace({ pathname: '/homepage/home', params: { trackerReminder: '1' } as any });
+            } else {
+              router.replace('/homepage/home');
+            }
+          } catch {
+            router.replace('/homepage/home');
+          }
         } else if (data.user.account_type.admin) {
           setError('Admin accounts cannot access mobile app');
         } else if (data.user.account_type.coordinator) {

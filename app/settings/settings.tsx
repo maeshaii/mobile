@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
+import { getAlumniProfile, getUserInfo, putAlumniProfile } from '../../services/api';
 
 const civilStatusOptions = ['Single', 'Married', 'Divorced', 'Widowed'];
 const employmentStatusOptions = ['Regular', 'Contractual', 'Casual', 'Probationary', 'Unemployed'];
@@ -26,13 +27,15 @@ export default function SettingsPage() {
 
   // Personal form state
   const [personal, setPersonal] = useState({
-    first_name: 'Elizabeth Mary',
-    last_name: 'Cardaje',
-    middle_name: 'Pingol',
-    civil_status: 'Single',
-    contact_number: '09473037750',
-    email: 'elisabethcardaje@gmail.com',
-    address: 'Maga Lang, Lapu City',
+    first_name: '',
+    last_name: '',
+    middle_name: '',
+    civil_status: '',
+    contact_number: '',
+    email: '',
+    address: '',
+    social_media: '',
+    home_address: '',
   });
 
   // Employment form state
@@ -129,8 +132,65 @@ export default function SettingsPage() {
     </View>
   );
 
-  const onSavePersonal = () => {
-    Alert.alert('Saved', 'Personal details updated.');
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await getUserInfo();
+        const uid = me?.id || me?.user_id;
+        if (!uid) return;
+        const profile = await getAlumniProfile(uid);
+        setPersonal({
+          first_name: profile?.f_name || me?.f_name || '',
+          last_name: profile?.l_name || me?.l_name || '',
+          middle_name: profile?.m_name || me?.m_name || '',
+          civil_status: profile?.civil_status || '',
+          contact_number: profile?.contact_number || '',
+          email: profile?.email || '',
+          address: profile?.address || '',
+          social_media: profile?.social_media || '',
+          home_address: profile?.home_address || '',
+        });
+      } catch (e) {
+        // Keep defaults
+      }
+    })();
+  }, []);
+
+  const onSavePersonal = async () => {
+    try {
+      const me = await getUserInfo();
+      const uid = me?.id || me?.user_id;
+      if (!uid) return Alert.alert('Error', 'User not found');
+      await putAlumniProfile(uid, {
+        f_name: personal.first_name,
+        m_name: personal.middle_name,
+        l_name: personal.last_name,
+        civil_status: personal.civil_status,
+        contact_number: personal.contact_number,
+        email: personal.email,
+        address: personal.address,
+        home_address: personal.home_address,
+        social_media: personal.social_media,
+      });
+      // Update local storage mirror of user similar to web
+      const merged = {
+        ...(me || {}),
+        f_name: personal.first_name,
+        m_name: personal.middle_name,
+        l_name: personal.last_name,
+        profile: { ...(me?.profile || {}) },
+        civil_status: personal.civil_status,
+        contact_number: personal.contact_number,
+        email: personal.email,
+        address: personal.address,
+        home_address: personal.home_address,
+        social_media: personal.social_media,
+      } as any;
+      try { const SecureStore = require('expo-secure-store'); SecureStore.setItemAsync('user', JSON.stringify(merged)); } catch {}
+      Alert.alert('Saved', 'Personal details updated.');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to update details');
+    }
   };
 
   const onSaveEmployment = () => {
@@ -199,6 +259,12 @@ export default function SettingsPage() {
                 label="Address :"
                 value={personal.address}
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, address: text }))}
+              />
+              <LabeledInput
+                label="Social Media :"
+                value={personal.social_media}
+                onChangeText={(text) => setPersonal(prev => ({ ...prev, social_media: text }))}
+                placeholder="e.g., facebook.com/you"
               />
 
               <View style={styles.buttonRow}>
@@ -314,7 +380,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingHorizontal: 16,
     paddingVertical: 20,
-    paddingTop: 60, // Add top padding for status bar
+    paddingTop: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e5e7eb',
   },

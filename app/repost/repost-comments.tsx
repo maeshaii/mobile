@@ -176,7 +176,7 @@ export default function RepostCommentsScreen() {
                 <Text style={styles.cMeta}>{dayjs(c.date_created).fromNow()}</Text>
               )}
               {canManage && !isEditing && (
-                <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
+                <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4, marginLeft: 'auto' }}>
                   <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
                 </TouchableOpacity>
               )}
@@ -283,11 +283,7 @@ export default function RepostCommentsScreen() {
           
                 {repost.caption && repost.caption.trim() ? (
                   <Text style={styles.postContent}>{repost.caption}</Text>
-                ) : (
-                  <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
-                    Repost caption unavailable
-                  </Text>
-                )}
+                ) : null}
 
           {/* Original Post */}
           {repost.original && (
@@ -313,21 +309,31 @@ export default function RepostCommentsScreen() {
                         Original post content unavailable
                       </Text>
                     )}
-                    {/* Original Post Image */}
-                    {repost.original?.post_image && (
-                    <Image
-                        source={renderAvatar(repost.original.post_image)}
-                        style={styles.postImage}
-                      resizeMode="cover"
-                        onError={(error) => {
-                          console.log('Repost Comments - Image load error:', error.nativeEvent.error);
-                          console.log('Repost Comments - Failed image URL:', repost.original.post_image);
-                        }}
-                        onLoad={() => {
-                          console.log('Repost Comments - Image loaded successfully:', repost.original.post_image);
-                        }}
-                      />
-                )}
+                    {/* Original Post Images */}
+                    {(() => {
+                      const images: any[] = [];
+                      const orig = repost.original || {};
+                      if (orig.post_image) images.push({ image_url: orig.post_image });
+                      if (Array.isArray(orig.post_images)) images.push(...orig.post_images);
+                      if (!images.length) return null;
+                      if (images.length === 1) {
+                        const uri = images[0].image_url;
+                        return (
+                          <Image
+                            source={renderAvatar(uri)}
+                            style={styles.postImage}
+                            resizeMode="cover"
+                          />
+                        );
+                      }
+                      return (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesScrollContainer}>
+                          {images.map((img, idx) => (
+                            <Image key={idx} source={renderAvatar(img.image_url)} style={[styles.postImage, { width: 220, marginRight: 8 }]} resizeMode="cover" />
+                          ))}
+                        </ScrollView>
+                      );
+                    })()}
               </View>
             )}
                 <Text style={styles.sectionTitle}>Comments</Text>

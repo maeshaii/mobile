@@ -17,7 +17,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
 // Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
-export const API_BASE_URL = normalizeBaseUrl('https://0a3d7aa0f8a7.ngrok-free.app');
+export const API_BASE_URL = normalizeBaseUrl('https://77c618a0f769.ngrok-free.app');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -286,6 +286,34 @@ export const searchAlumni = async (query: string) => {
   return response.data;
 };
 
+/** Recent Searches */
+export const listRecentSearches = async (limit: number = 10) => {
+  try {
+    const url = `/api/search/recent/?limit=${limit}`;
+    const { data } = await api.get(url);
+    console.log('listRecentSearches GET', API_BASE_URL + url, '->', Array.isArray(data?.recent) ? data.recent.length : 0);
+    return (data?.recent ?? []) as Array<{ user_id: number; f_name?: string; l_name?: string; profile_pic?: string; created_at?: string }>;
+  } catch (e: any) {
+    console.warn('listRecentSearches error:', e?.response?.status, e?.response?.data || e?.message);
+    throw e;
+  }
+};
+export const addRecentSearch = async (searchedUserId: number) => {
+  const url = '/api/search/recent/';
+  try {
+    const { data } = await api.post(url, { searched_user_id: searchedUserId });
+    console.log('addRecentSearch POST', API_BASE_URL + url, 'payload:', { searched_user_id: searchedUserId }, '->', data);
+    return data;
+  } catch (e: any) {
+    console.warn('addRecentSearch error:', e?.response?.status, e?.response?.data || e?.message);
+    throw e;
+  }
+};
+export const clearRecentSearches = async () => {
+  const { data } = await api.delete('/api/search/recent/');
+  return data;
+};
+
 /** Tracker */
 // Mobile -> Backend: GET /api/tracker/active-form/
 export const getActiveTrackerForm = async () => (await api.get('/api/tracker/active-form/')).data;
@@ -308,6 +336,19 @@ export const checkUserTrackerStatus = async () =>
 export const getAlumniStatistics = async () => (await api.get('/api/alumni/statistics/')).data;
 // Mobile -> Backend: GET /api/alumni-list/ (alias of alumni/list/)
 export const getAlumniList = async () => (await api.get('/api/alumni-list/')).data;
+
+// Mobile -> Convenience: Get alumni by batch/year (client-side filter)
+export const getAlumniByBatch = async (batchYear: string | number) => {
+  try {
+    const year = String(batchYear).trim();
+    const { data } = await api.get(`/api/alumni/list/?year=${encodeURIComponent(year)}`);
+    // Backend returns { success: True, alumni: [...] }
+    return (data?.alumni ?? []) as any[];
+  } catch (e) {
+    console.error('getAlumniByBatch error:', (e as any)?.response?.data || (e as any)?.message || e);
+    return [] as any[];
+  }
+};
 // Mobile -> Backend: GET /api/alumni/{user_id}/
 export const getAlumniDetails = async (userId: number) =>
   (await api.get(`/api/alumni/${userId}/`)).data;
@@ -315,6 +356,38 @@ export const getAlumniDetails = async (userId: number) =>
 // Mobile -> Backend: GET /api/alumni/profile/{user_id}/
 export const getAlumniProfile = async (userId: number) =>
   (await api.get(`/api/alumni/profile/${userId}/`)).data;
+
+// Mobile -> Backend: PUT /api/alumni/profile/{user_id}/
+export const putAlumniProfile = async (
+  userId: number,
+  payload: {
+    f_name?: string;
+    m_name?: string;
+    l_name?: string;
+    civil_status?: string;
+    contact_number?: string;
+    email?: string;
+    address?: string;
+    home_address?: string;
+    social_media?: string;
+  }
+) => {
+  const body: any = {};
+  if (typeof payload.f_name === 'string') body.f_name = payload.f_name;
+  if (typeof payload.m_name === 'string') body.m_name = payload.m_name;
+  if (typeof payload.l_name === 'string') body.l_name = payload.l_name;
+  if (typeof payload.civil_status === 'string') body.civil_status = payload.civil_status;
+  if (typeof payload.contact_number === 'string') body.contact_number = payload.contact_number;
+  if (typeof payload.email === 'string') body.email = payload.email;
+  if (typeof payload.address === 'string') body.address = payload.address;
+  if (typeof payload.home_address === 'string') body.home_address = payload.home_address;
+  if (typeof payload.social_media === 'string') body.social_media = payload.social_media;
+
+  const { data } = await api.put(`/api/alumni/profile/${userId}/`, body, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return data;
+};
 
 // Mobile -> Backend: GET /api/userprofile/{user_id}/social_media/
 export const getUserProfileSocialMedia = async (userId: number) =>
@@ -491,11 +564,9 @@ export const getRepostDetail = async (repostId: number) => {
   try {
     return (await api.get(`/api/reposts/${repostId}/detail/`)).data;
   } catch (error: any) {
-    console.error('getRepostDetail error:', error);
-    // If we get a 500 error, it's likely due to missing profile pictures
-    // Return a minimal repost object to prevent complete failure
-    if (error?.response?.status === 500) {
-      console.log('Returning fallback repost data due to 500 error');
+    // Avoid red screen spam; log compact message and provide safe fallback for UI
+    console.warn('getRepostDetail error:', error?.response?.status, error?.response?.data || error?.message);
+    if (error?.response?.status === 500 || error?.response?.status === 404) {
       return {
         repost_id: repostId,
         caption: '',
@@ -519,7 +590,8 @@ export const getRepostDetail = async (repostId: number) => {
             profile_pic: null
           },
           post_content: 'Original post content unavailable',
-          post_image: null
+          post_image: null,
+          post_images: []
         }
       };
     }
@@ -767,66 +839,61 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
       form.append('profile_pic', { uri: params.imageUri, name: 'profile.jpg', type: 'image/jpeg' } as any);
     }
 
-    const promises = [];
-    
-    // Update bio and profile picture
-    if (params.bio || params.imageUri) {
-      promises.push(
-        api.put(`/api/alumni/profile/update/?user_id=${userId}`, form, {
+    // Normalize optional fields (allow clearing when provided as empty string)
+    const normalizedSocial = typeof params.socialMedia === 'string' ? params.socialMedia.trim() : undefined;
+    const normalizedEmail = typeof params.email === 'string' ? params.email.trim() : undefined;
+
+    // Fire requests; keep references by name to avoid index math
+    const bioPromise = (params.bio || params.imageUri)
+      ? api.put(`/api/alumni/profile/update/?user_id=${userId}`, form, {
           headers: { 'Content-Type': 'multipart/form-data' },
         })
-      );
-    }
+      : null;
 
-    // Update social media using dedicated endpoint
-    if (typeof params.socialMedia === 'string') {
-      promises.push(
-        api.put(`/api/userprofile/${userId}/social_media/`, { social_media: params.socialMedia })
-      );
-    }
+    const socialPromise = (typeof normalizedSocial !== 'undefined')
+      ? api.put(
+          `/api/userprofile/${userId}/social_media/`,
+          { social_media: normalizedSocial },
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+      : null;
 
-    // Update email using dedicated endpoint
-    if (typeof params.email === 'string') {
-      promises.push(
-        api.put(`/api/userprofile/${userId}/email/`, { email: params.email })
-      );
-    }
+    const emailPromise = (typeof normalizedEmail !== 'undefined')
+      ? api.put(
+          `/api/userprofile/${userId}/email/`,
+          { email: normalizedEmail },
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+      : null;
 
-    const results = await Promise.all(promises);
-    
+    const [bioRes, socialRes, emailRes] = await Promise.all([
+      bioPromise?.catch((e) => { console.error('Update bio/photo failed:', e?.response?.data || e?.message); return null; }),
+      socialPromise?.catch((e) => { console.error('Update social media failed:', e?.response?.data || e?.message); return null; }),
+      emailPromise?.catch((e) => { console.error('Update email failed:', e?.response?.data || e?.message); return null; }),
+    ]);
+
     // Update local storage with new data
     if (me) {
       const merged = { ...me };
-      
-      // Update bio and profile picture from first result
-      if (results[0]) {
-        const bioResult = results[0].data?.user || {};
-        merged.profile_bio = bioResult.bio ?? me.profile_bio;
-        merged.profile_pic = bioResult.profile_pic ?? me.profile_pic;
-        merged.name = bioResult.name ?? me.name;
+
+      if (bioRes?.data?.user) {
+        const bioResult = bioRes.data.user;
+        merged.profile_bio = bioResult.bio ?? merged.profile_bio;
+        merged.profile_pic = bioResult.profile_pic ?? merged.profile_pic;
+        merged.name = bioResult.name ?? merged.name;
       }
-      
-      // Update social media from dedicated endpoint result
-      if (typeof params.socialMedia === 'string') {
-        const socialMediaIndex = params.bio || params.imageUri ? 1 : 0;
-        if (results[socialMediaIndex]) {
-          merged.social_media = results[socialMediaIndex].data?.social_media ?? me.social_media;
-        }
+
+      if (socialRes?.data) {
+        merged.social_media = socialRes.data.social_media ?? merged.social_media;
       }
-      
-      // Update email from dedicated endpoint result
-      if (typeof params.email === 'string') {
-        let emailIndex = 0;
-        if (params.bio || params.imageUri) emailIndex++;
-        if (typeof params.socialMedia === 'string') emailIndex++;
-        if (results[emailIndex]) {
-          merged.email = results[emailIndex].data?.email ?? me.email;
-        }
+
+      if (emailRes?.data) {
+        merged.email = emailRes.data.email ?? merged.email;
       }
-      
+
       await SecureStore.setItemAsync('user', JSON.stringify(merged));
     }
-    
+
     return { success: true };
 };
 

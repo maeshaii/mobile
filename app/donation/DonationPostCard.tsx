@@ -174,7 +174,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     }
 
     try {
-      const response = await editDonationPost(post.post_id, editContent.trim());
+      const response = await editDonationPost(post.post_id, { description: editContent.trim() });
       if (response.success !== false) {
         Alert.alert('Success', 'Post updated successfully.');
         setEditModal(false);
@@ -237,11 +237,16 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
 
   return (
     <View style={styles.container}>
+      {currentUserId === post.user.user_id && (
+        <TouchableOpacity style={styles.ellipsisButton} onPress={() => setShowActions(true)}>
+          <FontAwesome name="ellipsis-h" size={18} color="#666" />
+        </TouchableOpacity>
+      )}
       {/* Post Header */}
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.userInfo}
-          onPress={() => router.push(`/otheruser/otheruser?viewUserId=${post.user.user_id}`)}
+          onPress={() => router.push(`/profile/profilepage?viewUserId=${post.user.user_id}`)}
         >
           <UserAvatar
             profilePic={post.user.profile_pic}
@@ -301,35 +306,43 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
         </View>
       )}
 
-      {/* Action Buttons */}
+      {/* Stats row (likes, comments, reposts) - aligned with PostCard */}
+      <View style={styles.countsRow}>
+        <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
+          <Text style={styles.countText}>{likeCount || 0} {likeCount === 1 ? 'like' : 'likes'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setCommentModal(true)}>
+          <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'reposts')}>
+          <Text style={styles.countText}>{repostCount || 0} reposts</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Action Buttons - aligned with PostCard */}
       <View style={styles.actions}>
         <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
           <FontAwesome 
-            name={isLiked ? 'heart' : 'heart-o'} 
+            name={isLiked ? 'thumbs-up' : 'thumbs-o-up'} 
             size={18} 
-            color={isLiked ? '#e74c3c' : '#666'} 
+            color={isLiked ? '#1e3a8a' : '#555'} 
           />
-          <Text style={styles.actionText}>{likeCount}</Text>
+          <Text style={[styles.actionText, isLiked && { color: '#1e3a8a', fontWeight: 'bold' }]}>Like</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
           style={styles.actionButton} 
           onPress={() => setCommentModal(true)}
         >
-          <FontAwesome name="comment-o" size={18} color="#666" />
-          <Text style={styles.actionText}>{post.comments_count}</Text>
+          <FontAwesome name="comment-o" size={18} color="#555" />
+          <Text style={styles.actionText}>Comment</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionButton} onPress={handleRepost}>
-          <FontAwesome name="retweet" size={18} color="#666" />
-          <Text style={styles.actionText}>{repostCount}</Text>
+          <FontAwesome name="retweet" size={18} color="#555" />
+          <Text style={styles.actionText}>Repost</Text>
         </TouchableOpacity>
 
-        {currentUserId === post.user.user_id && (
-          <TouchableOpacity style={styles.actionButton} onPress={() => setShowActions(true)}>
-            <FontAwesome name="ellipsis-h" size={18} color="#666" />
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* Edit Modal */}
@@ -441,6 +454,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 3,
+    position: 'relative',
+  },
+  ellipsisButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 6,
+    zIndex: 2,
   },
   header: {
     flexDirection: 'row',
@@ -509,6 +530,16 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
+  },
+  countsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginTop: 6,
+  },
+  countText: {
+    fontSize: 12,
+    color: '#666',
   },
   actionButton: {
     flexDirection: 'row',

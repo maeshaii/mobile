@@ -91,6 +91,14 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
   const repostUserName = `${repost.user?.f_name || ''} ${repost.user?.l_name || ''}`.trim() || 'User';
   const originalUserName = `${repost.original_post.user?.f_name || ''} ${repost.original_post.user?.l_name || ''}`.trim() || 'User';
+  const repostTimeFromNow = (() => {
+    const t = (repost as any)?.created_at || (repost as any)?.repost_date;
+    return t ? dayjs(t).fromNow() : '';
+  })();
+  const originalTimeFromNow = (() => {
+    const t = (repost.original_post as any)?.created_at;
+    return t ? dayjs(t).fromNow() : '';
+  })();
 
   // Handle both single image and multiple images for repost
   const getImagesFromRepostPost = (post: any) => {
@@ -345,7 +353,12 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
           size={24}
           style={styles.headerAvatar}
         />
-        <Text style={styles.repostUser}>{repostUserName}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.repostUser}>{repostUserName}</Text>
+          {!!repostTimeFromNow && (
+            <Text style={styles.repostMeta}>{repostTimeFromNow}</Text>
+          )}
+        </View>
         {currentUserId === repost.user?.user_id && (
           <TouchableOpacity
             onPress={() => setShowActions(true)}
@@ -374,7 +387,9 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.originalUserName}>{originalUserName}</Text>
-              {/* Note: Backend doesn't provide created_at for original post in repost detail */}
+              {!!originalTimeFromNow && (
+                <Text style={styles.originalMeta}>{originalTimeFromNow}</Text>
+              )}
             </View>
           </View>
 
@@ -650,6 +665,10 @@ const styles = StyleSheet.create({
     marginLeft: 0,
     fontWeight: '600',
     flex: 1,
+  },
+  repostMeta: {
+    fontSize: 11,
+    color: '#666',
   },
   caption: {
     fontSize: 14,

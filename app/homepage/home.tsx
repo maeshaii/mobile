@@ -1,5 +1,5 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import NavBar from '../(tabs)/navbar';
@@ -9,7 +9,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
-import DonationPostCard from '../posts/DonationPostCard';
+import DonationPostCard from '../donation/DonationPostCard';
 import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
 import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
@@ -122,7 +122,9 @@ const HomeScreen = () => {
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [modalPostId, setModalPostId] = useState<number | null>(null);
   const router = useRouter();
+  const params = useLocalSearchParams();
   const [nowTick, setNowTick] = useState(0);
+  const [showTrackerReminder, setShowTrackerReminder] = useState<boolean>(false);
 
   useEffect(() => {
     loadUserInfo();
@@ -131,6 +133,12 @@ const HomeScreen = () => {
     const t = setInterval(() => setNowTick((x) => x + 1), 60000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if ((params as any)?.trackerReminder === '1') {
+      setShowTrackerReminder(true);
+    }
+  }, [(params as any)?.trackerReminder]);
 
   // Refetch posts whenever this screen gains focus (e.g., after creating a post)
   useFocusEffect(
@@ -818,6 +826,31 @@ const HomeScreen = () => {
           </View>
         </Modal>
       </ScrollView>
+      {/* Tracker reminder modal */}
+      <Modal visible={showTrackerReminder} transparent animationType="fade" onRequestClose={() => setShowTrackerReminder(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewerModal}>
+            <Text style={styles.modalTitle}>Reminder</Text>
+            <Text style={{ color: '#555', marginBottom: 16, textAlign: 'center' }}>
+              Please answer the tracker form in Notifications.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#1e3a8a' }]}
+                onPress={() => { setShowTrackerReminder(false); router.push('/notifications/notification'); }}
+              >
+                <Text style={{ color: '#fff' }}>Go to Notifications</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#eee' }]}
+                onPress={() => setShowTrackerReminder(false)}
+              >
+                <Text style={{ color: '#1e3a8a' }}>Dismiss</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {/* Post actions sheet */}
       <Modal visible={showPostActionSheet} transparent animationType="fade" onRequestClose={() => setShowPostActionSheet(false)}>
         <View style={styles.modalOverlay}>
