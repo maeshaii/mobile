@@ -507,37 +507,34 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       </Modal>
 
       {/* Edit Caption Modal */}
-      <Modal visible={editModal} transparent animationType="fade">
+      <Modal visible={editModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.editModalContent}>
-            <Text style={styles.editModalTitle}>Edit Caption</Text>
+            <View style={styles.editModalHeader}>
+              <TouchableOpacity onPress={() => setEditModal(false)} style={styles.editModalCloseButton}>
+                <FontAwesome name="times" size={20} color="#666" />
+              </TouchableOpacity>
+              <Text style={styles.editModalTitle}>Edit Caption</Text>
+              <TouchableOpacity 
+                onPress={handleEdit}
+                disabled={editLoading}
+                style={[styles.editModalSaveButton, editLoading && { opacity: 0.7 }]}
+              >
+                {editLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.editModalSaveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
             <TextInput
-              style={styles.editTextInput}
+              style={styles.editModalInput}
               value={editCaption}
               onChangeText={setEditCaption}
               placeholder="Add a caption..."
               multiline
               maxLength={500}
             />
-            <View style={styles.editModalButtons}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setEditModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleEdit}
-                disabled={editLoading}
-              >
-                {editLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save</Text>
-                )}
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
@@ -833,57 +830,47 @@ const styles = StyleSheet.create({
   },
   editModalContent: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
     width: '90%',
-    maxWidth: 400,
+    borderRadius: 16,
+    padding: 0,
+    maxHeight: '80%',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  editModalCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
   },
   editModalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-    color: '#333',
+    fontWeight: '700',
+    color: '#111827',
   },
-  editTextInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    minHeight: 80,
-    maxHeight: 120,
-    textAlignVertical: 'top',
-    marginBottom: 16,
-  },
-  editModalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  cancelButton: {
-    backgroundColor: '#f8f9fa',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    width: '45%',
-  },
-  saveButton: {
+  editModalSaveButton: {
     backgroundColor: '#1e3a8a',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    width: '45%',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
-  cancelButtonText: {
-    color: '#666',
-    textAlign: 'center',
-    fontSize: 14,
-  },
-  saveButtonText: {
+  editModalSaveText: {
     color: '#fff',
-    textAlign: 'center',
+    fontWeight: '600',
     fontSize: 14,
-    fontWeight: 'bold',
+  },
+  editModalInput: {
+    padding: 16,
+    fontSize: 16,
+    color: '#111827',
+    minHeight: 120,
+    textAlignVertical: 'top',
   },
   // Image Viewer Styles
   imageViewerOverlay: {

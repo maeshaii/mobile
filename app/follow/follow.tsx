@@ -43,6 +43,10 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
   console.log('FollowModal: Component rendered with props:', { visible, type, userId });
+  console.log('FollowModal: Current users state:', users.length);
+  console.log('FollowModal: Loading state:', loading);
+  console.log('FollowModal: Modal should be visible:', visible);
+  console.log('FollowModal: Users array:', users);
 
 
   const loadUsers = async () => {
@@ -55,6 +59,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
     try {
       setLoading(true);
       console.log(`FollowModal: Loading ${type} for userId:`, userId);
+      console.log(`FollowModal: Current users state before load:`, users.length);
 
       // Get data from API - match web frontend approach
       const response = await api.get(`/api/alumni/${userId}/${type}/`);
@@ -85,6 +90,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
 
       console.log(`FollowModal: Found ${normalizedUsers.length} users`);
       setUsers(normalizedUsers);
+      console.log(`FollowModal: Users set to state:`, normalizedUsers.length);
 
       if (normalizedUsers.length > 0) {
         const currentUser = await getUserInfo();
@@ -123,8 +129,12 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   };
 
   useEffect(() => {
+    console.log('FollowModal: useEffect triggered', { visible, userId, type });
     if (visible && userId) {
+      console.log('FollowModal: useEffect - calling loadUsers');
       loadUsers();
+    } else {
+      console.log('FollowModal: useEffect - not loading users', { visible, userId });
     }
   }, [visible, userId, type]);
 
@@ -153,53 +163,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
     }
   };
 
-  const renderUser = ({ item }: { item: FollowUser }) => {
-    const isFollowing = followStatuses[item.user_id] || false;
-    const isLoading = followLoading[item.user_id] || false;
-
-    console.log(`FollowModal: Rendering user:`, {
-      user_id: item.user_id,
-      name: item.name,
-      ctu_id: item.ctu_id,
-      f_name: item.f_name,
-      l_name: item.l_name
-    });
-
-
-    return (
-      <TouchableOpacity
-        style={styles.userItem}
-        onPress={() => {
-          onClose();
-          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: item.user_id } });
-        }}
-      >
-        <UserAvatar
-          profilePic={item.profile_pic}
-          firstName={item.f_name}
-          lastName={item.l_name}
-          size={50}
-          style={styles.avatar}
-        />
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>{item.name}</Text>
-          <Text style={styles.userHandle}>@{item.ctu_id}</Text>
-        </View>
-        <TouchableOpacity
-          style={[styles.followButton, isFollowing && styles.followingButton]}
-          onPress={(e) => {
-            e.stopPropagation();
-            handleFollow(item.user_id);
-          }}
-          disabled={isLoading}
-        >
-          <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-            {isLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
-          </Text>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    );
-  };
 
   return (
     <Modal
@@ -217,6 +180,13 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <FontAwesome name="times" size={20} color="#174f84" />
             </TouchableOpacity>
+          </View>
+          
+          {/* Debug info */}
+          <View style={{ padding: 10, backgroundColor: '#f0f0f0' }}>
+            <Text style={{ fontSize: 12, color: '#666' }}>
+              Debug: visible={visible.toString()}, userId={userId}, users={users.length}, loading={loading.toString()}
+            </Text>
           </View>
 
           {loading ? (
@@ -240,7 +210,43 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
               }
             >
               {users.length > 0 ? (
-                users.map((user) => renderUser({ item: user }))
+                users.map((user, idx) => {
+                  console.log(`FollowModal: Rendering user:`, user);
+                  return (
+                    <TouchableOpacity 
+                      key={user.user_id || idx} 
+                      style={styles.userItem}
+                      onPress={() => {
+                        onClose();
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
+                      }}
+                    >
+                      <UserAvatar
+                        profilePic={user.profile_pic}
+                        firstName={user.f_name}
+                        lastName={user.l_name}
+                        size={50}
+                        style={styles.avatar}
+                      />
+                      <View style={styles.userInfo}>
+                        <Text style={styles.userName}>{user.name}</Text>
+                        <Text style={styles.userHandle}>@{user.ctu_id}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.followButton, followStatuses[user.user_id] && styles.followingButton]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleFollow(user.user_id);
+                        }}
+                        disabled={followLoading[user.user_id]}
+                      >
+                        <Text style={[styles.followButtonText, followStatuses[user.user_id] && styles.followingButtonText]}>
+                          {followLoading[user.user_id] ? '...' : followStatuses[user.user_id] ? 'Following' : 'Follow'}
+                        </Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                })
               ) : (
                 <View style={styles.emptyContainer}>
                   <FontAwesome
@@ -249,6 +255,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                     color="#ccc"
                   />
                   <Text style={styles.emptyText}>No {type} yet</Text>
+                  <Text style={styles.emptyText}>Debug: users.length = {users.length}</Text>
                 </View>
               )}
             </ScrollView>
@@ -263,7 +270,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.8)', // Made darker for better visibility
     justifyContent: 'center',
     alignItems: 'center',
   },

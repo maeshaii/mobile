@@ -2,9 +2,10 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput } from 'react-native';
-import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost } from '../../services/api';
+import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost, getDonationLikes, getDonationReposts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import DonationPostCard from './DonationPostCard';
+import RepostCard from '../repost/RepostCard';
 
 const donationLogo = require('../../assets/images/wny_logo.jpg');
 
@@ -85,15 +86,19 @@ export default function DonationPage() {
             ? donationPosts.donations
             : [];
 
-        // Normalize DonationRequest -> PostItem used by cards
-        const normalized: PostItem[] = arr.map((d: any) => {
+        // Create feed items that include both donation posts and reposts
+        const feedItems: any[] = [];
+        
+        arr.forEach((d: any) => {
+          // Add original donation post
           const imagesArray = Array.isArray(d.images)
             ? d.images.map((img: any, idx: number) => ({
                 image_url: typeof img === 'string' ? img : (img.image_url || img.url || img.path),
                 order: img.order ?? idx,
               }))
             : [];
-          return {
+          
+          feedItems.push({
             post_id: d.donation_id ?? d.post_id ?? d.id,
             post_title: d.post_title ?? undefined,
             post_content: d.description ?? d.post_content ?? '',
@@ -105,10 +110,36 @@ export default function DonationPage() {
             reposts_count: d.reposts_count ?? (Array.isArray(d.reposts) ? d.reposts.length : 0),
             is_liked: !!d.is_liked,
             user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
-          } as PostItem;
+            item_type: 'post'
+          });
+
+          // Add donation reposts as separate feed items
+          const reposts = Array.isArray(d.reposts) ? d.reposts : [];
+          reposts.forEach((r: any) => {
+            feedItems.push({
+              ...r,
+              item_type: 'repost',
+              original_post: {
+                post_id: d.donation_id ?? d.post_id ?? d.id,
+                post_content: d.description ?? d.post_content ?? '',
+                post_image: d.post_image ?? (imagesArray[0]?.image_url || null),
+                user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
+                created_at: d.created_at ?? d.donation_date ?? d.date_created ?? null,
+                likes_count: d.likes_count || 0,
+                comments_count: d.comments_count || 0,
+                reposts_count: d.reposts_count || 0,
+                is_liked: d.is_liked || false,
+              }
+            });
+          });
         });
 
-        setPosts(normalized);
+        // Sort by date (newest first)
+        const sorted = feedItems.sort((a, b) =>
+          new Date(b.repost_date || b.created_at).getTime() - new Date(a.repost_date || a.created_at).getTime()
+        );
+
+        setPosts(sorted);
       } catch (e) {
         setUser(null);
         setPosts([]);
@@ -235,43 +266,97 @@ export default function DonationPage() {
           </TouchableOpacity>
         </View>
       </View>
-      {/* Posts */}
-      {loading ? null : posts.map((post) => (
-        <DonationPostCard
-          key={post.post_id}
-          post={post}
-          currentUserId={currentUserId || undefined}
-          onLikeToggle={(postId, isLiked) => {
-            setPosts(prev => prev.map(p => 
-              p.post_id === postId 
-                ? { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) }
-                : p
-            ));
-          }}
-          onOpenViewer={(post, type) => {
-            setSelectedPostStats(post);
-            setViewerType(type);
-            setViewerVisible(true);
-          }}
-          onEdited={(postId, newContent) => {
-            setPosts(prev => prev.map(p => 
-              p.post_id === postId 
-                ? { ...p, post_content: newContent }
-                : p
-            ));
-          }}
-          onDeleted={(postId) => {
-            setPosts(prev => prev.filter(p => p.post_id !== postId));
-          }}
-          onRepostToggle={(postId, isReposted) => {
-            setPosts(prev => prev.map(p => 
-              p.post_id === postId 
-                ? { ...p, reposts_count: isReposted ? (p.reposts_count || 0) + 1 : Math.max(0, (p.reposts_count || 0) - 1) }
-                : p
-            ));
-          }}
-        />
-      ))}
+      {/* Posts and Reposts */}
+      {loading ? null : posts.map((item: any, index) => {
+        if (item.item_type === 'repost') {
+          return (
+            <RepostCard
+              key={`donation-repost-${item.repost_id}`}
+              repost={item}
+              currentUserId={currentUserId || undefined}
+              onLikeToggle={(repostId, liked) => {
+                setPosts((prev) => prev.map((p: any) => {
+                  if (p.item_type === 'repost' && p.repost_id === repostId) {
+                    return {
+                      ...p,
+                      is_liked: liked,
+                      likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
+                    };
+                  }
+                  return p;
+                }));
+              }}
+              onOpenViewer={(repost, type) => {
+                setSelectedPostStats({...repost, item_type: 'repost'});
+                setViewerType(type);
+                setViewerVisible(true);
+              }}
+              onEdited={(repostId, newCaption) => {
+                setPosts(prev => prev.map((p: any) => {
+                  if (p.item_type === 'repost' && p.repost_id === repostId) {
+                    return { ...p, repost_caption: newCaption };
+                  }
+                  return p;
+                }));
+              }}
+              onDeleted={(repostId) => {
+                setPosts(prev => prev.filter((p: any) => !(p.item_type === 'repost' && p.repost_id === repostId)));
+              }}
+            />
+          );
+        } else {
+          return (
+            <DonationPostCard
+              key={item.post_id}
+              post={item}
+              currentUserId={currentUserId || undefined}
+              onLikeToggle={(postId, isLiked) => {
+                setPosts(prev => prev.map((p: any) => 
+                  p.post_id === postId 
+                    ? { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) }
+                    : p
+                ));
+              }}
+              onOpenViewer={async (post, type) => {
+                try {
+                  setSelectedPostStats(post);
+                  setViewerType(type);
+                  setViewerVisible(true);
+                  
+                  // Fetch likes or reposts data based on type
+                  if (type === 'likes') {
+                    const likesData = await getDonationLikes(post.post_id);
+                    setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData.likes || [] }));
+                  } else if (type === 'reposts') {
+                    const repostsData = await getDonationReposts(post.post_id);
+                    setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData.reposts || [] }));
+                  }
+                } catch (error) {
+                  console.error('Error fetching viewer data:', error);
+                  Alert.alert('Error', 'Failed to load data');
+                }
+              }}
+              onEdited={(postId, newContent) => {
+                setPosts(prev => prev.map((p: any) => 
+                  p.post_id === postId 
+                    ? { ...p, post_content: newContent }
+                    : p
+                ));
+              }}
+              onDeleted={(postId) => {
+                setPosts(prev => prev.filter((p: any) => p.post_id !== postId));
+              }}
+              onRepostToggle={(postId, isReposted) => {
+                setPosts(prev => prev.map((p: any) => 
+                  p.post_id === postId 
+                    ? { ...p, reposts_count: isReposted ? (p.reposts_count || 0) + 1 : Math.max(0, (p.reposts_count || 0) - 1) }
+                    : p
+                ));
+              }}
+            />
+          );
+        }
+      })}
 
       {/* Likes/Reposts Viewer Modal */}
       <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
@@ -279,7 +364,7 @@ export default function DonationPage() {
           <View style={styles.viewerModal}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.modalTitle}>
-                {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Shares' : 'Comments'}
+                {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Reposts' : 'Comments'}
               </Text>
               <TouchableOpacity onPress={() => setViewerVisible(false)}>
                 <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>

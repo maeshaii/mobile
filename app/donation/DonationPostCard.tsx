@@ -39,6 +39,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   const [showActions, setShowActions] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editContent, setEditContent] = useState(post.post_content);
+  const [editLoading, setEditLoading] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowButton, setShowFollowButton] = useState(false);
@@ -91,28 +92,15 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     }
   };
 
-  const handleRepost = async () => {
+  const handleRepost = () => {
     if (!post.post_id) {
       Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
       return;
     }
 
-    try {
-      console.log('DonationPostCard - Reposting donation post with ID:', post.post_id);
-      const response = await repostDonationPost(post.post_id);
-      console.log('DonationPostCard - Repost response:', response);
-      
-      if (response.success !== false) {
-        setRepostCount(prev => prev + 1);
-        onRepostToggle?.(post.post_id, true);
-        Alert.alert('Success', 'Post reposted successfully!');
-      } else {
-        Alert.alert('Error', response.message || 'Failed to repost');
-      }
-    } catch (error: any) {
-      console.error('Error reposting:', error);
-      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to repost');
-    }
+    // Navigate to donation repost screen so user can add an optional caption
+    console.log('DonationPostCard - Navigating to donation repost screen with postId:', post.post_id);
+    router.push(`/donation/donation-repost?postId=${post.post_id}`);
   };
 
   const handleDelete = () => {
@@ -291,25 +279,34 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
       </View>
 
       {/* Edit Modal */}
-      <Modal visible={editModal} transparent animationType="fade">
+      <Modal visible={editModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.editModal}>
-            <Text style={styles.modalTitle}>Edit Post</Text>
-            <TextInput
-              style={styles.editInput}
-              value={editContent}
-              onChangeText={setEditContent}
-              multiline
-              placeholder="What's happening?"
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setEditModal(false)}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+          <View style={styles.editModalContent}>
+            <View style={styles.editModalHeader}>
+              <TouchableOpacity onPress={() => setEditModal(false)} style={styles.editModalCloseButton}>
+                <FontAwesome name="times" size={20} color="#666" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={handleEdit}>
-                <Text style={styles.saveButtonText}>Save</Text>
+              <Text style={styles.editModalTitle}>Edit Post</Text>
+              <TouchableOpacity 
+                onPress={handleEdit}
+                disabled={editLoading}
+                style={[styles.editModalSaveButton, editLoading && { opacity: 0.7 }]}
+              >
+                {editLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.editModalSaveText}>Save</Text>
+                )}
               </TouchableOpacity>
             </View>
+            <TextInput
+              style={styles.editModalInput}
+              value={editContent}
+              onChangeText={setEditContent}
+              placeholder="What's happening?"
+              multiline
+              maxLength={500}
+            />
           </View>
         </View>
       </Modal>
@@ -424,6 +421,50 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxHeight: '70%',
+  },
+  editModalContent: {
+    backgroundColor: '#fff',
+    width: '90%',
+    borderRadius: 16,
+    padding: 0,
+    maxHeight: '80%',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  editModalCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  editModalSaveButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  editModalSaveText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  editModalInput: {
+    padding: 16,
+    fontSize: 16,
+    color: '#111827',
+    minHeight: 120,
+    textAlignVertical: 'top',
   },
   actionsModal: {
     backgroundColor: '#fff',

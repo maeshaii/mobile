@@ -19,6 +19,7 @@ import type {} from 'react-native-radio-buttons-group';
 import { useNavigation } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
 import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus } from '../../services/api';
+import TermsAndConditionsModal from './termsandcondi';
 
 type FileAsset = {
   name: string;
@@ -79,6 +80,8 @@ export default function TrackerForm() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Dropdown states (fallback UI)
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
@@ -172,6 +175,9 @@ export default function TrackerForm() {
         } catch {}
 
         setError(null);
+        
+        // Show terms and conditions modal on first load
+        setShowTermsModal(true);
       } catch (err) {
         console.error('Failed to initialize tracker form:', err);
         setError('Failed to load tracker form');
@@ -207,8 +213,28 @@ export default function TrackerForm() {
     }
   };
 
-  // Submit form: prefer dynamic if categories present; else fallback to static mapping
+  // Submit form: show terms modal first if not accepted
   const handleSubmit = async () => {
+    // Show terms modal if not already accepted
+    if (!termsAccepted) {
+      setShowTermsModal(true);
+      return;
+    }
+    
+    // If terms already accepted, proceed with submission
+    await submitForm();
+  };
+
+  // Terms modal handlers
+  const handleTermsAccept = () => {
+    setTermsAccepted(true);
+    setShowTermsModal(false);
+    // Trigger actual form submission after accepting terms
+    submitForm();
+  };
+
+  // Actual form submission logic (extracted from handleSubmit)
+  const submitForm = async () => {
     try {
       setSubmitting(true);
       const user = await getUserInfo();
@@ -288,6 +314,10 @@ export default function TrackerForm() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleTermsClose = () => {
+    setShowTermsModal(false);
   };
 
   const [hasAwards, setHasAwards] = useState('No');
@@ -1064,6 +1094,13 @@ export default function TrackerForm() {
       </TouchableOpacity>
     </ScrollView>
       )}
+
+      {/* Terms and Conditions Modal */}
+      <TermsAndConditionsModal
+        isVisible={showTermsModal}
+        onClose={handleTermsClose}
+        onAccept={handleTermsAccept}
+      />
     </View>
   );
 }

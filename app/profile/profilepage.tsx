@@ -16,6 +16,7 @@ import {
   getUserProfileEmail,
   getPosts,
   getUserPosts,
+  getAllUserPosts,
   getUserInfo,
   likePost,
   unlikePost,
@@ -158,7 +159,7 @@ export default function ProfilePage() {
       setIsOwnProfile(!!viewingOwn);
 
       if (viewingOwn) {
-        const postsData = await getUserPosts(me.id || me.user_id);
+        const postsData = await getAllUserPosts(me.id || me.user_id);
         // Get full profile data including email and social_media
         const [profileData, socialMediaData, emailData] = await Promise.all([
           getAlumniProfile(me.id || me.user_id),
@@ -258,7 +259,7 @@ export default function ProfilePage() {
           };
           setUser(profile);
           const [postsData, followersRes, followingRes, statusRes] = await Promise.all([
-            getUserPosts(viewUserId),
+            getAllUserPosts(viewUserId),
             fetchFollowers(viewUserId),
             fetchFollowing(viewUserId),
             checkFollowStatus(viewUserId),
@@ -344,7 +345,7 @@ export default function ProfilePage() {
   const reloadPosts = async () => {
     try {
       if (!profileUserId) return;
-      const postsData = await getUserPosts(profileUserId);
+      const postsData = await getAllUserPosts(profileUserId);
       
       // Create feed items that include both posts and reposts
       const feedItems: FeedItem[] = [];
@@ -641,6 +642,10 @@ export default function ProfilePage() {
                     ));
                   }}
                   onOpenViewer={(post, type) => {
+                    console.log('Profile: Opening viewer for type:', type);
+                    console.log('Profile: Post data:', post);
+                    console.log('Profile: Likes data:', post.likes);
+                    console.log('Profile: Likes count:', post.likes?.length);
                     setSelectedPostStats(post);
                     setViewerType(type);
                     setViewerVisible(true);
@@ -776,18 +781,39 @@ export default function ProfilePage() {
             </View>
 
             <ScrollView style={{ maxHeight: 320 }}>
-              {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
-                <View key={idx} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={u.profile_pic}
-                    firstName={u.f_name}
-                    lastName={u.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+              {/* Debug info */}
+              {viewerType === 'likes' && (
+                <View style={{ padding: 10, backgroundColor: '#f0f0f0', margin: 5, borderRadius: 5 }}>
+                  <Text style={{ fontSize: 12, color: '#666' }}>
+                    Debug: Likes count: {selectedPostStats?.likes?.length || 0}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#666' }}>
+                    Debug: Likes data: {JSON.stringify(selectedPostStats?.likes?.slice(0, 2) || [])}
+                  </Text>
                 </View>
-              ))}
+              )}
+              
+              {viewerType === 'likes' && selectedPostStats?.likes?.length > 0 && selectedPostStats?.likes?.map((u: any, idx: number) => {
+                console.log('Profile: Rendering like user:', u);
+                return (
+                  <View key={idx} style={styles.listItemRow}>
+                    <UserAvatar 
+                      profilePic={u.profile_pic}
+                      firstName={u.f_name}
+                      lastName={u.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  </View>
+                );
+              })}
+              
+              {viewerType === 'likes' && (!selectedPostStats?.likes || selectedPostStats?.likes?.length === 0) && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 16 }}>No likes yet</Text>
+                </View>
+              )}
 
               {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
                 <View key={r.repost_id} style={styles.listItemRow}>
@@ -1085,7 +1111,8 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalContainer: {
     backgroundColor: '#fff',
@@ -1315,8 +1342,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 16,
-    width: '92%',
-    maxHeight: '80%',
+    width: '90%',
+    maxHeight: '70%',
+    minHeight: 200,
   },
   modalTitle: {
     fontSize: 18,

@@ -15,9 +15,10 @@ function endpoint(path: string): string {
 const rawFromExpo = (Constants.expoConfig?.extra as any)?.API_BASE_URL as string | undefined;
 const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
-// Prefer explicit config (Expo extra or env). Fallback to LAN server for local dev.
-// Using LAN avoids DNS issues when ngrok is blocked or unreachable from the device.
-export const API_BASE_URL = normalizeBaseUrl('https://c62817c9f479.ngrok-free.app');
+// Prefer explicit config (Expo extra or env). Fallback to localhost for local dev.
+// Use localhost for development, ngrok for production
+const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || localhostUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -218,6 +219,7 @@ export const deleteNotifications = async (ids: number[]) => {
 export const fetchFollowers = async (userId: number) => {
   try {
     console.log('fetchFollowers: Calling API for userId:', userId);
+    console.log('fetchFollowers: API base URL:', API_BASE_URL);
     const { data } = await api.get(`/api/alumni/${userId}/followers/`);
     console.log('fetchFollowers: API response:', data);
     console.log('fetchFollowers: Response structure:', {
@@ -230,11 +232,15 @@ export const fetchFollowers = async (userId: number) => {
   } catch (error: any) {
     console.error('fetchFollowers error:', error);
     console.error('fetchFollowers error response:', error.response?.data);
+    console.error('fetchFollowers error status:', error.response?.status);
+    console.error('fetchFollowers error config:', error.config?.url);
     if (error?.response?.status === 404) {
       console.log('fetchFollowers: 404 error - returning empty followers');
       return { success: true, followers: [], count: 0 };
     }
-    throw error;
+    // Return empty data instead of throwing to prevent app crashes
+    console.log('fetchFollowers: Returning empty data due to error');
+    return { success: true, followers: [], count: 0 };
   }
 };
 
@@ -242,6 +248,7 @@ export const fetchFollowers = async (userId: number) => {
 export const fetchFollowing = async (userId: number) => {
   try {
     console.log('fetchFollowing: Calling API for userId:', userId);
+    console.log('fetchFollowing: API base URL:', API_BASE_URL);
     const { data } = await api.get(`/api/alumni/${userId}/following/`);
     console.log('fetchFollowing: API response:', data);
     console.log('fetchFollowing: Response structure:', {
@@ -254,27 +261,58 @@ export const fetchFollowing = async (userId: number) => {
   } catch (error: any) {
     console.error('fetchFollowing error:', error);
     console.error('fetchFollowing error response:', error.response?.data);
+    console.error('fetchFollowing error status:', error.response?.status);
+    console.error('fetchFollowing error config:', error.config?.url);
     if (error?.response?.status === 404) {
       console.log('fetchFollowing: 404 error - returning empty following');
       return { success: true, following: [], count: 0 };
     }
-    throw error;
+    // Return empty data instead of throwing to prevent app crashes
+    console.log('fetchFollowing: Returning empty data due to error');
+    return { success: true, following: [], count: 0 };
   }
 };
 // Mobile -> Backend: POST /api/follow/{user_id}/
 export const followUser = async (userId: number) => {
-  const { data } = await api.post(`/api/follow/${userId}/`, {});
-  return data;
+  try {
+    console.log('followUser: Calling API for userId:', userId);
+    const { data } = await api.post(`/api/follow/${userId}/`, {});
+    console.log('followUser: API response:', data);
+    return data;
+  } catch (error: any) {
+    console.error('followUser error:', error);
+    console.error('followUser error response:', error.response?.data);
+    throw error;
+  }
 };
+
 // Mobile -> Backend: DELETE /api/follow/{user_id}/
 export const unfollowUser = async (userId: number) => {
-  const { data } = await api.delete(`/api/follow/${userId}/`);
-  return data;
+  try {
+    console.log('unfollowUser: Calling API for userId:', userId);
+    const { data } = await api.delete(`/api/follow/${userId}/`);
+    console.log('unfollowUser: API response:', data);
+    return data;
+  } catch (error: any) {
+    console.error('unfollowUser error:', error);
+    console.error('unfollowUser error response:', error.response?.data);
+    throw error;
+  }
 };
+
 // Mobile -> Backend: GET /api/follow/{user_id}/status/
 export const checkFollowStatus = async (userId: number) => {
-  const { data } = await api.get(`/api/follow/${userId}/status/`);
-  return data;
+  try {
+    console.log('checkFollowStatus: Calling API for userId:', userId);
+    const { data } = await api.get(`/api/follow/${userId}/status/`);
+    console.log('checkFollowStatus: API response:', data);
+    return data;
+  } catch (error: any) {
+    console.error('checkFollowStatus error:', error);
+    console.error('checkFollowStatus error response:', error.response?.data);
+    // Return default status instead of throwing
+    return { success: true, is_following: false };
+  }
 };
 
 /** Suggested Users */
@@ -340,8 +378,21 @@ export const submitTrackerResponse = async (payload: FormData | any) => {
   return data;
 };
 // Mobile -> Backend: GET /api/tracker/check-status/
-export const checkUserTrackerStatus = async () =>
-  (await api.get('/api/tracker/check-status/')).data;
+export const checkUserTrackerStatus = async () => {
+  const user = await getUserInfo();
+  const userId = user?.user_id || user?.id;
+  if (!userId) {
+    throw new Error('User ID not found');
+  }
+  return (await api.get(`/api/tracker/check-status/?user_id=${userId}`)).data;
+};
+// Mobile -> Backend: GET /api/tracker/accepting/{tracker_form_id}/
+export const getTrackerAcceptingStatus = async (trackerFormId: number) => {
+  if (!trackerFormId) {
+    throw new Error('Tracker form ID is required');
+  }
+  return (await api.get(`/api/tracker/accepting/${trackerFormId}/`)).data;
+};
 
 /** Alumni */
 // Mobile -> Backend: GET /api/alumni/statistics/
@@ -428,27 +479,51 @@ export const getPosts = async () => {
   }
 };
 
-// Get combined feed of posts and reposts
+// Get combined feed of posts and reposts (including donation reposts)
 export const getFeed = async () => {
   try {
-    const [postsResponse, repostsResponse] = await Promise.all([
-      api.get('/api/posts/'),
-      api.get('/api/reposts/') // This endpoint may need to be created
-    ]);
-    
+    // Get posts (which includes regular reposts)
+    const postsResponse = await api.get('/api/posts/');
     const posts = postsResponse.data?.posts || [];
-    const reposts = repostsResponse.data?.reposts || [];
     
-    // Combine and sort by date
+    // Get donation posts (which includes donation reposts)
+    const donationsResponse = await api.get('/api/donations/');
+    const donations = donationsResponse.data?.donations || [];
+    
+    // Extract reposts from donations
+    const donationReposts: any[] = [];
+    donations.forEach((donation: any) => {
+      if (Array.isArray(donation.reposts)) {
+        donation.reposts.forEach((repost: any) => {
+          donationReposts.push({
+            ...repost,
+            item_type: 'repost',
+            original_post: {
+              post_id: donation.donation_id,
+              post_content: donation.description,
+              post_image: donation.images?.[0]?.image_url || null,
+              user: donation.user,
+              created_at: donation.created_at,
+              likes_count: donation.likes_count || 0,
+              comments_count: donation.comments_count || 0,
+              reposts_count: donation.reposts_count || 0,
+              is_liked: donation.is_liked || false,
+            }
+          });
+        });
+      }
+    });
+    
+    // Combine all feed items
     const feedItems = [
-      ...posts.map((post: any) => ({ ...post, item_type: 'post' })),
-      ...reposts.map((repost: any) => ({ ...repost, item_type: 'repost' }))
+      ...posts.map((post: any) => ({ ...post, item_type: post.item_type || 'post' })),
+      ...donationReposts
     ].sort((a, b) => new Date(b.created_at || b.repost_date).getTime() - new Date(a.created_at || a.repost_date).getTime());
     
     return feedItems;
   } catch (error) {
     console.error('Mobile getFeed API Error:', error);
-    // Fallback to just posts if reposts endpoint doesn't exist
+    // Fallback to just posts if donations endpoint doesn't exist
     return getPosts().then(posts => posts.map((post: any) => ({ ...post, item_type: 'post' })));
   }
 };
@@ -495,6 +570,56 @@ export const getPostLikes = async (postId: number) => {
 };
 // Mobile -> Backend: GET /api/posts/{post_id}/detail/
 export const getPostDetail = async (postId: number) => (await api.get(`/api/posts/${postId}/detail/`)).data;
+
+// Get all user posts including donation reposts
+export const getAllUserPosts = async (userId: number) => {
+  try {
+    // Get regular posts and reposts
+    const regularPosts = await getUserPosts(userId);
+    
+    // Get donation posts to extract reposts
+    const donationsResponse = await api.get('/api/donations/');
+    const donations = donationsResponse.data?.donations || [];
+    
+    // Extract donation reposts by this user
+    const userDonationReposts: any[] = [];
+    donations.forEach((donation: any) => {
+      if (Array.isArray(donation.reposts)) {
+        donation.reposts.forEach((repost: any) => {
+          if (repost.user?.user_id === userId) {
+            userDonationReposts.push({
+              ...repost,
+              item_type: 'repost',
+              original_post: {
+                post_id: donation.donation_id,
+                post_content: donation.description,
+                post_image: donation.images?.[0]?.image_url || null,
+                user: donation.user,
+                created_at: donation.created_at,
+                likes_count: donation.likes_count || 0,
+                comments_count: donation.comments_count || 0,
+                reposts_count: donation.reposts_count || 0,
+                is_liked: donation.is_liked || false,
+              }
+            });
+          }
+        });
+      }
+    });
+    
+    // Combine all posts and reposts
+    const allPosts = [
+      ...(regularPosts?.posts || regularPosts || []),
+      ...userDonationReposts
+    ].sort((a, b) => new Date(b.created_at || b.repost_date).getTime() - new Date(a.created_at || a.repost_date).getTime());
+    
+    return { posts: allPosts };
+  } catch (error) {
+    console.error('Error getting all user posts:', error);
+    // Fallback to regular posts if error
+    return getUserPosts(userId);
+  }
+};
 
 // Mobile -> Backend: GET /api/posts/ (filter by user_id on client side)
 export const getUserPosts = async (userId: number) => {
@@ -767,6 +892,15 @@ export const deleteDonationRequest = async (donationId: number) => {
 export const likeDonationPost = async (donationId: number) => (await api.post(`/api/donations/${donationId}/like/`)).data;
 // Mobile -> Backend: DELETE /api/donations/{donation_id}/like/
 export const unlikeDonationPost = async (donationId: number) => (await api.delete(`/api/donations/${donationId}/like/`)).data;
+// Mobile -> Backend: GET /api/donations/{donation_id}/ (includes likes and reposts)
+export const getDonationLikes = async (donationId: number) => {
+  const data = await (await api.get(`/api/donations/${donationId}/`)).data;
+  return { likes: data.likes || [] };
+};
+export const getDonationReposts = async (donationId: number) => {
+  const data = await (await api.get(`/api/donations/${donationId}/`)).data;
+  return { reposts: data.reposts || [] };
+};
 
 // Web-compatible aliases for donation likes
 export const likeDonation = async (donationId: number) => {

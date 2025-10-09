@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
@@ -342,31 +342,32 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
       {/* Edit Modal */}
       <Modal visible={editModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Edit Post</Text>
+          <View style={styles.editModalContent}>
+            <View style={styles.editModalHeader}>
+              <TouchableOpacity onPress={() => setEditModal(false)} style={styles.editModalCloseButton}>
+                <FontAwesome name="times" size={20} color="#666" />
+              </TouchableOpacity>
+              <Text style={styles.editModalTitle}>Edit Post</Text>
+              <TouchableOpacity 
+                onPress={handleEdit}
+                disabled={editLoading}
+                style={[styles.editModalSaveButton, editLoading && { opacity: 0.7 }]}
+              >
+                {editLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.editModalSaveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
             <TextInput
-              style={styles.input}
+              style={styles.editModalInput}
               value={editContent}
               onChangeText={setEditContent}
+              placeholder="What's happening?"
               multiline
+              maxLength={500}
             />
-            <TouchableOpacity 
-              style={[styles.button, editLoading && { opacity: 0.7 }]} 
-              onPress={handleEdit}
-              disabled={editLoading}
-            >
-              {editLoading ? (
-                <Text style={styles.buttonText}>Saving...</Text>
-              ) : (
-                <Text style={styles.buttonText}>Save</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: 'gray' }]}
-              onPress={() => setEditModal(false)}
-            >
-              <Text style={styles.buttonText}>Cancel</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -479,6 +480,52 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' },
   button: { backgroundColor: '#1e3a8a', borderRadius: 8, padding: 12, marginVertical: 6 },
   buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
+  
+  // Standardized Edit Modal Styles
+  editModalContent: {
+    backgroundColor: '#fff',
+    width: '90%',
+    borderRadius: 16,
+    padding: 0,
+    maxHeight: '80%',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  editModalCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  editModalSaveButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  editModalSaveText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  editModalInput: {
+    padding: 16,
+    fontSize: 16,
+    color: '#111827',
+    minHeight: 120,
+    textAlignVertical: 'top',
+  },
   // Image Viewer Styles
   imageViewerOverlay: {
     flex: 1,
