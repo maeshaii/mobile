@@ -38,6 +38,7 @@ export default function ProfileTab() {
       const userInfo = await getUserInfo();
       setUser(userInfo);
     } catch (e) {
+      console.error('ProfileTab - Error fetching user info:', e);
       setUser(null);
     }
   }, []);

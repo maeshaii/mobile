@@ -44,9 +44,6 @@ export default function RepostCommentsScreen() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [highlightedCommentId, setHighlightedCommentId] = useState<number | null>(null);
   const [originalImages, setOriginalImages] = useState<any[]>([]);
-  const [originalLikesVisible, setOriginalLikesVisible] = useState(false);
-  const [originalLikes, setOriginalLikes] = useState<any[]>([]);
-  const [originalLikesLoading, setOriginalLikesLoading] = useState(false);
 
   const [now, setNow] = useState(dayjs());
   useEffect(() => {
@@ -55,39 +52,73 @@ export default function RepostCommentsScreen() {
   }, []);
 
   const load = useCallback(async () => {
+    if (!repostId) {
+      console.error('No repostId provided');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
+      console.log('Loading repost and comments for repostId:', repostId);
+      
       const [repostData, commentsData, user] = await Promise.all([
         getRepostDetail(Number(repostId)),
         getRepostComments(Number(repostId)),
         getUserInfo()
       ]);
+      
       console.log('Repost detail data:', repostData);
       console.log('Comments data:', commentsData);
-      console.log('RepostId from params:', repostId);
       console.log('User data:', user);
       console.log('Original post data:', repostData?.original);
-      console.log('Original post content:', repostData?.original?.post_content);
-      console.log('Original post user:', repostData?.original?.user);
+      console.log('Original post images:', repostData?.original?.post_image);
+      console.log('Original post images array:', repostData?.original?.post_images);
+      
       setMe(user);
       setRepost(repostData);
-      setComments(Array.isArray(commentsData?.comments) ? commentsData.comments : []);
       
-      // Extract original post images
+      // Handle comments data with better error checking
+      const commentsArray = Array.isArray(commentsData?.comments) ? commentsData.comments : [];
+      console.log('Setting comments:', commentsArray.length);
+      setComments(commentsArray);
+      
+      // Extract original post images using the same logic as RepostCard
       if (repostData?.original) {
-        const images: any[] = [];
+        console.log('Extracting images from original post...');
+        console.log('post_image:', repostData.original.post_image);
+        console.log('post_images:', repostData.original.post_images);
+        
+        const images = [];
+        
+        // Add main post image if exists (backward compatibility)
         if (repostData.original.post_image) {
-          images.push({ image_url: repostData.original.post_image });
+          console.log('Adding single post_image:', repostData.original.post_image);
+          images.push({
+            image_id: 0,
+            image_url: repostData.original.post_image,
+            order: 0
+          });
         }
-        if (Array.isArray(repostData.original.post_images)) {
+        
+        // Add post_images array if exists (multiple images)
+        if (repostData.original.post_images && Array.isArray(repostData.original.post_images)) {
+          console.log('Adding post_images array:', repostData.original.post_images);
           images.push(...repostData.original.post_images);
         }
-        setOriginalImages(images);
+        
+        // Sort by order
+        const sortedImages = images.sort((a, b) => (a.order || 0) - (b.order || 0));
+        console.log('Final sorted images array:', sortedImages);
+        setOriginalImages(sortedImages);
+      } else {
+        console.log('No original post data found');
+        setOriginalImages([]);
       }
       
       // Highlight specific comment if provided
-      if (highlightCommentId && commentsData?.comments) {
-        const commentExists = commentsData.comments.some((c: CommentItem) => c.comment_id === Number(highlightCommentId));
+      if (highlightCommentId && commentsArray.length > 0) {
+        const commentExists = commentsArray.some((c: CommentItem) => c.comment_id === Number(highlightCommentId));
         if (commentExists) {
           setHighlightedCommentId(Number(highlightCommentId));
           // Remove highlight after 3 seconds
@@ -98,18 +129,23 @@ export default function RepostCommentsScreen() {
       }
     } catch (error: any) {
       console.error('Error loading repost and comments:', error);
-      console.error('Error details:', JSON.stringify(error, null, 2));
       
       // Handle specific error cases
       if (error?.response?.status === 404) {
         Alert.alert('Error', 'Repost not found. It may have been deleted.');
+      } else if (error?.response?.status === 500) {
+        Alert.alert('Error', 'Server error. Please try again later.');
       } else {
         Alert.alert('Error', `Failed to load repost and comments: ${error?.message || 'Unknown error'}`);
       }
+      
+      // Set empty state
+      setComments([]);
+      setRepost(null);
     } finally {
       setLoading(false);
     }
-  }, [repostId]);
+  }, [repostId, highlightCommentId]);
 
   useEffect(() => {
     if (repostId) load();
@@ -144,15 +180,33 @@ export default function RepostCommentsScreen() {
 
   async function handleSend() {
     if (!canSend) return;
+    
     try {
       setSubmitting(true);
-      await commentOnRepost(Number(repostId), commentText.trim());
+      console.log('Submitting comment for repostId:', repostId, 'text:', commentText.trim());
+      
+      const response = await commentOnRepost(Number(repostId), commentText.trim());
+      console.log('Comment submission response:', response);
+      
       setCommentText('');
       setInputHeight(44);
       await onRefresh();
+      
+      // Show success feedback
+      Alert.alert('Success', 'Comment added successfully');
     } catch (err: any) {
       console.error('[repost comments] send failed', err);
-      Alert.alert('Error', 'Failed to add comment');
+      
+      // Handle specific error cases
+      if (err?.response?.status === 400) {
+        Alert.alert('Error', 'Invalid comment. Please check your input.');
+      } else if (err?.response?.status === 404) {
+        Alert.alert('Error', 'Repost not found. It may have been deleted.');
+      } else if (err?.response?.status === 500) {
+        Alert.alert('Error', 'Server error. Please try again later.');
+      } else {
+        Alert.alert('Error', 'Failed to add comment. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -160,24 +214,49 @@ export default function RepostCommentsScreen() {
 
   async function handleUpdate(commentId: number) {
     if (!editText.trim()) return;
+    
     try {
+      console.log('Updating comment:', commentId, 'text:', editText.trim());
       await updateRepostComment(Number(repostId), commentId, editText.trim());
       setEditingId(null);
       setEditText('');
       await onRefresh();
-    } catch {
-      Alert.alert('Error', 'Failed to update comment');
+      Alert.alert('Success', 'Comment updated successfully');
+    } catch (err: any) {
+      console.error('[repost comments] update failed', err);
+      
+      // Handle specific error cases
+      if (err?.response?.status === 400) {
+        Alert.alert('Error', 'Invalid comment. Please check your input.');
+      } else if (err?.response?.status === 404) {
+        Alert.alert('Error', 'Comment not found. It may have been deleted.');
+      } else if (err?.response?.status === 403) {
+        Alert.alert('Error', 'You can only edit your own comments.');
+      } else {
+        Alert.alert('Error', 'Failed to update comment. Please try again.');
+      }
     }
   }
 
   async function handleDelete(commentId: number) {
-            try {
-              await deleteRepostComment(Number(repostId), commentId);
+    try {
+      console.log('Deleting comment:', commentId);
+      await deleteRepostComment(Number(repostId), commentId);
       await onRefresh();
-    } catch {
-              Alert.alert('Error', 'Failed to delete comment');
-            }
-          }
+      Alert.alert('Success', 'Comment deleted successfully');
+    } catch (err: any) {
+      console.error('[repost comments] delete failed', err);
+      
+      // Handle specific error cases
+      if (err?.response?.status === 404) {
+        Alert.alert('Error', 'Comment not found. It may have been deleted.');
+      } else if (err?.response?.status === 403) {
+        Alert.alert('Error', 'You can only delete your own comments.');
+      } else {
+        Alert.alert('Error', 'Failed to delete comment. Please try again.');
+      }
+    }
+  }
 
   const hideComposer = !!actionFor || editingId !== null;
   
@@ -185,20 +264,6 @@ export default function RepostCommentsScreen() {
   console.log('hideComposer:', hideComposer, 'actionFor:', !!actionFor, 'editingId:', editingId);
   const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
 
-  const loadOriginalPostLikes = async () => {
-    if (!repost?.original?.post_id) return;
-    try {
-      setOriginalLikesLoading(true);
-      const likesData = await getPostLikes(repost.original.post_id);
-      setOriginalLikes(Array.isArray(likesData) ? likesData : []);
-      setOriginalLikesVisible(true);
-    } catch (error) {
-      console.error('Error loading original post likes:', error);
-      Alert.alert('Error', 'Failed to load likes');
-    } finally {
-      setOriginalLikesLoading(false);
-    }
-  };
 
   const commentCount = comments.length;
   const headerTitle = useMemo(() => `Comments · ${commentCount}`, [commentCount]);
@@ -367,8 +432,8 @@ export default function RepostCommentsScreen() {
                                   { text: 'Cancel', style: 'cancel' },
                                   { 
                                     text: 'Save', 
-                                    onPress: async (newCaption) => {
-                                      if (newCaption !== null && newCaption !== undefined) {
+                                    onPress: async (newCaption?: string) => {
+                                      if (newCaption !== null && newCaption !== undefined && newCaption.trim()) {
                                         try {
                                           console.log('Updating repost caption:', newCaption);
                                           await updateRepost(repost.repost_id, newCaption.trim());
@@ -542,33 +607,22 @@ export default function RepostCommentsScreen() {
                 const images: any[] = [];
                 const orig = repost.original || {};
                 
-                console.log('Original post data:', orig);
-                console.log('Original post_image:', orig.post_image);
-                console.log('Original post_images:', orig.post_images);
-                
                 // Check for single image
                 if (orig.post_image) {
-                  console.log('Adding single post_image:', orig.post_image);
                   images.push({ image_url: orig.post_image });
                 }
                 
                 // Check for multiple images array
                 if (Array.isArray(orig.post_images) && orig.post_images.length > 0) {
-                  console.log('Adding post_images array:', orig.post_images);
                   images.push(...orig.post_images);
                 }
                 
-                console.log('Total images found:', images.length);
-                console.log('Images array:', images);
-                
                 if (!images.length) {
-                  console.log('No images to display');
                   return null; // Don't show debug message, just return null
                 }
                 
                 if (images.length === 1) {
                   const uri = images[0].image_url;
-                  console.log('Rendering single image:', uri);
                   const imageSource = renderPostImage(uri);
                   if (!imageSource) return null;
                   
@@ -620,24 +674,54 @@ export default function RepostCommentsScreen() {
                 );
               })()}
               
-              {/* Original Post Stats */}
+              {/* Original Post Image */}
               {repost.original && (
-                <View style={styles.originalPostStats}>
-                  <TouchableOpacity onPress={loadOriginalPostLikes} style={styles.originalStatButton}>
-                    <Text style={styles.originalStatText}>
-                      {repost.original.likes_count || 0} {repost.original.likes_count === 1 ? 'like' : 'likes'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.originalStatButton}>
-                    <Text style={styles.originalStatText}>
-                      {repost.original.comments_count || 0} comments
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.originalStatButton}>
-                    <Text style={styles.originalStatText}>
-                      {repost.original.reposts_count || 0} reposts
-                    </Text>
-                  </TouchableOpacity>
+                <View style={styles.originalPostImageContainer}>
+                  {originalImages.length > 0 ? (
+                    originalImages.length === 1 ? (
+                      <TouchableOpacity 
+                        onPress={() => {
+                          setSelectedImageIndex(0);
+                          setImageViewerVisible(true);
+                        }}
+                        style={styles.originalPostImageWrapper}
+                      >
+                        <Image 
+                          source={{ uri: String(originalImages[0].image_url).startsWith('http') ? originalImages[0].image_url : `${API_BASE_URL}${originalImages[0].image_url}` }} 
+                          style={styles.originalPostImage} 
+                          resizeMode="cover" 
+                        />
+                      </TouchableOpacity>
+                    ) : (
+                      <ScrollView 
+                        horizontal 
+                        style={styles.originalPostImagesScroll} 
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.originalPostImagesContent}
+                      >
+                        {originalImages.map((image, index) => (
+                          <TouchableOpacity 
+                            key={index}
+                            onPress={() => {
+                              setSelectedImageIndex(index);
+                              setImageViewerVisible(true);
+                            }}
+                            style={styles.originalPostImageWrapper}
+                          >
+                            <Image 
+                              source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                              style={styles.originalPostImage} 
+                              resizeMode="cover" 
+                            />
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )
+                  ) : (
+                    <View style={styles.noImageContainer}>
+                      <Text style={styles.noImageText}>No image attached</Text>
+                    </View>
+                  )}
                 </View>
               )}
             </TouchableOpacity>
@@ -795,50 +879,6 @@ export default function RepostCommentsScreen() {
         </View>
       )}
 
-      {/* Original Post Likes Modal */}
-      {originalLikesVisible && (
-        <View style={styles.likesModalOverlay}>
-          <View style={styles.likesModalContent}>
-            <View style={styles.likesModalHeader}>
-              <Text style={styles.likesModalTitle}>Likes ({originalLikes.length})</Text>
-              <TouchableOpacity onPress={() => setOriginalLikesVisible(false)}>
-                <Ionicons name="close" size={24} color="#1f2937" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.likesModalScroll}>
-              {originalLikesLoading ? (
-                <View style={styles.likesLoadingContainer}>
-                  <ActivityIndicator size="small" color="#1e3a8a" />
-                  <Text style={styles.likesLoadingText}>Loading likes...</Text>
-                </View>
-              ) : (
-                <>
-                  {!originalLikes || originalLikes.length === 0 ? (
-                    <View style={styles.likesEmptyContainer}>
-                      <Text style={styles.likesEmptyText}>No likes yet</Text>
-                    </View>
-                  ) : (
-                    originalLikes.map((like: any, index: number) => (
-                      <View key={index} style={styles.likesItemRow}>
-                        <UserAvatar 
-                          profilePic={like.user?.profile_pic}
-                          firstName={like.user?.f_name}
-                          lastName={like.user?.l_name}
-                          size={36}
-                          style={styles.likesItemAvatar}
-                        />
-                        <Text style={styles.likesItemText}>
-                          {like.user?.f_name} {like.user?.l_name}
-                        </Text>
-                      </View>
-                    ))
-                  )}
-                </>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -1130,93 +1170,40 @@ const styles = StyleSheet.create({
     width: 400,
     height: 400,
   },
-  // Original Post Stats Styles
-  originalPostStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  // Original Post Image Styles
+  originalPostImageContainer: {
+    marginTop: 12,
     paddingHorizontal: 8,
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    paddingTop: 8,
   },
-  originalStatButton: {
-    flex: 1,
-    alignItems: 'center',
+  originalPostImageWrapper: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#f3f4f6',
   },
-  originalStatText: {
-    fontSize: 12,
-    color: '#666',
+  originalPostImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
   },
-  // Likes Modal Styles
-  likesModalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  originalPostImagesScroll: {
+    marginTop: 0,
+  },
+  originalPostImagesContent: {
+    paddingRight: 8,
+  },
+  noImageContainer: {
+    height: 120,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderStyle: 'dashed',
   },
-  likesModalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    width: '90%',
-    maxHeight: '80%',
-  },
-  likesModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  likesModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  likesModalScroll: {
-    padding: 16,
-    maxHeight: 400,
-  },
-  likesLoadingContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  likesLoadingText: {
-    marginTop: 8,
-    color: '#666',
-  },
-  likesEmptyContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  likesEmptyText: {
-    color: '#6b7280',
-    textAlign: 'center',
+  noImageText: {
     fontSize: 14,
-  },
-  likesItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  likesItemAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#e5e7eb',
-    marginRight: 12,
-  },
-  likesItemText: {
-    fontSize: 16,
-    color: '#111827',
-    fontWeight: '500',
+    color: '#6b7280',
+    fontStyle: 'italic',
   },
 });

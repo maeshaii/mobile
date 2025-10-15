@@ -251,7 +251,10 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     // Navigate to full-screen comments view instead of modal
     console.log('RepostCard - Opening comment modal for repostId:', repost.repost_id);
     try {
-      router.push(`/repost/repost-comments?repostId=${repost.repost_id}`);
+      router.push({
+        pathname: '/repost/repost-comments',
+        params: { repostId: repost.repost_id.toString() }
+      });
     } catch (error) {
       console.error('Error navigating to comments:', error);
       Alert.alert('Error', 'Unable to open comments. Please try again.');

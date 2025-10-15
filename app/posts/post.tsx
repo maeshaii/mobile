@@ -63,7 +63,7 @@ export default function PostScreen() {
         for (const asset of newImages) {
           try {
             const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-              encoding: FileSystem.EncodingType?.Base64 || 'base64',
+              encoding: 'base64',
             });
             base64Images.push(`data:image/jpeg;base64,${base64}`);
           } catch (error) {
@@ -107,7 +107,7 @@ export default function PostScreen() {
           try {
             // Convert local file to base64
             const base64 = await FileSystem.readAsStringAsync(selectedImage, {
-              encoding: FileSystem.EncodingType?.Base64 || 'base64',
+              encoding: 'base64',
             });
             postImage = `data:image/jpeg;base64,${base64}`;
           } catch (error) {

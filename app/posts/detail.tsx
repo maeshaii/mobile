@@ -3,7 +3,7 @@ import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes } from '../../services/api';
+import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from './postCard';
 import dayjs from 'dayjs';
@@ -294,11 +294,16 @@ export default function PostDetailScreen() {
         <View style={styles.actionsCountsRow}>
           <TouchableOpacity onPress={async () => {
             try {
-              // Fetch likes if not present or empty
+              // Use likes data from post detail if available, otherwise fetch fresh data
               let likesArray = Array.isArray(post?.likes) && post.likes.length > 0 ? post.likes : null;
+              
               if (!likesArray) {
-                likesArray = await getPostLikes(postId);
+                // If no likes data, refresh the post detail to get fresh data
+                const updatedPost = await getPostDetail(postId);
+                likesArray = Array.isArray(updatedPost?.likes) ? updatedPost.likes : [];
+                setPost(updatedPost); // Update the post state with fresh data
               }
+              
               setSelectedPost({ ...post, likes: Array.isArray(likesArray) ? likesArray : [] });
               setViewerType('likes');
               setViewerVisible(true);
@@ -315,10 +320,29 @@ export default function PostDetailScreen() {
           }}>
             <Text style={styles.countText}>{comments.length} comments</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => {
-            setSelectedPost(post);
-            setViewerType('reposts');
-            setViewerVisible(true);
+          <TouchableOpacity onPress={async () => {
+            try {
+              // Use reposts data from post detail if available, otherwise fetch fresh data
+              let repostsArray = Array.isArray(post?.reposts) && post.reposts.length > 0 ? post.reposts : null;
+              if (!repostsArray) {
+                // If no reposts data, try to get fresh reposts data
+                try {
+                  repostsArray = await getPostReposts(postId);
+                } catch (e) {
+                  // Fallback: refresh the post detail to get fresh data
+                  const updatedPost = await getPostDetail(postId);
+                  repostsArray = Array.isArray(updatedPost?.reposts) ? updatedPost.reposts : [];
+                  setPost(updatedPost); // Update the post state with fresh data
+                }
+              }
+              setSelectedPost({ ...post, reposts: repostsArray });
+              setViewerType('reposts');
+              setViewerVisible(true);
+            } catch (e) {
+              setSelectedPost({ ...post, reposts: [] });
+              setViewerType('reposts');
+              setViewerVisible(true);
+            }
           }}>
             <Text style={styles.countText}>{post.reposts_count || 0} reposts</Text>
           </TouchableOpacity>
@@ -508,27 +532,49 @@ export default function PostDetailScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.viewerContent}>
-              {viewerType === 'likes' && selectedPost.likes && selectedPost.likes.map((like: any, index: number) => (
-                <View key={index} style={styles.viewerItem}>
-                  <Image source={renderAvatar(like.user?.profile_pic)} style={styles.viewerAvatar} />
-                  <Text style={styles.viewerItemText}>
-                    {like.user?.f_name} {like.user?.l_name}
-                  </Text>
-                </View>
-              ))}
-              {viewerType === 'reposts' && selectedPost.reposts && selectedPost.reposts.map((repost: any, index: number) => (
-                <View key={index} style={styles.viewerItem}>
-                  <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.viewerAvatar} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.viewerItemText}>
-                      {repost.user?.f_name} {repost.user?.l_name}
-                    </Text>
-                    {repost.repost_date && (
-                      <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>
-                    )}
-                  </View>
-                </View>
-              ))}
+              {viewerType === 'likes' && (
+                <>
+                  {selectedPost.likes && selectedPost.likes.length > 0 ? (
+                    selectedPost.likes.map((like: any, index: number) => (
+                      <View key={index} style={styles.viewerItem}>
+                        <Image source={renderAvatar(like.profile_pic)} style={styles.viewerAvatar} />
+                        <Text style={styles.viewerItemText}>
+                          {like.f_name} {like.l_name}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.emptyStateText}>No likes yet</Text>
+                      <Text style={styles.emptyStateSubtext}>Be the first to like this post!</Text>
+                    </View>
+                  )}
+                </>
+              )}
+              {viewerType === 'reposts' && (
+                <>
+                  {selectedPost.reposts && selectedPost.reposts.length > 0 ? (
+                    selectedPost.reposts.map((repost: any, index: number) => (
+                      <View key={index} style={styles.viewerItem}>
+                        <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.viewerAvatar} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.viewerItemText}>
+                            {repost.user?.f_name} {repost.user?.l_name}
+                          </Text>
+                          {repost.repost_date && (
+                            <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>
+                          )}
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.emptyStateText}>No reposts yet</Text>
+                      <Text style={styles.emptyStateSubtext}>Be the first to repost this!</Text>
+                    </View>
+                  )}
+                </>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -867,6 +913,22 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
     fontSize: 14,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
   },
   
   // Comment Input Styles
