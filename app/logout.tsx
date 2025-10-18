@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, Text, StyleSheet, Alert } from 'react-native';
-import { logoutUser } from '../services/api';
+import { forceLogout } from '../services/api';
 import { useRouter } from 'expo-router';
 
 export default function LogoutScreen() {
@@ -16,7 +16,7 @@ export default function LogoutScreen() {
           text: 'Logout',
           style: 'destructive',
           onPress: async () => {
-            await logoutUser();
+            await forceLogout();
             router.replace('/login/login');
           },
         },

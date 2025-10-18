@@ -18,6 +18,7 @@ export class ConversationWebSocket {
   private ws: WebSocket | null = null;
   private conversationId: number;
   private baseUrl: string;
+  private token: string | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
@@ -29,9 +30,12 @@ export class ConversationWebSocket {
   private onMessageCallback: ((event: WsEvent) => void) | null = null;
   private onStatusCallback: ((status: 'connecting' | 'connected' | 'disconnected' | 'error') => void) | null = null;
 
-  constructor(conversationId: number, baseUrl: string) {
+  constructor(conversationId: number, baseUrl: string, token?: string) {
     this.conversationId = conversationId;
     this.baseUrl = baseUrl;
+    this.token = token || null;
+    console.log('ConversationWebSocket constructor - token received:', !!this.token);
+    console.log('ConversationWebSocket constructor - token preview:', this.token ? `${this.token.substring(0, 20)}...` : 'None');
   }
 
   onMessage(callback: (event: WsEvent) => void) {
@@ -49,9 +53,20 @@ export class ConversationWebSocket {
     this.onStatusCallback?.('connecting');
 
     try {
-      const token = await getAccessToken();
-      const wsUrl = `${this.baseUrl}/ws/chat/${this.conversationId}/${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      // For mobile, use JWT token in URL since session cookies don't work reliably
+      // Clean the base URL to prevent double slashes
+      const cleanBaseUrl = this.baseUrl.replace(/\/+$/, '');
+      let wsUrl = `${cleanBaseUrl}/ws/chat/${this.conversationId}/`;
       
+      // Add JWT token to URL if available
+      if (this.token) {
+        wsUrl += `?token=${encodeURIComponent(this.token)}`;
+        console.log('WebSocket: Token added to URL');
+      } else {
+        console.log('WebSocket: No token available');
+      }
+      
+      console.log('Connecting to WebSocket URL:', wsUrl);
       this.ws = new WebSocket(wsUrl);
       
       this.ws.onopen = () => {

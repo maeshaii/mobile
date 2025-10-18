@@ -44,7 +44,7 @@ export default function TemporaryPasswordScreen() {
   const strength = useMemo(() => {
     const val = newPassword || '';
     let score = 0;
-    if (val.length >= 10) score++;
+    if (val.length >= 16) score++;
     if (/[A-Z]/.test(val)) score++;
     if (/[a-z]/.test(val)) score++;
     if (/\d/.test(val)) score++;
@@ -131,7 +131,7 @@ export default function TemporaryPasswordScreen() {
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.instructionText}>
-                  Must be 10+ chars with upper, lower, number, and symbol.
+                  Must be 16+ chars with upper, lower, number, and symbol.
                 </Text>
                 {error ? <Text style={{ color: '#ffb3b3', marginBottom: 8 }}>{error}</Text> : null}
                 {success ? (

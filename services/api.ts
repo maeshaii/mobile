@@ -17,7 +17,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to a default ngrok URL only if not provided.
 // To change at runtime without code edits, set expo.extra.API_BASE_URL in app.json/app.config.
-export const API_BASE_URL = normalizeBaseUrl('https://59d8e4bb377a.ngrok-free.app');
+export const API_BASE_URL = normalizeBaseUrl('https://simultaneously-wrinkliest-dominik.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -25,11 +25,15 @@ console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
+  withCredentials: true, // Enable for session-based WebSocket auth
   headers: { 
     Accept: 'application/json',
     'ngrok-skip-browser-warning': 'true'  // Required for ngrok free accounts
   },
 });
+
+/** Export api instance for session management */
+export { api };
 
 /** Auth helpers */
 export const getAccessToken = async () => SecureStore.getItemAsync('accessToken');
@@ -39,9 +43,15 @@ export const getUserInfo = async () => {
   return user ? JSON.parse(user) : null;
 };
 export const logoutUser = async () => {
+  // Clear all stored tokens
   await SecureStore.deleteItemAsync('accessToken');
   await SecureStore.deleteItemAsync('refreshToken');
   await SecureStore.deleteItemAsync('user');
+  await SecureStore.deleteItemAsync('lastLogin');
+  
+  // Reset token refresh state to prevent issues with subsequent logins
+  isRefreshing = false;
+  refreshWaitQueue = [];
 };
 
 // Clear all stored tokens - useful for debugging login issues
@@ -50,6 +60,16 @@ export const clearAllTokens = async () => {
   await SecureStore.deleteItemAsync('refreshToken');
   await SecureStore.deleteItemAsync('user');
   await SecureStore.deleteItemAsync('lastLogin');
+  
+  // Reset token refresh state
+  isRefreshing = false;
+  refreshWaitQueue = [];
+};
+
+// Force clear all authentication state - use this for complete logout
+export const forceLogout = async () => {
+  await clearAllTokens();
+  console.log('Mobile: Force logout completed - all authentication state cleared');
 };
 
 /** Attach bearer - but NOT for login/token endpoints */
@@ -140,9 +160,13 @@ api.interceptors.response.use(
 /** Auth API - UNIFIED WITH WEB FRONTEND */
 // Mobile -> Backend: POST /api/token/ (CustomTokenObtainPairView)
 export const loginUser = async (acc_username: string, acc_password: string) => {
-  console.log('Mobile: Sending login request:', { acc_username, acc_password });
+  // Trim credentials to prevent whitespace issues
+  const trimmedUsername = acc_username.trim();
+  const trimmedPassword = acc_password.trim();
+  
+  console.log('Mobile: Sending login request:', { acc_username: trimmedUsername, acc_password: trimmedPassword });
   try {
-    const response = await api.post('/api/token/', { acc_username, acc_password });
+    const response = await api.post('/api/token/', { acc_username: trimmedUsername, acc_password: trimmedPassword });
     console.log('Mobile: Login response received:', response.data);
     
     // Save tokens and user info to SecureStore (mobile equivalent of localStorage)
@@ -567,6 +591,164 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
       await SecureStore.setItemAsync('user', JSON.stringify(merged));
     }
     return updated;
+};
+
+/** Messaging API - UNIFIED WITH WEB FRONTEND */
+
+// TypeScript types for messaging (matching web frontend)
+export type ConversationSummary = {
+  conversation_id: number;
+  updated_at: string;
+  unread_count: number;
+  last_message?: {
+    content: string;
+    created_at: string;
+    sender_id: number;
+    message_type: 'text' | 'image' | 'file' | 'system';
+  } | null;
+  other_participant?: {
+    user_id: number;
+    name: string;
+    avatar_url?: string | null;
+  } | null;
+};
+
+export type MessageItem = {
+  message_id: number;
+  content: string;
+  sender: {
+    user_id: number;
+    name: string;
+    is_me?: boolean;
+  };
+  is_read: boolean;
+  created_at: string;
+  message_type?: string;
+  attachments?: Array<{
+    file_url: string;
+    file_name: string;
+    file_type: string;
+    file_category: string;
+    file_size: number;
+  }>;
+};
+// Mobile -> Backend: GET /api/messaging/conversations/
+export const listConversations = async () => {
+  try {
+    const { data } = await api.get('/api/messaging/conversations/');
+    console.log('Mobile listConversations API Response:', data);
+    return data || [];
+  } catch (error) {
+    console.error('Mobile listConversations API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/messaging/conversations/
+export const createConversation = async (participant_id: number) => {
+  try {
+    const { data } = await api.post('/api/messaging/conversations/', { participant_id });
+    console.log('Mobile createConversation API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile createConversation API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: GET /api/messaging/conversations/{id}/messages/
+export const listMessages = async (conversationId: number, params?: { cursor?: string; limit?: number }) => {
+  try {
+    const qs: string[] = [];
+    if (params?.cursor) qs.push(`cursor=${encodeURIComponent(params.cursor)}`);
+    if (params?.limit) qs.push(`limit=${params.limit}`);
+    const url = `/api/messaging/conversations/${conversationId}/messages/${qs.length ? `?${qs.join('&')}` : ''}`;
+    const { data } = await api.get(url);
+    console.log('Mobile listMessages API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile listMessages API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/messaging/conversations/{id}/messages/
+export const sendMessage = async (
+  conversationId: number,
+  payload: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; attachment_id?: number }
+) => {
+  try {
+    const body: any = {
+      content: payload.content ?? '',
+      message_type: payload.message_type ?? 'text',
+      attachment_id: payload.attachment_id,
+    };
+    const { data } = await api.post(`/api/messaging/conversations/${conversationId}/messages/`, body);
+    console.log('Mobile sendMessage API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile sendMessage API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/messaging/conversations/{id}/read/
+export const markConversationRead = async (conversationId: number) => {
+  try {
+    const { data } = await api.post(`/api/messaging/conversations/${conversationId}/read/`);
+    console.log('Mobile markConversationRead API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile markConversationRead API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: Generate WebSocket URL for conversation
+export const getConversationWsUrl = async (conversationId: number) => {
+  try {
+    // Get the base URL and construct WebSocket URL
+    const baseUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
+    const wsUrl = `${baseUrl}/ws/chat/${conversationId}/`;
+    console.log('Mobile getConversationWsUrl generated:', wsUrl);
+    return wsUrl;
+  } catch (error) {
+    console.error('Mobile getConversationWsUrl API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: Get WebSocket base URL
+export const getWebSocketBase = async () => {
+  try {
+    // Generate WebSocket base URL from API base URL
+    const baseUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
+    // Remove any trailing slashes - don't add /ws/ here since it's added in the constructor
+    const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+    console.log('Mobile getWebSocketBase generated:', cleanBaseUrl);
+    return cleanBaseUrl;
+  } catch (error) {
+    console.error('Mobile getWebSocketBase API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/messaging/attachments/
+export const uploadAttachment = async (file: any, conversationId: number) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('conversation_id', conversationId.toString());
+    
+    const { data } = await api.post('/api/messaging/attachments/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    console.log('Mobile uploadAttachment API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile uploadAttachment API Error:', error);
+    throw error;
+  }
 };
 
 export default api;

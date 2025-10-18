@@ -4,7 +4,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useRouter, useFocusEffect } from 'expo-router';
 import type { Href } from 'expo-router';
-import { listConversations } from '../../services/api';
+import { listConversations, ConversationSummary } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 
 type Row = {
@@ -27,8 +27,8 @@ const MessageScreen = () => {
   async function load() {
     setLoading(true);
     try {
-      const data = await listConversations();
-      const mapped: Row[] = (data || []).map((c) => {
+      const data: ConversationSummary[] = await listConversations();
+      const mapped: Row[] = (data || []).map((c: ConversationSummary) => {
         // Parse the full name to extract first and last names
         const fullName = c.other_participant?.name || 'Conversation';
         const nameParts = fullName.split(' ');
