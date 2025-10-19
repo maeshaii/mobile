@@ -6,8 +6,6 @@ import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, T
 import { API_BASE_URL, createPost, createForumPost, getUserInfo } from '../../services/api';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
-import { convertImageToBase64 } from '../../utils/imageUtils';
-import MentionInput from '../../components/MentionInput';
 
 interface UserInfo {
   name?: string;
@@ -50,7 +48,8 @@ export default function PostScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false, // Disable editing when multiple selection is enabled
+        allowsEditing: true,
+        aspect: [4, 3],
         quality: 0.8,
         allowsMultipleSelection: true, // Enable multiple image selection
       });
@@ -59,9 +58,20 @@ export default function PostScreen() {
         const maxImages = 15;
         const newImages = result.assets.slice(0, maxImages - selectedImages.length);
         
-        // Store image URIs directly instead of converting to base64
-        const imageUris = newImages.map(asset => asset.uri);
-        setSelectedImages(prev => [...prev, ...imageUris]);
+        // Convert to base64 for each image
+        const base64Images: string[] = [];
+        for (const asset of newImages) {
+          try {
+            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+              encoding: 'base64',
+            });
+            base64Images.push(`data:image/jpeg;base64,${base64}`);
+          } catch (error) {
+            console.error('Error converting image to base64:', error);
+          }
+        }
+        
+        setSelectedImages(prev => [...prev, ...base64Images]);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -89,24 +99,34 @@ export default function PostScreen() {
       let postImages: string[] = [];
       
       if (selectedImages.length > 0) {
-        // Use multiple images - pass URIs directly
+        // Use multiple images
         postImages = selectedImages;
       } else if (selectedImage) {
         // Fallback to single image for backward compatibility
-        postImage = selectedImage;
+        if (selectedImage.startsWith('file://')) {
+          try {
+            // Convert local file to base64
+            const base64 = await FileSystem.readAsStringAsync(selectedImage, {
+              encoding: 'base64',
+            });
+            postImage = `data:image/jpeg;base64,${base64}`;
+          } catch (error) {
+            console.error('Error converting image to base64:', error);
+            postImage = '';
+          }
+        } else {
+          postImage = selectedImage;
+        }
       }
       
       console.log('Post type detected:', postType);
-      console.log('Selected images:', selectedImages);
-      console.log('Selected image (legacy):', selectedImage);
 
       if (postType === 'forum') {
         // Use forum API for forum posts
         const forumData = {
           title: '', // Forum posts don't require title
           content: postContent.trim(),
-          image: postImages.length > 0 ? postImages[0] : postImage, // Use first image if multiple, fallback to single
-          images: postImages.length > 0 ? postImages : undefined // Pass multiple images
+          image: postImages.length > 0 ? postImages[0] : postImage // Use first image if multiple, fallback to single
         };
         console.log('Submitting forum post data:', forumData);
         await createForumPost(forumData);
@@ -186,12 +206,13 @@ export default function PostScreen() {
 
 
         {/* Post Input */}
-        <MentionInput
-          value={postContent}
-          onChange={setPostContent}
-          placeholder="Start a post..."
+        <TextInput
           style={styles.input}
+          placeholder="Start a post..."
           multiline
+          numberOfLines={6}
+          value={postContent}
+          onChangeText={setPostContent}
           maxLength={1000}
         />
 

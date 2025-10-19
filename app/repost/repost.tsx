@@ -14,8 +14,6 @@ export default function RepostScreen() {
   const params = useLocalSearchParams();
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
   
-  console.log('RepostScreen - params:', params);
-  console.log('RepostScreen - postId:', postId);
   const [me, setMe] = useState<any>(null);
   const [original, setOriginal] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -37,14 +35,11 @@ export default function RepostScreen() {
   useEffect(() => {
     const run = async () => {
       try {
-        console.log('RepostScreen - useEffect running with postId:', postId);
         setLoading(true);
         const [u, detail] = await Promise.all([
           getUserInfo(),
           postId ? getPostDetail(postId) : Promise.resolve(null),
         ]);
-        console.log('RepostScreen - getUserInfo result:', u);
-        console.log('RepostScreen - getPostDetail result:', detail);
         setMe(u);
         setOriginal(detail);
         // Detect if current user already reposted

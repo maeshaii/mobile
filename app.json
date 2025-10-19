@@ -34,13 +34,15 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "API_BASE_URL": "https://unfished-jack-overimaginatively.ngrok-free.dev"
+      "API_BASE_URL": "https://fcd335ee6e94.ngrok-free.app"
     }
   }
 }

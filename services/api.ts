@@ -1,4 +1,3 @@
-// services/api.ts
 import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -45,7 +44,9 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Prefer explicit config (Expo extra or env). Fallback to localhost for local dev.
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
-export const API_BASE_URL = normalizeBaseUrl('https://unfished-jack-overimaginatively.ngrok-free.dev');
+// Ngrok URL for production - this line will be updated by the ngrok script
+const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -661,8 +662,26 @@ export const getPostLikes = async (postId: number) => {
   // Backend may respond with { likes: [...] } or an array payload
   return (data && (data.likes ?? data)) as any[];
 };
+
+// Mobile -> Backend: GET /api/posts/{post_id}/detail/ (includes reposts)
+export const getPostReposts = async (postId: number) => {
+  try {
+    const { data } = await api.get(`/api/posts/${postId}/detail/`);
+    // Extract reposts from post detail response
+    return Array.isArray(data?.reposts) ? data.reposts : [];
+  } catch (error) {
+    console.error('Error fetching post reposts:', error);
+    return [];
+  }
+};
 // Mobile -> Backend: GET /api/posts/{post_id}/detail/
-export const getPostDetail = async (postId: number) => (await api.get(`/api/posts/${postId}/detail/`)).data;
+export const getPostDetail = async (postId: number) => {
+  console.log('getPostDetail - Requesting post ID:', postId);
+  console.log('getPostDetail - API URL:', `/api/posts/${postId}/detail/`);
+  const result = (await api.get(`/api/posts/${postId}/detail/`)).data;
+  console.log('getPostDetail - API Response:', result);
+  return result;
+};
 
 // Get all user posts including donation reposts
 export const getAllUserPosts = async (userId: number) => {
