@@ -4,6 +4,33 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
+// Platform-specific storage utility
+const isWeb = Platform.OS === 'web';
+
+const Storage = {
+  setItem: async (key: string, value: string) => {
+    if (isWeb) {
+      localStorage.setItem(key, value);
+    } else {
+      await SecureStore.setItemAsync(key, value);
+    }
+  },
+  getItem: async (key: string) => {
+    if (isWeb) {
+      return localStorage.getItem(key);
+    } else {
+      return await SecureStore.getItemAsync(key);
+    }
+  },
+  deleteItem: async (key: string) => {
+    if (isWeb) {
+      localStorage.removeItem(key);
+    } else {
+      await SecureStore.deleteItemAsync(key);
+    }
+  },
+};
+
 /** Base URL handling */
 function normalizeBaseUrl(raw?: string): string {
   return (raw ?? '').trim().replace(/\/+$/, '');
@@ -18,7 +45,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Prefer explicit config (Expo extra or env). Fallback to localhost for local dev.
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || localhostUrl);
+export const API_BASE_URL = normalizeBaseUrl('https://unfished-jack-overimaginatively.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -33,10 +60,10 @@ const api = axios.create({
 });
 
 /** Auth helpers */
-export const getAccessToken = async () => SecureStore.getItemAsync('accessToken');
-export const getRefreshToken = async () => SecureStore.getItemAsync('refreshToken');
+export const getAccessToken = async () => Storage.getItem('accessToken');
+export const getRefreshToken = async () => Storage.getItem('refreshToken');
 export const getUserInfo = async () => {
-  const user = await SecureStore.getItemAsync('user');
+  const user = await Storage.getItem('user');
   return user ? JSON.parse(user) : null;
 };
 
@@ -48,17 +75,45 @@ export const getCurrentUserId = (user: any): number | null => {
   return null;
 };
 export const logoutUser = async () => {
-  await SecureStore.deleteItemAsync('accessToken');
-  await SecureStore.deleteItemAsync('refreshToken');
-  await SecureStore.deleteItemAsync('user');
+  try {
+    await Storage.deleteItem('accessToken');
+  } catch (e) {
+    console.warn('Failed to delete accessToken:', e);
+  }
+  try {
+    await Storage.deleteItem('refreshToken');
+  } catch (e) {
+    console.warn('Failed to delete refreshToken:', e);
+  }
+  try {
+    await Storage.deleteItem('user');
+  } catch (e) {
+    console.warn('Failed to delete user:', e);
+  }
 };
 
 // Clear all stored tokens - useful for debugging login issues
 export const clearAllTokens = async () => {
-  await SecureStore.deleteItemAsync('accessToken');
-  await SecureStore.deleteItemAsync('refreshToken');
-  await SecureStore.deleteItemAsync('user');
-  await SecureStore.deleteItemAsync('lastLogin');
+  try {
+    await Storage.deleteItem('accessToken');
+  } catch (e) {
+    console.warn('Failed to delete accessToken:', e);
+  }
+  try {
+    await Storage.deleteItem('refreshToken');
+  } catch (e) {
+    console.warn('Failed to delete refreshToken:', e);
+  }
+  try {
+    await Storage.deleteItem('user');
+  } catch (e) {
+    console.warn('Failed to delete user:', e);
+  }
+  try {
+    await Storage.deleteItem('lastLogin');
+  } catch (e) {
+    console.warn('Failed to delete lastLogin:', e);
+  }
 };
 
 /** Attach bearer - but NOT for login/token endpoints */
@@ -98,7 +153,7 @@ async function refreshAccessToken(): Promise<string | null> {
   const { data } = await api.post('/api/token/refresh/', { refresh });
   const newAccess = data?.access as string | undefined;
   if (!newAccess) return null;
-  await SecureStore.setItemAsync('accessToken', newAccess);
+  await Storage.setItem('accessToken', newAccess);
   return newAccess;
 }
 
@@ -154,12 +209,12 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
     const response = await api.post('/api/token/', { acc_username, acc_password });
     console.log('Mobile: Login response received:', response.data);
     
-    // Save tokens and user info to SecureStore (mobile equivalent of localStorage)
+    // Save tokens and user info to Storage (mobile equivalent of localStorage)
     if (response.data.access && response.data.refresh) {
-      await SecureStore.setItemAsync('accessToken', response.data.access);
-      await SecureStore.setItemAsync('refreshToken', response.data.refresh);
+      await Storage.setItem('accessToken', response.data.access);
+      await Storage.setItem('refreshToken', response.data.refresh);
       if (response.data.user) {
-        await SecureStore.setItemAsync('user', JSON.stringify(response.data.user));
+        await Storage.setItem('user', JSON.stringify(response.data.user));
       }
     }
     
@@ -541,9 +596,47 @@ export const createPost = async (postData: {
 }) => {
   try {
     console.log('Mobile createPost sending:', postData);
-    const response = await api.post('/api/posts/', postData);
-    console.log('Mobile createPost response:', response.data);
-    return response.data;
+    
+    // If we have images, upload them using FormData
+    if (postData.post_images && postData.post_images.length > 0) {
+      const formData = new FormData();
+      formData.append('post_content', postData.post_content);
+      if (postData.type) formData.append('type', postData.type);
+      if (postData.post_title) formData.append('post_title', postData.post_title);
+      if (postData.post_cat_id) formData.append('post_cat_id', postData.post_cat_id.toString());
+      
+      // Add each image as a file
+      postData.post_images.forEach((imageData, index) => {
+        if (imageData.startsWith('data:image/')) {
+          // Handle base64 data
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
+          // Handle file URIs directly
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        }
+      });
+      
+      const response = await api.post('/api/posts/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('Mobile createPost response:', response.data);
+      return response.data;
+    } else {
+      // No images, send as JSON
+      const response = await api.post('/api/posts/', postData);
+      console.log('Mobile createPost response:', response.data);
+      return response.data;
+    }
   } catch (error) {
     console.error('Mobile createPost error:', error);
     throw error;
@@ -792,10 +885,72 @@ export const getForums = async () => {
   return response.data?.forums || [];
 };
 // Mobile -> Backend: POST /api/forum/
-export const createForumPost = async (payload: { title?: string; content: string; image?: string }) =>
-  (await api.post('/api/forum/', { post_title: payload.title, post_content: payload.content, post_image: payload.image })).data;
+export const createForumPost = async (payload: { title?: string; content: string; image?: string; images?: string[] }) => {
+  try {
+    console.log('Mobile createForumPost sending:', payload);
+    
+    // If we have images, upload them using FormData
+    if (payload.images && payload.images.length > 0) {
+      const formData = new FormData();
+      formData.append('post_content', payload.content);
+      if (payload.title) formData.append('post_title', payload.title);
+      
+      // Add each image as a file
+      payload.images.forEach((imageData, index) => {
+        if (imageData.startsWith('data:image/')) {
+          // Handle base64 data
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
+          // Handle file URIs directly
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        }
+      });
+      
+      const response = await api.post('/api/forum/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('Mobile createForumPost response:', response.data);
+      return response.data;
+    } else {
+      // No images, send as JSON (backward compatibility)
+      const response = await api.post('/api/forum/', { 
+        post_title: payload.title, 
+        post_content: payload.content, 
+        post_image: payload.image 
+      });
+      console.log('Mobile createForumPost response:', response.data);
+      return response.data;
+    }
+  } catch (error) {
+    console.error('Mobile createForumPost error:', error);
+    throw error;
+  }
+};
 // Mobile -> Backend: GET /api/forum/{forum_id}/
 export const getForumDetail = async (forumId: number) => (await api.get(`/api/forum/${forumId}/`)).data;
+
+/** Mentions */
+// Mobile -> Backend: GET /api/following/mentions/
+export const getFollowingForMentions = async () => {
+  try {
+    const response = await api.get('/api/following/mentions/');
+    console.log('Mobile getFollowingForMentions response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Mobile getFollowingForMentions error:', error);
+    throw error;
+  }
+};
 // Mobile -> Backend: PUT /api/forum/{forum_id}/
 export const editForumPost = async (forumId: number, payload: { title?: string; content?: string; post_content?: string }) =>
   (await api.put(`/api/forum/${forumId}/`, { post_title: payload.title, post_content: payload.content || payload.post_content })).data;
@@ -832,8 +987,52 @@ export const unrepostForumPost = async (repostId: number) => {
 // Mobile -> Backend: GET /api/donations/
 export const getDonationPosts = async () => (await api.get('/api/donations/')).data.donations || [];
 // Mobile -> Backend: POST /api/donations/
-export const createDonationPost = async (payload: { description: string; images?: string[] }) =>
-  (await api.post('/api/donations/', { description: payload.description, images: payload.images })).data;
+export const createDonationPost = async (payload: { description: string; images?: string[] }) => {
+  try {
+    console.log('Mobile createDonationPost sending:', payload);
+    
+    // If we have images, upload them using FormData
+    if (payload.images && payload.images.length > 0) {
+      const formData = new FormData();
+      formData.append('description', payload.description);
+      
+      // Add each image as a file
+      payload.images.forEach((imageData, index) => {
+        if (imageData.startsWith('data:image/')) {
+          // Handle base64 data
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
+          // Handle file URIs directly
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        }
+      });
+      
+      const response = await api.post('/api/donations/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('Mobile createDonationPost response:', response.data);
+      return response.data;
+    } else {
+      // No images, send as JSON
+      const response = await api.post('/api/donations/', { description: payload.description });
+      console.log('Mobile createDonationPost response:', response.data);
+      return response.data;
+    }
+  } catch (error) {
+    console.error('Mobile createDonationPost error:', error);
+    throw error;
+  }
+};
 // Mobile -> Backend: GET /api/donations/{donation_id}/
 export const getDonationDetail = async (donationId: number) => (await api.get(`/api/donations/${donationId}/`)).data;
 // Mobile -> Backend: PUT /api/donations/{donation_id}/
@@ -973,7 +1172,7 @@ export const updateProfile = async (bio: string, profile_pic: string) =>
 
 // Mobile -> Backend: PUT /api/alumni/profile/update/?user_id={id}
 export const updateAlumniProfile = async (params: { bio?: string; imageUri?: string; socialMedia?: string; email?: string }) => {
-    const meRaw = await SecureStore.getItemAsync('user');
+    const meRaw = await Storage.getItem('user');
     const me = meRaw ? JSON.parse(meRaw) : null;
     const userId = me?.id || me?.user_id;
     if (!userId) throw new Error('Missing user id');
@@ -1037,7 +1236,7 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
         merged.email = emailRes.data.email ?? merged.email;
       }
 
-      await SecureStore.setItemAsync('user', JSON.stringify(merged));
+      await Storage.setItem('user', JSON.stringify(merged));
     }
 
     return { success: true };

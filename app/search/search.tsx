@@ -1,10 +1,37 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
 import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, clearRecentSearches } from '../../services/api';
 import * as SecureStore from 'expo-secure-store';
 import UserAvatar from '../../components/UserAvatar';
+
+// Platform-specific storage utility
+const isWeb = Platform.OS === 'web';
+
+const Storage = {
+  setItem: async (key: string, value: string) => {
+    if (isWeb) {
+      localStorage.setItem(key, value);
+    } else {
+      await SecureStore.setItemAsync(key, value);
+    }
+  },
+  getItem: async (key: string) => {
+    if (isWeb) {
+      return localStorage.getItem(key);
+    } else {
+      return await SecureStore.getItemAsync(key);
+    }
+  },
+  deleteItem: async (key: string) => {
+    if (isWeb) {
+      localStorage.removeItem(key);
+    } else {
+      await SecureStore.deleteItemAsync(key);
+    }
+  },
+};
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
 
@@ -55,14 +82,14 @@ export default function SearchPage() {
             }));
             setRecent(mappedRecent);
             // Also persist locally for offline
-            await SecureStore.setItemAsync('recentSearches', JSON.stringify(mappedRecent));
+            await Storage.setItem('recentSearches', JSON.stringify(mappedRecent));
           } else {
-            const raw = await SecureStore.getItemAsync('recentSearches');
+            const raw = await Storage.getItem('recentSearches');
             if (raw) setRecent(JSON.parse(raw));
           }
         } catch {
           try {
-            const raw = await SecureStore.getItemAsync('recentSearches');
+            const raw = await Storage.getItem('recentSearches');
             if (raw) setRecent(JSON.parse(raw));
           } catch {}
         }
@@ -77,7 +104,7 @@ export default function SearchPage() {
 
   const saveRecent = async (items: any[]) => {
     setRecent(items);
-    try { await SecureStore.setItemAsync('recentSearches', JSON.stringify(items)); } catch {}
+    try { await Storage.setItem('recentSearches', JSON.stringify(items)); } catch {}
   };
 
   const handleOpenUser = async (item: any) => {

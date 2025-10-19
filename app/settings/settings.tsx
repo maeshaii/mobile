@@ -7,10 +7,39 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  Platform,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { getAlumniProfile, getUserInfo, putAlumniProfile } from '../../services/api';
+import * as SecureStore from 'expo-secure-store';
+
+// Platform-specific storage utility
+const isWeb = Platform.OS === 'web';
+
+const Storage = {
+  setItem: async (key: string, value: string) => {
+    if (isWeb) {
+      localStorage.setItem(key, value);
+    } else {
+      await SecureStore.setItemAsync(key, value);
+    }
+  },
+  getItem: async (key: string) => {
+    if (isWeb) {
+      return localStorage.getItem(key);
+    } else {
+      return await SecureStore.getItemAsync(key);
+    }
+  },
+  deleteItem: async (key: string) => {
+    if (isWeb) {
+      localStorage.removeItem(key);
+    } else {
+      await SecureStore.deleteItemAsync(key);
+    }
+  },
+};
 
 const civilStatusOptions = ['Single', 'Married', 'Divorced', 'Widowed'];
 const employmentStatusOptions = ['Regular', 'Contractual', 'Casual', 'Probationary', 'Unemployed'];
@@ -186,7 +215,7 @@ export default function SettingsPage() {
         home_address: personal.home_address,
         social_media: personal.social_media,
       } as any;
-      try { const SecureStore = require('expo-secure-store'); SecureStore.setItemAsync('user', JSON.stringify(merged)); } catch {}
+      try { await Storage.setItem('user', JSON.stringify(merged)); } catch {}
       Alert.alert('Saved', 'Personal details updated.');
     } catch (e) {
       Alert.alert('Error', 'Failed to update details');

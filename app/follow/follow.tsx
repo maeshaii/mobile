@@ -42,61 +42,68 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const [followStatuses, setFollowStatuses] = useState<{ [key: number]: boolean }>({});
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
-  console.log('FollowModal: Component rendered with props:', { visible, type, userId });
-  console.log('FollowModal: Current users state:', users.length);
-  console.log('FollowModal: Loading state:', loading);
-  console.log('FollowModal: Modal should be visible:', visible);
-  console.log('FollowModal: Users array:', users);
 
 
   const loadUsers = async () => {
     if (!userId) {
-      console.log('FollowModal: No userId provided, skipping load');
       setLoading(false);
       return;
     }
 
     try {
       setLoading(true);
-      console.log(`FollowModal: Loading ${type} for userId:`, userId);
-      console.log(`FollowModal: Current users state before load:`, users.length);
 
-      // Get data from API - match web frontend approach
-      const response = await api.get(`/api/alumni/${userId}/${type}/`);
-      const data = response.data;
-
-      console.log(`FollowModal: ${type} API response:`, data);
-
-      // Extract users array - match web frontend logic
-      let usersArray: any[] = [];
-      if (data.success && data[type]) {
-        usersArray = data[type];
-        console.log(`FollowModal: Extracted ${usersArray.length} ${type} from data.${type}`);
+      // Use the existing API functions
+      let data: any;
+      if (type === 'followers') {
+        data = await fetchFollowers(userId);
       } else {
-        console.log(`FollowModal: No valid ${type} array found in response. Data structure:`, Object.keys(data || {}));
+        data = await fetchFollowing(userId);
+      }
+
+      // Extract users array from the response
+      let usersArray: any[] = [];
+      
+      if (data && data.success && data[type]) {
+        usersArray = data[type];
+      } else {
         usersArray = [];
       }
 
-      // Use the data directly from backend - match web frontend approach
+      // Normalize the user data
       const normalizedUsers = usersArray.map((u: any) => ({
-        user_id: u.user_id,
-        ctu_id: u.ctu_id,
-        name: u.name,
+        user_id: u.user_id || u.id,
+        ctu_id: u.ctu_id || u.acc_username || `user_${u.user_id || u.id}`,
+        name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim() || `User ${u.user_id || u.id}`,
         f_name: u.f_name,
         l_name: u.l_name,
         profile_pic: u.profile_pic,
         followed_at: u.followed_at,
       }));
 
-      console.log(`FollowModal: Found ${normalizedUsers.length} users`);
-      setUsers(normalizedUsers);
-      console.log(`FollowModal: Users set to state:`, normalizedUsers.length);
+      
+      // If no normalized users, try to use raw data
+      if (normalizedUsers.length === 0 && usersArray.length > 0) {
+        const rawUsers = usersArray.map((u: any) => ({
+          user_id: u.user_id || u.id || Math.random(),
+          ctu_id: u.ctu_id || u.acc_username || 'unknown',
+          name: u.name || u.f_name || 'Unknown User',
+          f_name: u.f_name || '',
+          l_name: u.l_name || '',
+          profile_pic: u.profile_pic,
+          followed_at: u.followed_at,
+        }));
+        setUsers(rawUsers);
+      } else {
+        setUsers(normalizedUsers);
+      }
 
-      if (normalizedUsers.length > 0) {
+      const finalUsers = normalizedUsers.length > 0 ? normalizedUsers : users;
+      if (finalUsers.length > 0) {
         const currentUser = await getUserInfo();
         const currentUserId = currentUser?.id || currentUser?.user_id;
 
-        const statusPromises = normalizedUsers.map(async (user: FollowUser) => {
+        const statusPromises = finalUsers.map(async (user: FollowUser) => {
           try {
             const { checkFollowStatus } = await import('../../services/api');
             const status = await checkFollowStatus(user.user_id);
@@ -182,12 +189,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
             </TouchableOpacity>
           </View>
           
-          {/* Debug info */}
-          <View style={{ padding: 10, backgroundColor: '#f0f0f0' }}>
-            <Text style={{ fontSize: 12, color: '#666' }}>
-              Debug: visible={visible.toString()}, userId={userId}, users={users.length}, loading={loading.toString()}
-            </Text>
-          </View>
 
           {loading ? (
             <View style={styles.loadingContainer}>
@@ -196,26 +197,14 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
             </View>
           ) : (
             <>
-            <ScrollView
-              style={styles.list}
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={true}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  colors={["#174f84"]}
-                  tintColor="#174f84"
-                />
-              }
-            >
-              {users.length > 0 ? (
-                users.map((user, idx) => {
-                  console.log(`FollowModal: Rendering user:`, user);
-                  return (
+            {/* Users Grid - Outside ScrollView for guaranteed visibility */}
+            {users.length > 0 ? (
+              <View style={styles.gridContainer}>
+                <View style={styles.gridWrapper}>
+                  {users.map((user, idx) => (
                     <TouchableOpacity 
                       key={user.user_id || idx} 
-                      style={styles.userItem}
+                      style={styles.gridItem}
                       onPress={() => {
                         onClose();
                         router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
@@ -225,40 +214,41 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                         profilePic={user.profile_pic}
                         firstName={user.f_name}
                         lastName={user.l_name}
-                        size={50}
-                        style={styles.avatar}
+                        size={60}
+                        style={styles.gridAvatar}
                       />
-                      <View style={styles.userInfo}>
-                        <Text style={styles.userName}>{user.name}</Text>
-                        <Text style={styles.userHandle}>@{user.ctu_id}</Text>
-                      </View>
+                      <Text style={styles.gridUserName} numberOfLines={1}>
+                        {user.name}
+                      </Text>
+                      <Text style={styles.gridUserHandle} numberOfLines={1}>
+                        @{user.ctu_id}
+                      </Text>
                       <TouchableOpacity
-                        style={[styles.followButton, followStatuses[user.user_id] && styles.followingButton]}
+                        style={[styles.gridFollowButton, followStatuses[user.user_id] && styles.gridFollowingButton]}
                         onPress={(e) => {
                           e.stopPropagation();
                           handleFollow(user.user_id);
                         }}
                         disabled={followLoading[user.user_id]}
                       >
-                        <Text style={[styles.followButtonText, followStatuses[user.user_id] && styles.followingButtonText]}>
+                        <Text style={[styles.gridFollowButtonText, followStatuses[user.user_id] && styles.gridFollowingButtonText]}>
                           {followLoading[user.user_id] ? '...' : followStatuses[user.user_id] ? 'Following' : 'Follow'}
                         </Text>
                       </TouchableOpacity>
                     </TouchableOpacity>
-                  );
-                })
-              ) : (
-                <View style={styles.emptyContainer}>
-                  <FontAwesome
-                    name={type === 'followers' ? 'users' : 'user-plus'}
-                    size={48}
-                    color="#ccc"
-                  />
-                  <Text style={styles.emptyText}>No {type} yet</Text>
-                  <Text style={styles.emptyText}>Debug: users.length = {users.length}</Text>
+                  ))}
                 </View>
-              )}
-            </ScrollView>
+              </View>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <FontAwesome
+                  name={type === 'followers' ? 'users' : 'user-plus'}
+                  size={48}
+                  color="#ccc"
+                />
+                <Text style={styles.emptyText}>No {type} yet</Text>
+              </View>
+            )}
             </>
           )}
         </View>
@@ -367,5 +357,63 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: '#666',
+  },
+
+  // Grid Layout Styles
+  gridContainer: {
+    padding: 16,
+    backgroundColor: '#f9f9f9',
+  },
+  gridWrapper: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  gridItem: {
+    width: '48%',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  gridAvatar: {
+    marginBottom: 8,
+  },
+  gridUserName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  gridUserHandle: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  gridFollowButton: {
+    backgroundColor: '#174f84',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  gridFollowingButton: {
+    backgroundColor: '#e3ecf7',
+    borderWidth: 1,
+    borderColor: '#174f84',
+  },
+  gridFollowButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  gridFollowingButtonText: {
+    color: '#174f84',
   },
 });

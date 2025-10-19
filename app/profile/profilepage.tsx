@@ -533,6 +533,7 @@ export default function ProfilePage() {
         </View>
       </View>
 
+
       {/* Details Card */}
       <View style={styles.detailsCard}>
           <Text style={styles.detailsTitle}>Details</Text>
@@ -1469,4 +1470,5 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 10,
   },
+
 });
