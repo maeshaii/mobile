@@ -46,7 +46,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
 const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
+export const API_BASE_URL = normalizeBaseUrl('https://unfished-jack-overimaginatively.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 

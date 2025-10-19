@@ -11,8 +11,9 @@ import {
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
-import { getAlumniProfile, getUserInfo, putAlumniProfile } from '../../services/api';
+import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL } from '../../services/api';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Platform-specific storage utility
 const isWeb = Platform.OS === 'web';
@@ -42,8 +43,8 @@ const Storage = {
 };
 
 const civilStatusOptions = ['Single', 'Married', 'Divorced', 'Widowed'];
-const employmentStatusOptions = ['Regular', 'Contractual', 'Casual', 'Probationary', 'Unemployed'];
-const sectorOptions = ['Private', 'Government', 'NGO', 'Self‑Employed', 'Others'];
+const employmentStatusOptions = ['Full Time', 'Part Time', 'Unemployed'];
+const sectorOptions = ['Private', 'Government', 'Unemployed'];
 
 export default function SettingsPage() {
   const [open, setOpen] = useState({
@@ -51,6 +52,21 @@ export default function SettingsPage() {
     employment: false,
     password: false,
   });
+
+  // Load open state from AsyncStorage on component mount
+  useEffect(() => {
+    const loadOpenState = async () => {
+      try {
+        const savedState = await AsyncStorage.getItem('settingsOpenState');
+        if (savedState) {
+          setOpen(JSON.parse(savedState));
+        }
+      } catch (error) {
+        console.error('Error loading open state:', error);
+      }
+    };
+    loadOpenState();
+  }, []);
 
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
@@ -75,7 +91,32 @@ export default function SettingsPage() {
     employment_status: '',
     company_address: '',
     sector: '',
+    employment_duration_current: '',
+    salary_current: '',
+    scope_current: '',
+    company_email: '',
+    company_contact: '',
+    contact_person: '',
+    position_alt: '',
+    job_alignment_status: '',
+    job_alignment_category: '',
+    job_alignment_title: '',
+    job_alignment_suggested_program: '',
+    job_alignment_original_program: '',
+    self_employed: false,
+    high_position: false,
+    absorbed: false,
+    awards_recognition_current: '',
+    supporting_document_current: '',
+    supporting_document_awards_recognition: '',
+    unemployment_reason: '',
+    created_at: '',
+    updated_at: ''
   });
+
+  // Employment status check
+  const [isEmployed, setIsEmployed] = useState<boolean | null>(null);
+  const [isEditingEmployment, setIsEditingEmployment] = useState(false);
 
   // Password state
   const [newPassword, setNewPassword] = useState('');
@@ -85,6 +126,10 @@ export default function SettingsPage() {
       const next = { ...prev, [key]: !prev[key] };
       // Close dropdown when collapsing
       if (!next[key]) setOpenDropdown(null);
+      
+      // Save to AsyncStorage
+      AsyncStorage.setItem('settingsOpenState', JSON.stringify(next));
+      
       return next;
     });
   };
@@ -179,11 +224,79 @@ export default function SettingsPage() {
           social_media: profile?.social_media || '',
           home_address: profile?.home_address || '',
         });
+        
+        // Load employment data
+        await loadEmploymentData(uid);
       } catch (e) {
         // Keep defaults
       }
     })();
   }, []);
+
+  const loadEmploymentData = async (userId: number) => {
+    try {
+      const accessToken = await AsyncStorage.getItem('accessToken');
+      const response = await fetch(`${API_BASE_URL}/api/alumni/employment/${userId}/`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setEmployment({
+          org_name: data.organization_name || '',
+          date_hired: data.date_hired || '',
+          position: data.position || '',
+          employment_status: data.employment_status || '',
+          company_address: data.company_address || '',
+          sector: data.sector || '',
+          employment_duration_current: data.employment_duration_current || '',
+          salary_current: data.salary_current || '',
+          scope_current: data.scope_current || '',
+          company_email: data.company_email || '',
+          company_contact: data.company_contact || '',
+          contact_person: data.contact_person || '',
+          position_alt: data.position_alt || '',
+          job_alignment_status: data.job_alignment_status || '',
+          job_alignment_category: data.job_alignment_category || '',
+          job_alignment_title: data.job_alignment_title || '',
+          job_alignment_suggested_program: data.job_alignment_suggested_program || '',
+          job_alignment_original_program: data.job_alignment_original_program || '',
+          self_employed: data.self_employed || false,
+          high_position: data.high_position || false,
+          absorbed: data.absorbed || false,
+          awards_recognition_current: data.awards_recognition_current || '',
+          supporting_document_current: data.supporting_document_current || '',
+          supporting_document_awards_recognition: data.supporting_document_awards_recognition || '',
+          unemployment_reason: data.unemployment_reason || '',
+          created_at: data.created_at || '',
+          updated_at: data.updated_at || ''
+        });
+        
+        // Determine if user is employed based on data
+        const hasEmploymentData = data.organization_name && data.organization_name.trim() !== '';
+        const isUnemployed = data.sector === 'Unemployed' || data.employment_status === 'Unemployed';
+        
+        if (hasEmploymentData && !isUnemployed) {
+          setIsEmployed(true);
+        } else if (isUnemployed) {
+          setIsEmployed(false);
+        } else {
+          // No employment data and not explicitly unemployed - show question
+          setIsEmployed(null);
+        }
+        
+        console.log('hasEmploymentData:', hasEmploymentData);
+        console.log('isUnemployed:', isUnemployed);
+        console.log('Final isEmployed:', isEmployed);
+      }
+    } catch (error) {
+      console.error('Error loading employment data:', error);
+      setIsEmployed(null);
+    }
+  };
 
   const onSavePersonal = async () => {
     try {
@@ -222,8 +335,104 @@ export default function SettingsPage() {
     }
   };
 
-  const onSaveEmployment = () => {
-    Alert.alert('Saved', 'Employment details updated.');
+  const onSaveEmployment = async () => {
+    try {
+      const userStr = await AsyncStorage.getItem('user');
+      if (!userStr) return;
+      
+      const user = JSON.parse(userStr);
+      const userId = user.user_id || user.id;
+      const accessToken = await AsyncStorage.getItem('accessToken');
+      
+      let employmentData;
+      
+      if (isEmployed === false) {
+        // If unemployed, clear employment details and set status to unemployed
+        employmentData = {
+          organization_name: '',
+          date_hired: '',
+          position: '',
+          employment_status: 'Unemployed',
+          company_address: '',
+          sector: 'Unemployed',
+          employment_duration_current: '',
+          salary_current: '',
+          scope_current: '',
+          company_email: '',
+          company_contact: '',
+          contact_person: '',
+          position_alt: '',
+          job_alignment_status: '',
+          job_alignment_category: '',
+          job_alignment_title: '',
+          job_alignment_suggested_program: '',
+          job_alignment_original_program: '',
+          self_employed: false,
+          high_position: false,
+          absorbed: false,
+          awards_recognition_current: '',
+          supporting_document_current: '',
+          supporting_document_awards_recognition: '',
+          unemployment_reason: '',
+          created_at: '',
+          updated_at: ''
+        };
+      } else {
+        // If employed, send the employment data
+        employmentData = {
+          organization_name: employment.org_name,
+          date_hired: employment.date_hired,
+          position: employment.position,
+          employment_status: employment.employment_status,
+          company_address: employment.company_address,
+          sector: employment.sector,
+          employment_duration_current: employment.employment_duration_current,
+          salary_current: employment.salary_current,
+          scope_current: employment.scope_current,
+          company_email: employment.company_email,
+          company_contact: employment.company_contact,
+          contact_person: employment.contact_person,
+          position_alt: employment.position_alt,
+          job_alignment_status: employment.job_alignment_status,
+          job_alignment_category: employment.job_alignment_category,
+          job_alignment_title: employment.job_alignment_title,
+          job_alignment_suggested_program: employment.job_alignment_suggested_program,
+          job_alignment_original_program: employment.job_alignment_original_program,
+          self_employed: employment.self_employed,
+          high_position: employment.high_position,
+          absorbed: employment.absorbed,
+          awards_recognition_current: employment.awards_recognition_current,
+          supporting_document_current: employment.supporting_document_current,
+          supporting_document_awards_recognition: employment.supporting_document_awards_recognition,
+          unemployment_reason: employment.unemployment_reason,
+          created_at: employment.created_at,
+          updated_at: employment.updated_at
+        };
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/alumni/employment/${userId}/`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(employmentData)
+      });
+
+      if (response.ok) {
+        Alert.alert('Success', 'Employment details updated successfully!');
+        setIsEditingEmployment(false);
+        toggle('employment');
+        // Refresh employment data
+        await loadEmploymentData(userId);
+      } else {
+        const errorData = await response.json();
+        Alert.alert('Error', `Failed to update employment details: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error updating employment details:', error);
+      Alert.alert('Error', 'Failed to update employment details');
+    }
   };
 
   const onSavePassword = () => {
@@ -310,15 +519,65 @@ export default function SettingsPage() {
 
         {/* Employment Details card */}
         <View style={styles.card}>
-          <TouchableOpacity style={styles.cardHeader} onPress={() => toggle('employment')}>
-            <Text style={styles.cardHeaderText}>Employment Details</Text>
-            <FontAwesome name={open.employment ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
-          </TouchableOpacity>
+          <View style={styles.cardHeader}>
+            <TouchableOpacity style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }} onPress={() => toggle('employment')}>
+              <Text style={styles.cardHeaderText}>Employment Details</Text>
+              <FontAwesome name={open.employment ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
+            </TouchableOpacity>
+            {!isEditingEmployment && isEmployed !== null && (
+              <TouchableOpacity 
+                style={styles.editButton}
+                onPress={() => setIsEditingEmployment(true)}
+              >
+                <Text style={styles.editButtonText}>EDIT</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
           {open.employment && (
             <View style={styles.cardBody}>
               <Text style={styles.sectionNote}>First employment after graduation</Text>
               
+              {/* Employment Status Check */}
+              <View style={{ marginBottom: 20 }}>
+                <Text style={[styles.label, { marginBottom: 10, fontWeight: 'bold' }]}>
+                  Are you still employed?
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    style={[
+                      styles.employmentStatusButton,
+                      isEmployed === true && styles.employmentStatusButtonActive
+                    ]}
+                    onPress={() => setIsEmployed(true)}
+                  >
+                    <Text style={[
+                      styles.employmentStatusButtonText,
+                      isEmployed === true && styles.employmentStatusButtonTextActive
+                    ]}>
+                      Yes, I am employed
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.employmentStatusButton,
+                      isEmployed === false && styles.employmentStatusButtonActive
+                    ]}
+                    onPress={() => setIsEmployed(false)}
+                  >
+                    <Text style={[
+                      styles.employmentStatusButtonText,
+                      isEmployed === false && styles.employmentStatusButtonTextActive
+                    ]}>
+                      No, I am unemployed
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Employment Details Form - Show if there's employment data or user is employed */}
+              {isEmployed !== null && (
+                <>
               <LabeledInput
                 label="Name of Organization :"
                 value={employment.org_name}
@@ -354,15 +613,35 @@ export default function SettingsPage() {
                 options={sectorOptions}
                 onSelect={(value) => setEmployment(prev => ({ ...prev, sector: value }))}
               />
+                </>
+              )}
 
+
+              {/* Unemployed Status Display */}
+              {isEmployed === false && (
+                <View style={styles.unemployedStatusContainer}>
+                  <Text style={styles.unemployedStatusTitle}>
+                    Employment Status: Unemployed
+                  </Text>
+                  <Text style={styles.unemployedStatusText}>
+                    Your employment details have been cleared. You can update your status anytime.
+                  </Text>
+                </View>
+              )}
+
+              {(isEmployed !== null && isEditingEmployment) && (
               <View style={styles.buttonRow}>
                 <TouchableOpacity onPress={onSaveEmployment} style={styles.saveButton}>
                   <Text style={styles.saveButtonText}>Save</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => toggle('employment')} style={styles.cancelButton}>
+                <TouchableOpacity onPress={() => {
+                  setIsEditingEmployment(false);
+                  toggle('employment');
+                }} style={styles.cancelButton}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
+              )}
             </View>
           )}
         </View>
@@ -438,6 +717,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  editButton: {
+    backgroundColor: '#174f84',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    marginLeft: 10,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 12,
   },
   cardHeaderText: { 
     fontWeight: '700', 
@@ -535,5 +826,46 @@ const styles = StyleSheet.create({
     color: '#111827', 
     fontWeight: '700', 
     textAlign: 'center' 
+  },
+  employmentStatusButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#174f84',
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+  },
+  employmentStatusButtonActive: {
+    backgroundColor: '#174f84',
+  },
+  employmentStatusButtonText: {
+    color: '#174f84',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  employmentStatusButtonTextActive: {
+    color: '#fff',
+  },
+  unemployedStatusContainer: {
+    backgroundColor: '#f5f5f5',
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  unemployedStatusTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 4,
+  },
+  unemployedStatusText: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
   },
 });
