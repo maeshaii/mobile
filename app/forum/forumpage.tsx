@@ -1,17 +1,16 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
-import { followUser, getUserInfo, checkFollowStatus, getForumPosts } from '../../services/api';
+import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
-import ForumPostCard from '../posts/ForumPostCard';
+import ForumPostCard from './ForumPostCard';
+import RepostCard from '../repost/RepostCard';
 
 const forumLogo = require('../../assets/images/wny_logo.jpg');
 
 const orgInfo = {
   name: 'CCICT Forum',
-  username: '@CCICT_FORUM',
-  bio: 'CCICT Forum CTU Main-Campus',
   profile_pic: forumLogo,
 };
 
@@ -38,13 +37,15 @@ interface UserProfile {
 export default function CCICTPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [posts, setPosts] = useState<PostItem[]>([]);
+  const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
+  const [members, setMembers] = useState<any[]>([]);
+  const [membersYear, setMembersYear] = useState<string | null>(null);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -76,19 +77,49 @@ export default function CCICTPage() {
         setUser(userInfo);
       const meId = (userInfo as any)?.id || (userInfo as any)?.user_id || null;
       setCurrentUserId(meId);
+      // Determine user's batch year and load members of the same batch
+      const batchYear = String((userInfo as any)?.batch || (userInfo as any)?.year_graduated || (userInfo as any)?.batch_year || '').trim();
+      if (batchYear) {
+        setMembersYear(batchYear);
+        const list = await getAlumniByBatch(batchYear);
+        setMembers(list);
+      } else {
+        setMembersYear(null);
+        setMembers([]);
+      }
         const forumPosts = await getForumPosts();
         console.log('Forum page - Raw forum posts:', forumPosts);
-        console.log('Forum page - First post image:', forumPosts[0]?.post_image);
-        setPosts(forumPosts as PostItem[]);
+        const feedItems: any[] = [];
+        (Array.isArray(forumPosts) ? forumPosts : []).forEach((f: any) => {
+          // original forum post
+          feedItems.push({ ...f, item_type: 'forum' });
+          // include forum reposts as separate feed items (forum-only)
+          const reposts = Array.isArray(f.reposts) ? f.reposts : [];
+          reposts.forEach((r: any) => {
+            feedItems.push({ ...r, item_type: 'repost' });
+          });
+        });
+        const sorted = feedItems.sort((a, b) =>
+          new Date(b.repost_date || b.created_at).getTime() - new Date(a.repost_date || a.created_at).getTime()
+        );
+        setPosts(sorted);
       } catch (e) {
         setUser(null);
         setPosts([]);
+        setMembers([]);
       } finally {
         setLoading(false);
       }
   }
 
   useEffect(() => { loadForumPosts(); }, []);
+
+  // Refresh forum posts when user returns to this screen (e.g., from comments)
+  useFocusEffect(
+    useCallback(() => {
+      loadForumPosts();
+    }, [])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -108,17 +139,63 @@ export default function CCICTPage() {
           <FontAwesome name="arrow-left" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
+
       {/* Org Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileImageWrapper}>
           <Image source={orgInfo.profile_pic} style={styles.profileImage} />
         </View>
-        <Text style={styles.profileName}>{orgInfo.name}</Text>
-        <Text style={styles.profileUsername}>{orgInfo.username}</Text>
-        <View style={styles.bioRow}>
-          <Text style={styles.bioText}>{orgInfo.bio}</Text>
-        </View>
       </View>
+
+      {/* About Card */}
+      <View style={styles.aboutCard}>
+        <Text style={styles.aboutTitle}>About</Text>
+        <Text style={styles.aboutText}>
+        Connect with fellow alumni from your batch and share experiences, memories, and updates about your journey after graduation.
+        </Text>
+      </View>
+
+
+      
+      {/* Members Card */}
+      {membersYear && (
+        <View style={styles.membersCard}>
+          <Text style={styles.membersTitle}>Members · Batch {membersYear}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+            {members.map((m, idx) => {
+              const memberId = m?.user_id || m?.id;
+              const displayName = (m?.name || `${m?.f_name || m?.first_name || ''} ${m?.l_name || m?.last_name || ''}`).trim();
+              const nameParts = (displayName || '').split(/\s+/);
+              const fn = nameParts[0] || '';
+              const ln = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.memberItem}
+                  onPress={() => {
+                    if (memberId) {
+                      router.push(`/otheruser/otheruser?viewUserId=${memberId}`);
+                    }
+                  }}
+                >
+                  <UserAvatar
+                    profilePic={m.profile_pic}
+                    firstName={fn}
+                    lastName={ln}
+                    size={48}
+                  />
+                  <Text numberOfLines={1} style={styles.memberName}>
+                    {displayName || 'User'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            {members.length === 0 && (
+              <Text style={{ color: '#666', paddingVertical: 8 }}>No members found for this batch.</Text>
+            )}
+          </ScrollView>
+        </View>
+      )}
       {/* Start a Post */}
       <View style={styles.startPostCard}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -134,36 +211,65 @@ export default function CCICTPage() {
           </TouchableOpacity>
         </View>
       </View>
-      {/* Posts */}
-      {loading ? null : posts.map((post) => (
-        <ForumPostCard
-          key={post.post_id}
-          post={post}
-          currentUserId={currentUserId || undefined}
-          onLikeToggle={(postId, isLiked) => {
-            setPosts(prev => prev.map(p => 
-              p.post_id === postId 
-                ? { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) }
-                : p
-            ));
-          }}
-          onOpenViewer={(post, type) => {
-            setSelectedPostStats(post);
-            setViewerType(type);
-            setViewerVisible(true);
-          }}
-          onEdited={(postId, newContent) => {
-            setPosts(prev => prev.map(p => 
-              p.post_id === postId 
-                ? { ...p, post_content: newContent }
-                : p
-            ));
-          }}
-          onDeleted={(postId) => {
-            setPosts(prev => prev.filter(p => p.post_id !== postId));
-          }}
-        />
-      ))}
+      {/* Feed: forum posts and forum reposts (forum-only) */}
+      {loading ? null : posts.map((item) => {
+        if (item?.item_type === 'repost' || typeof item?.repost_id === 'number') {
+          return (
+            <RepostCard
+              key={`forum-repost-${item.repost_id}`}
+              repost={item}
+              currentUserId={currentUserId || undefined}
+              onLikeToggle={(repostId: number, liked: boolean) => {
+                setPosts(prev => prev.map(p => (p.repost_id === repostId ? { ...p, is_liked: liked, likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)) } : p)));
+              }}
+              onOpenViewer={() => { /* viewer not wired for forum reposts */ }}
+              onEdited={(repostId: number, newCaption: string) => {
+                setPosts(prev => prev.map(p => (p.repost_id === repostId ? { ...p, repost_caption: newCaption } : p)));
+              }}
+              onDeleted={(repostId: number) => {
+                setPosts(prev => prev.filter(p => p.repost_id !== repostId));
+              }}
+              onOriginalPostReposted={() => {}}
+            />
+          );
+        }
+        return (
+          <ForumPostCard
+            key={`forum-post-${item.post_id}`}
+            post={item}
+            currentUserId={currentUserId || undefined}
+            onLikeToggle={(postId, isLiked) => {
+              setPosts(prev => prev.map(p =>
+                p.post_id === postId
+                  ? { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) }
+                  : p
+              ));
+            }}
+            onOpenViewer={(post, type) => {
+              setSelectedPostStats(post);
+              setViewerType(type);
+              setViewerVisible(true);
+            }}
+            onEdited={(postId, newContent) => {
+              setPosts(prev => prev.map(p =>
+                p.post_id === postId
+                  ? { ...p, post_content: newContent }
+                  : p
+              ));
+            }}
+            onDeleted={(postId) => {
+              setPosts(prev => prev.filter(p => p.post_id !== postId));
+            }}
+            onCommentCountUpdate={(postId, newCount) => {
+              setPosts(prev => prev.map(p =>
+                p.post_id === postId
+                  ? { ...p, comments_count: newCount }
+                  : p
+              ));
+            }}
+          />
+        );
+      })}
 
       {/* Likes/Reposts Viewer Modal */}
       <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
@@ -264,31 +370,6 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 50,
   },
-  profileName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginTop: 10,
-    color: '#222',
-    textAlign: 'center',
-  },
-  profileUsername: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  bioRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '90%',
-    marginBottom: 8,
-  },
-  bioText: {
-    fontSize: 14,
-    color: '#444',
-    marginRight: 10,
-  },
   startPostCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -364,5 +445,73 @@ const styles = StyleSheet.create({
   listSubText: {
     fontSize: 12,
     color: '#888',
+  },
+  aboutCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginTop: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  aboutTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#174f84',
+    marginBottom: 6,
+  },
+  aboutText: {
+    fontSize: 13,
+    color: '#333',
+    marginBottom: 10,
+  },
+  aboutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  aboutLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  aboutValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  membersCard: {
+    backgroundColor: '#fff',
+    marginTop: 12,
+    marginBottom: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  membersTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#174f84',
+  },
+  memberItem: {
+    alignItems: 'center',
+    marginRight: 12,
+    width: 80,
+  },
+  memberName: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
   },
 });

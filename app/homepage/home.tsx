@@ -1,14 +1,15 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import NavBar from '../(tabs)/navbar';
-import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost, getPostDetail, editPost, getPostLikes } from '../../services/api';
+import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getFeed } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
+import DonationPostCard from '../donation/DonationPostCard';
 import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
 import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
@@ -17,22 +18,45 @@ interface Post {
   post_id: number;
   post_title?: string;
   post_content: string;
-  post_image?: string;
+  post_image?: string | null;
+  post_images?: any[];
+  type?: string | null;
+  created_at?: string | null;
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
+  likes_count: number;
+  comments_count: number;
+  reposts_count?: number;
+  is_liked?: boolean;
+  item_type?: 'post';
+  user: { 
+    user_id: number; 
+    f_name: string; 
+    l_name: string; 
+    profile_pic?: string | null 
+  };
+}
+
+interface OriginalPost {
+  post_id: number;
+  post_title?: string;
+  post_content: string;
+  post_image?: string | null;
   user: {
     f_name: string;
     l_name: string;
     profile_pic?: string;
+    user_id: number;
   };
   likes?: any[];
   comments?: any[];
   reposts?: any[];
-  likes_count?: number;
-  comments_count?: number;
+  likes_count: number;
+  comments_count: number;
   reposts_count?: number;
   created_at: string;
-  type?: string;
   is_liked?: boolean;
-  item_type?: 'post';
 }
 
 interface FeedRepost {
@@ -45,7 +69,7 @@ interface FeedRepost {
     profile_pic?: string;
     user_id?: number;
   };
-  original_post: Post;
+  original_post: OriginalPost;
   likes_count?: number;
   comments_count?: number;
   reposts_count?: number;
@@ -98,7 +122,9 @@ const HomeScreen = () => {
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [modalPostId, setModalPostId] = useState<number | null>(null);
   const router = useRouter();
+  const params = useLocalSearchParams();
   const [nowTick, setNowTick] = useState(0);
+  const [showTrackerReminder, setShowTrackerReminder] = useState<boolean>(false);
 
   useEffect(() => {
     loadUserInfo();
@@ -107,6 +133,12 @@ const HomeScreen = () => {
     const t = setInterval(() => setNowTick((x) => x + 1), 60000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if ((params as any)?.trackerReminder === '1') {
+      setShowTrackerReminder(true);
+    }
+  }, [(params as any)?.trackerReminder]);
 
   // Refetch posts whenever this screen gains focus (e.g., after creating a post)
   useFocusEffect(
@@ -123,6 +155,168 @@ const HomeScreen = () => {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  // Helper function to render posts with People You May Know section
+  const renderPostsWithSuggestions = () => {
+    const elements: React.ReactNode[] = [];
+    
+    posts.forEach((item, index) => {
+      // Add People You May Know after the first 2 posts
+      if (index === 2) {
+        elements.push(
+          <View key="people-you-may-know">
+            <PeopleYouMayKnowCard />
+          </View>
+        );
+      }
+      
+      // Add the actual post
+      if (item.item_type === 'repost') {
+        elements.push(
+          <RepostCard
+            key={`home-repost-${item.repost_id}`}
+            repost={item}
+            currentUserId={user?.user_id || (user as any)?.id}
+            onLikeToggle={(repostId, liked) => {
+              setPosts((prev) => prev.map((p) => {
+                if (isRepost(p) && p.repost_id === repostId) {
+                  return {
+                    ...p,
+                    is_liked: liked,
+                    likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
+                  } as FeedRepost;
+                }
+                return p;
+              }));
+            }}
+            onOpenViewer={(repost, type) => {
+              setSelectedPost({...repost, item_type: 'repost'} as FeedRepost);
+              setViewerType(type);
+              setViewerVisible(true);
+            }}
+            onEdited={(repostId, newCaption) => {
+              setPosts(prev => prev.map(p => {
+                if (isRepost(p) && p.repost_id === repostId) {
+                  return { ...p, caption: newCaption };
+                }
+                return p;
+              }));
+            }}
+            onDeleted={(repostId) => {
+              setPosts(prev => prev.filter(p => !isRepost(p) || p.repost_id !== repostId));
+            }}
+            onOriginalPostReposted={(originalPostId) => {
+              setPosts(prev => prev.map(p => {
+                if (isPost(p) && p.post_id === originalPostId) {
+                  return {
+                    ...p,
+                    reposts_count: (p.reposts_count || 0) + 1
+                  } as any;
+                }
+                return p;
+              }));
+            }}
+          />
+        );
+      } else if (item.type === 'donation') {
+        elements.push(
+          <DonationPostCard
+            key={`home-donation-${item.post_id}`}
+            post={item}
+            currentUserId={user?.user_id || (user as any)?.id}
+            onLikeToggle={(postId, liked) => {
+              setPosts((prev) => prev.map((p) => {
+                if (isPost(p) && p.post_id === postId) {
+                  return {
+                    ...p,
+                    is_liked: liked,
+                    likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
+                  } as any;
+                }
+                return p;
+              }));
+            }}
+            onOpenViewer={(post, type) => {
+              setSelectedPost(post);
+              setViewerType(type);
+              setViewerVisible(true);
+            }}
+            onEdited={(postId, newContent) => {
+              setPosts(prev => prev.map(p => {
+                if (isPost(p) && p.post_id === postId) {
+                  return { ...p, post_content: newContent };
+                }
+                return p;
+              }));
+            }}
+            onDeleted={(postId) => {
+              setPosts(prev => prev.filter(p => !isPost(p) || p.post_id !== postId));
+            }}
+            onRepostToggle={(postId, reposted) => {
+              setPosts(prev => prev.map(p => {
+                if (isPost(p) && p.post_id === postId) {
+                  return {
+                    ...p,
+                    reposts_count: Math.max(0, (p.reposts_count || 0) + (reposted ? 1 : -1))
+                  } as any;
+                }
+                return p;
+              }));
+            }}
+          />
+        );
+      } else {
+        elements.push(
+          <PostCard
+            key={`home-post-${item.post_id}`}
+            post={item}
+            currentUserId={user?.user_id || (user as any)?.id}
+            onLikeToggle={(postId, liked) => {
+              setPosts((prev) => prev.map((p) => {
+                if (isPost(p) && p.post_id === postId) {
+                  return {
+                    ...p,
+                    is_liked: liked,
+                    likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
+                  } as any;
+                }
+                return p;
+              }));
+            }}
+            onOpenViewer={(post, type) => {
+              setSelectedPost(post);
+              setViewerType(type);
+              setViewerVisible(true);
+            }}
+            onEdited={(postId, newContent) => {
+              setPosts(prev => prev.map(p => {
+                if (isPost(p) && p.post_id === postId) {
+                  return { ...p, post_content: newContent };
+                }
+                return p;
+              }));
+            }}
+            onDeleted={(postId) => {
+              setPosts(prev => prev.filter(p => !isPost(p) || p.post_id !== postId));
+            }}
+            onRepostToggle={(postId, reposted) => {
+              setPosts(prev => prev.map(p => {
+                if (isPost(p) && p.post_id === postId) {
+                  return {
+                    ...p,
+                    reposts_count: Math.max(0, (p.reposts_count || 0) + (reposted ? 1 : -1))
+                  } as any;
+                }
+                return p;
+              }));
+            }}
+          />
+        );
+      }
+    });
+    
+    return elements;
   };
 
   const loadUserInfo = async () => {
@@ -151,57 +345,36 @@ const HomeScreen = () => {
   const loadPosts = async () => {
     try {
       setPostsLoading(true);
-      const postsData = await getPosts();
+      const postsData = await getFeed();
       console.log('Homepage posts data:', postsData); // Debug log
       const me: any = await getUserInfo();
       const meId = me?.user_id || me?.id;
       
-      // Create feed items from posts and their reposts
+      // The backend returns a flat array of feed items (posts and reposts)
       const feedItems: any[] = [];
       
       (Array.isArray(postsData) ? postsData : [])
-        .filter((p: any) => p.type !== 'forum') // Exclude forum posts from home feed
-        .forEach((post: any) => {
-          const likesArr = Array.isArray(post?.likes) ? post.likes : [];
-          const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
-          
-          // Add the original post
-          feedItems.push({
-            ...post,
-            is_liked: !!likedByMe,
-            item_type: 'post'
-          });
-          
-          // Add each repost as a separate feed item
-          if (Array.isArray(post.reposts)) {
-            post.reposts.forEach((repost: any) => {
-              // Check if current user liked this repost
-              const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
-              const repostLikedByMe = meId ? repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
-              
-              feedItems.push({
-                repost_id: repost.repost_id,
-                created_at: repost.repost_date,
-                user: repost.user,
-                caption: repost.caption,
-                original_post: {
-                  post_id: post.post_id,
-                  post_title: post.post_title,
-                  post_content: post.post_content,
-                  post_image: post.post_image,
-                  user: post.user,
-                  created_at: post.created_at,
-                  likes_count: post.likes_count,
-                  comments_count: post.comments_count,
-                  reposts_count: post.reposts_count,
-                  is_liked: !!likedByMe
-                },
-                likes_count: repost.likes_count || 0,
-                comments_count: repost.comments_count || 0,
-                reposts_count: repost.reposts_count || 0,
-                is_liked: !!repostLikedByMe,
-                item_type: 'repost'
-              });
+        .filter((item: any) => item.type !== 'forum') // Exclude forum posts from home feed
+        .forEach((item: any) => {
+          if (item.item_type === 'repost') {
+            // Handle reposts
+            const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
+            const repostLikedByMe = meId ? repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+            
+            feedItems.push({
+              ...item,
+              is_liked: !!repostLikedByMe,
+              item_type: 'repost'
+            });
+          } else {
+            // Handle original posts
+            const likesArr = Array.isArray(item?.likes) ? item.likes : [];
+            const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+            
+            feedItems.push({
+              ...item,
+              is_liked: !!likedByMe,
+              item_type: 'post'
             });
           }
         });
@@ -443,113 +616,7 @@ const HomeScreen = () => {
           </View>
         ) : (
           <>
-            {posts.map((item, index) => {
-            if (item.item_type === 'repost') {
-              return (
-                <RepostCard
-                  key={`repost-${item.repost_id}`}
-                  repost={item}
-                  currentUserId={user?.user_id || (user as any)?.id}
-                  onLikeToggle={(repostId, liked) => {
-                    setPosts((prev) => prev.map((p) => {
-                      if (isRepost(p) && p.repost_id === repostId) {
-                        return {
-                          ...p,
-                          is_liked: liked,
-                          likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
-                        } as FeedRepost;
-                      }
-                      return p;
-                    }));
-                  }}
-                  onOpenViewer={(repost, type) => {
-                    // For reposts, we handle the viewer differently
-                    setSelectedPost({...repost, item_type: 'repost'} as FeedRepost);
-                    setViewerType(type);
-                    setViewerVisible(true);
-                  }}
-                  onEdited={(repostId, newCaption) => {
-                    setPosts(prev => prev.map(p => {
-                      if (isRepost(p) && p.repost_id === repostId) {
-                        return { ...p, caption: newCaption };
-                      }
-                      return p;
-                    }));
-                  }}
-                  onDeleted={(repostId) => {
-                    setPosts(prev => prev.filter(p => !isRepost(p) || p.repost_id !== repostId));
-                  }}
-                />
-              );
-            } else {
-              return (
-                <PostCard
-                  key={`post-${item.post_id}`}
-                  post={item}
-                  currentUserId={user?.user_id || (user as any)?.id}
-                  onLikeToggle={(postId, liked) => {
-                    // optimistic update to reflect like state immediately
-                    setPosts((prev) => prev.map((p) => {
-                      if (isPost(p) && p.post_id === postId) {
-                        return {
-                          ...p,
-                          is_liked: liked,
-                          likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)),
-                        } as Post;
-                      }
-                      return p;
-                    }));
-                  }}
-                  onOpenViewer={async (p, type) => {
-                       // ✅ For comments, always navigate to the dedicated Comments screen UI
-                       if (type === 'comments') {
-                         router.push(`/posts/comments?postId=${p.post_id}`);
-                         return;
-                       }
-                    
-                       // Keep existing viewer modal for Likes/Reposts
-                       try {
-                         const detail = await getPostDetail(p.post_id);
-                         let likesList = Array.isArray(detail?.likes) ? detail.likes : [];
-                         if (!likesList.length) {
-                           try { likesList = await getPostLikes(p.post_id); } catch {}
-                         }
-                         const merged: Post = {
-                           ...p,
-                           likes: likesList,
-                           comments: Array.isArray(detail?.comments) ? detail.comments : p.comments,
-                           reposts: Array.isArray(detail?.reposts) ? detail.reposts : p.reposts,
-                           likes_count: detail?.likes_count ?? likesList.length ?? p.likes_count,
-                           comments_count: detail?.comments_count ?? p.comments_count,
-                           reposts_count: detail?.reposts_count ?? p.reposts_count,
-                         } as any;
-                         setSelectedPost(merged);
-                         setViewerType(type);
-                         setViewerVisible(true);
-                       } catch {
-                         setSelectedPost(p);
-                         setViewerType(type);
-                         setViewerVisible(true);
-                      }
-                     }}
-                  onEdited={(postId, newContent) => {
-                    setPosts(prev => prev.map(p => {
-                      if (isPost(p) && p.post_id === postId) {
-                        return { ...p, post_content: newContent };
-                      }
-                      return p;
-                    }));
-                  }}
-                  onDeleted={(postId) => {
-                    setPosts(prev => prev.filter(p => !isPost(p) || p.post_id !== postId));
-                  }}
-                />
-              );
-            }
-            })}
-            
-            {/* Show People You May Know after 5+ posts */}
-            {posts.length >= 5 && <PeopleYouMayKnowCard />}
+            {renderPostsWithSuggestions()}
           </>
         )}
 
@@ -684,8 +751,10 @@ const HomeScreen = () => {
                     />
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
-                        <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
-                        <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                          <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                        </View>
                       </View>
                       <View style={styles.commentBubble}>
                         <Text style={styles.commentBody}>{c.comment_content}</Text>
@@ -728,6 +797,31 @@ const HomeScreen = () => {
           </View>
         </Modal>
       </ScrollView>
+      {/* Tracker reminder modal */}
+      <Modal visible={showTrackerReminder} transparent animationType="fade" onRequestClose={() => setShowTrackerReminder(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewerModal}>
+            <Text style={styles.modalTitle}>Reminder</Text>
+            <Text style={{ color: '#555', marginBottom: 16, textAlign: 'center' }}>
+              Please complete your graduate tracer survey to help us improve our programs.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#1e3a8a' }]}
+                onPress={() => { setShowTrackerReminder(false); router.push('/forms/forms'); }}
+              >
+                <Text style={{ color: '#fff' }}>Take Survey</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#eee' }]}
+                onPress={() => setShowTrackerReminder(false)}
+              >
+                <Text style={{ color: '#1e3a8a' }}>Dismiss</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {/* Post actions sheet */}
       <Modal visible={showPostActionSheet} transparent animationType="fade" onRequestClose={() => setShowPostActionSheet(false)}>
         <View style={styles.modalOverlay}>
@@ -1175,7 +1269,7 @@ const styles = StyleSheet.create({
   commentMeta: {
     fontSize: 12,
     color: '#6b7280',
-    marginLeft: 'auto',
+    marginTop: 2,
   },
   commentBubble: {
     backgroundColor: '#f3f4f6',

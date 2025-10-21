@@ -1,7 +1,7 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -11,7 +11,12 @@ import {
   fetchFollowing,
   followUser,
   getAlumniDetails,
+  getAlumniProfile,
+  getUserProfileSocialMedia,
+  getUserProfileEmail,
   getPosts,
+  getUserPosts,
+  getAllUserPosts,
   getUserInfo,
   likePost,
   unlikePost,
@@ -32,6 +37,8 @@ interface UserProfile {
   username: string;
   bio: string;
   profile_pic: any;
+  socialMedia?: string;
+  email?: string;
   followers_count?: number;
   following_count?: number;
   f_name?: string;
@@ -42,22 +49,45 @@ interface Post {
   post_id: number;
   post_title?: string;
   post_content: string;
-  post_image?: string;
+  post_image?: string | null;
+  post_images?: any[];
+  type?: string | null;
+  created_at?: string | null;
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
+  likes_count: number;
+  comments_count: number;
+  reposts_count?: number;
+  is_liked?: boolean;
+  item_type?: 'post';
+  user: { 
+    user_id: number; 
+    f_name: string; 
+    l_name: string; 
+    profile_pic?: string | null 
+  };
+}
+
+interface OriginalPost {
+  post_id: number;
+  post_title?: string;
+  post_content: string;
+  post_image?: string | null;
   user: {
     f_name: string;
     l_name: string;
     profile_pic?: string;
-    user_id?: number;
+    user_id: number;
   };
   likes?: any[];
   comments?: any[];
   reposts?: any[];
-  likes_count?: number;
-  comments_count?: number;
+  likes_count: number;
+  comments_count: number;
   reposts_count?: number;
-  is_liked?: boolean;
   created_at: string;
-  item_type: 'post';
+  is_liked?: boolean;
 }
 
 interface FeedRepost {
@@ -70,7 +100,7 @@ interface FeedRepost {
     user_id?: number;
   };
   caption?: string;
-  original_post: Post;
+  original_post: OriginalPost;
   likes_count?: number;
   comments_count?: number;
   reposts_count?: number;
@@ -105,6 +135,9 @@ export default function ProfilePage() {
   const [following, setFollowing] = useState<any[]>([]);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
+  const [showEditDetailsModal, setShowEditDetailsModal] = useState(false);
+  const [editSocialMedia, setEditSocialMedia] = useState('');
+  const [editEmail, setEditEmail] = useState('');
   const [editMode, setEditMode] = useState<'bio' | 'photo'>('bio');
   const [showEditTabs, setShowEditTabs] = useState<boolean>(false);
   const [newPhotoUri, setNewPhotoUri] = useState<string | null>(null);
@@ -118,78 +151,76 @@ export default function ProfilePage() {
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
 
-  useEffect(() => {
-    const loadUser = async () => {
-      setLoading(true);
-      try {
-        const me = await getUserInfo();
-        const viewingOwn = !viewUserId || (me && (me.id === viewUserId || me.user_id === viewUserId));
-        setIsOwnProfile(!!viewingOwn);
+  const loadUser = useCallback(async () => {
+    setLoading(true);
+    try {
+      const me = await getUserInfo();
+      const viewingOwn = !viewUserId || (me && (me.id === viewUserId || me.user_id === viewUserId));
+      setIsOwnProfile(!!viewingOwn);
 
-        if (viewingOwn) {
-          const postsData = await getPosts();
-          const profile: UserProfile = {
-            name: me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim(),
-            username: me?.acc_username || '@user',
-            bio: me?.profile_bio || 'Bio',
-            profile_pic: me?.profile_pic ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}` } : null,
-            followers_count: me?.followers_count || 0,
-            following_count: me?.following_count || 0,
-            f_name: me?.f_name || '',
-            l_name: me?.l_name || '',
-          };
-          setUser(profile);
-          setEditBio(profile.bio);
-          setCurrentProfilePicUri(me?.profile_pic ? ((String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}`) : null);
-          const userId = me?.id || me?.user_id;
-          setProfileUserId(userId || null);
+      if (viewingOwn) {
+        const postsData = await getAllUserPosts(me.id || me.user_id);
+        // Get full profile data including email and social_media
+        const [profileData, socialMediaData, emailData] = await Promise.all([
+          getAlumniProfile(me.id || me.user_id),
+          getUserProfileSocialMedia(me.id || me.user_id),
+          getUserProfileEmail(me.id || me.user_id)
+        ]);
+        
+        console.log('Profile API Response:', profileData);
+        console.log('Social Media API Response:', socialMediaData);
+        console.log('Email API Response:', emailData);
+        
+        const profile: UserProfile = {
+          name: me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim(),
+          username: me?.acc_username || '@user',
+          bio: profileData?.profile_bio || me?.profile_bio || 'Bio',
+          socialMedia: socialMediaData?.social_media || '',
+          email: emailData?.email || '',
+          profile_pic: me?.profile_pic ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}` } : null,
+          followers_count: me?.followers_count || 0,
+          following_count: me?.following_count || 0,
+          f_name: me?.f_name || '',
+          l_name: me?.l_name || '',
+        };
+        
+        console.log('Final Profile Object:', profile);
+        console.log('Profile Social Media:', profile.socialMedia);
+        console.log('Profile Email:', profile.email);
+        setUser(profile);
+        setEditBio(profile.bio);
+        setEditSocialMedia(profile.socialMedia || '');
+        setEditEmail(profile.email || '');
+        setCurrentProfilePicUri(me?.profile_pic ? ((String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}`) : null);
+        const userId = me?.id || me?.user_id;
+        setProfileUserId(userId || null);
           
           // Create feed items that include both posts and reposts
           const feedItems: FeedItem[] = [];
-          const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === userId);
+          const userPostsData = postsData?.posts || postsData || [];
           
-          userPosts.forEach((post: any) => {
-            const likesArr = Array.isArray(post?.likes) ? post.likes : [];
-            const likedByMe = userId ? likesArr.some((l: any) => l?.user_id === userId || l?.user?.user_id === userId) : false;
-            
-            // Add the original post
-            feedItems.push({
-              ...post,
-              created_at: post.created_at || new Date().toISOString(),
-              is_liked: !!likedByMe,
-              item_type: 'post'
-            });
-            
-            // Add each repost as a separate feed item
-            if (Array.isArray(post.reposts)) {
-              post.reposts.forEach((repost: any) => {
-                // Check if current user liked this repost
-                const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
-                const repostLikedByMe = profileUserId ? repostLikesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
-                feedItems.push({
-                  repost_id: repost.repost_id,
-                  created_at: repost.repost_date || new Date().toISOString(),
-                  user: repost.user,
-                  caption: repost.caption,
-                  original_post: {
-                    post_id: post.post_id,
-                    post_title: post.post_title,
-                    post_content: post.post_content,
-                    post_image: post.post_image,
-                    user: post.user,
-                    created_at: post.created_at || new Date().toISOString(),
-                    likes_count: post.likes_count,
-                    comments_count: post.comments_count,
-                    reposts_count: post.reposts_count,
-                    is_liked: !!likedByMe,
-                    item_type: 'post'
-                  },
-                  likes_count: repost.likes_count || 0,
-                  comments_count: repost.comments_count || 0,
-                  reposts_count: repost.reposts_count || 0,
-                  is_liked: !!repostLikedByMe,
-                  item_type: 'repost'
-                });
+          userPostsData.forEach((item: any) => {
+            if (item.item_type === 'post') {
+              // Handle original posts
+              const likesArr = Array.isArray(item?.likes) ? item.likes : [];
+              const likedByMe = userId ? likesArr.some((l: any) => l?.user_id === userId || l?.user?.user_id === userId) : false;
+              
+              feedItems.push({
+                ...item,
+                created_at: item.created_at || new Date().toISOString(),
+                is_liked: !!likedByMe,
+                item_type: 'post'
+              });
+            } else if (item.item_type === 'repost') {
+              // Handle reposts
+              const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
+              const repostLikedByMe = userId ? repostLikesArr.some((l: any) => l?.user_id === userId || l?.user?.user_id === userId) : false;
+              
+              feedItems.push({
+                ...item,
+                created_at: item.repost_date || new Date().toISOString(),
+                is_liked: !!repostLikedByMe,
+                item_type: 'repost'
               });
             }
           });
@@ -220,13 +251,15 @@ export default function ProfilePage() {
             name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim() || 'User',
             username: a.ctu_id ? `@${a.ctu_id}` : '@user',
             bio: a.profile_bio || '',
+            socialMedia: a.social_media || '',
+            email: a.email || '',
             profile_pic: a.profile_pic ? { uri: String(a.profile_pic).startsWith('http') ? a.profile_pic : `${API_BASE_URL}${a.profile_pic}` } : null,
             f_name: a.first_name || '',
             l_name: a.last_name || '',
           };
           setUser(profile);
           const [postsData, followersRes, followingRes, statusRes] = await Promise.all([
-            getPosts(),
+            getAllUserPosts(viewUserId),
             fetchFollowers(viewUserId),
             fetchFollowing(viewUserId),
             checkFollowStatus(viewUserId),
@@ -240,50 +273,30 @@ export default function ProfilePage() {
           
           // Create feed items that include both posts and reposts for other user
           const feedItems: FeedItem[] = [];
-          const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === viewUserId);
+          const userPostsData = postsData?.posts || postsData || [];
           
-          userPosts.forEach((post: any) => {
-            const likesArr = Array.isArray(post?.likes) ? post.likes : [];
-            const likedByMe = viewUserId ? likesArr.some((l: any) => l?.user_id === viewUserId || l?.user?.user_id === viewUserId) : false;
-            
-            // Add the original post
-            feedItems.push({
-              ...post,
-              created_at: post.created_at || new Date().toISOString(),
-              is_liked: !!likedByMe,
-              item_type: 'post'
-            });
-            
-            // Add each repost as a separate feed item
-            if (Array.isArray(post.reposts)) {
-              post.reposts.forEach((repost: any) => {
-                // Check if current user liked this repost
-                const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
-                const repostLikedByMe = profileUserId ? repostLikesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
-                feedItems.push({
-                  repost_id: repost.repost_id,
-                  created_at: repost.repost_date || new Date().toISOString(),
-                  user: repost.user,
-                  caption: repost.caption,
-                  original_post: {
-                    post_id: post.post_id,
-                    post_title: post.post_title,
-                    post_content: post.post_content,
-                    post_image: post.post_image,
-                    user: post.user,
-                    created_at: post.created_at || new Date().toISOString(),
-                    likes_count: post.likes_count,
-                    comments_count: post.comments_count,
-                    reposts_count: post.reposts_count,
-                    is_liked: !!likedByMe,
-                    item_type: 'post'
-                  },
-                  likes_count: repost.likes_count || 0,
-                  comments_count: repost.comments_count || 0,
-                  reposts_count: repost.reposts_count || 0,
-                  is_liked: !!repostLikedByMe,
-                  item_type: 'repost'
-                });
+          userPostsData.forEach((item: any) => {
+            if (item.item_type === 'post') {
+              // Handle original posts
+              const likesArr = Array.isArray(item?.likes) ? item.likes : [];
+              const likedByMe = viewUserId ? likesArr.some((l: any) => l?.user_id === viewUserId || l?.user?.user_id === viewUserId) : false;
+              
+              feedItems.push({
+                ...item,
+                created_at: item.created_at || new Date().toISOString(),
+                is_liked: !!likedByMe,
+                item_type: 'post'
+              });
+            } else if (item.item_type === 'repost') {
+              // Handle reposts
+              const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
+              const repostLikedByMe = viewUserId ? repostLikesArr.some((l: any) => l?.user_id === viewUserId || l?.user?.user_id === viewUserId) : false;
+              
+              feedItems.push({
+                ...item,
+                created_at: item.repost_date || new Date().toISOString(),
+                is_liked: !!repostLikedByMe,
+                item_type: 'repost'
               });
             }
           });
@@ -307,9 +320,19 @@ export default function ProfilePage() {
       } finally {
         setLoading(false);
       }
-    };
+    }, [viewUserId]);
+
+  useEffect(() => {
     loadUser();
-  }, [viewUserId]);
+  }, [viewUserId, loadUser]);
+
+  // Reload data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('Profile page focused, reloading data...');
+      loadUser();
+    }, [loadUser])
+  );
 
   if (loading || !user) {
     return (
@@ -322,54 +345,33 @@ export default function ProfilePage() {
   const reloadPosts = async () => {
     try {
       if (!profileUserId) return;
-      const postsData = await getPosts();
+      const postsData = await getAllUserPosts(profileUserId);
       
       // Create feed items that include both posts and reposts
       const feedItems: FeedItem[] = [];
-      const userPosts = (postsData || []).filter((p: any) => p.user?.user_id === profileUserId);
+      const userPostsData = postsData?.posts || postsData || [];
       
-      userPosts.forEach((post: any) => {
-        const likesArr = Array.isArray(post?.likes) ? post.likes : [];
-        const likedByMe = profileUserId ? likesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
-        
-        // Add the original post
-        feedItems.push({
-          ...post,
-          is_liked: !!likedByMe,
-          item_type: 'post'
-        });
-        
-        // Add each repost as a separate feed item
-        if (Array.isArray(post.reposts)) {
-          post.reposts.forEach((repost: any) => {
-            // Check if current user liked this repost
-            const repostLikesArr = Array.isArray(repost?.likes) ? repost.likes : [];
-            const repostLikedByMe = profileUserId ? repostLikesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
-
-            feedItems.push({
-              repost_id: repost.repost_id,
-              created_at: repost.repost_date || new Date().toISOString(),
-              user: repost.user,
-              caption: repost.caption,
-              original_post: {
-                post_id: post.post_id,
-                post_title: post.post_title,
-                post_content: post.post_content,
-                post_image: post.post_image,
-                user: post.user,
-                created_at: post.created_at || new Date().toISOString(),
-                likes_count: post.likes_count,
-                comments_count: post.comments_count,
-                reposts_count: post.reposts_count,
-                is_liked: !!likedByMe,
-                item_type: 'post'
-              },
-              likes_count: repost.likes_count || 0,
-              comments_count: repost.comments_count || 0,
-              reposts_count: repost.reposts_count || 0,
-              is_liked: !!repostLikedByMe,
-              item_type: 'repost'
-            });
+      userPostsData.forEach((item: any) => {
+        if (item.item_type === 'post') {
+          // Handle original posts
+          const likesArr = Array.isArray(item?.likes) ? item.likes : [];
+          const likedByMe = profileUserId ? likesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
+          
+          feedItems.push({
+            ...item,
+            is_liked: !!likedByMe,
+            item_type: 'post'
+          });
+        } else if (item.item_type === 'repost') {
+          // Handle reposts
+          const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
+          const repostLikedByMe = profileUserId ? repostLikesArr.some((l: any) => l?.user_id === profileUserId || l?.user?.user_id === profileUserId) : false;
+          
+          feedItems.push({
+            ...item,
+            created_at: item.repost_date || new Date().toISOString(),
+            is_liked: !!repostLikedByMe,
+            item_type: 'repost'
           });
         }
       });
@@ -419,13 +421,6 @@ export default function ProfilePage() {
 
       {/* Profile Card */}
       <View style={styles.profileCard}>
-        {isOwnProfile && (
-          <TouchableOpacity style={styles.editBtnAbsolute} onPress={() => { setEditMode('bio'); setShowEditTabs(false); setEditModalVisible(true); }}>
-            <FontAwesome name="pencil" size={16} color="#174f84" />
-            <Text style={styles.editBtnText}>Edit</Text>
-          </TouchableOpacity>
-        )}
-
         <View style={styles.profileImageWrapper}>
           <UserAvatar
             profilePic={user.profile_pic?.uri}
@@ -533,10 +528,37 @@ export default function ProfilePage() {
             }}
           >
             <Text style={styles.statNumber}>{following.length || user.following_count || 0}</Text>
-            <Text style={styles.statLabel}>Following</Text>
+            <Text style={styles.statLabel}>Followings</Text>
           </TouchableOpacity>
         </View>
       </View>
+
+
+      {/* Details Card */}
+      <View style={styles.detailsCard}>
+          <Text style={styles.detailsTitle}>Details</Text>
+          
+          {user.socialMedia && (
+            <View style={styles.detailRow}>
+              <FontAwesome name="globe" size={16} color="#666" style={styles.detailIcon} />
+              <Text style={styles.detailText}>{user.socialMedia}</Text>
+            </View>
+          )}
+          
+          {user.email && (
+            <View style={styles.detailRow}>
+              <FontAwesome name="envelope" size={16} color="#666" style={styles.detailIcon} />
+              <Text style={styles.detailText}>{user.email}</Text>
+            </View>
+          )}
+          
+          {isOwnProfile && (
+            <TouchableOpacity style={styles.editDetailsBtn} onPress={() => setShowEditDetailsModal(true)}>
+              <FontAwesome name="pencil" size={14} color="#fff" style={styles.editDetailsIcon} />
+              <Text style={styles.editDetailsText}>Edit public details</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
       {/* Start a Post (own profile only) */}
       {isOwnProfile && (
@@ -568,7 +590,7 @@ export default function ProfilePage() {
             if (isRepost(item)) {
               return (
                 <RepostCard
-                  key={`repost-${item.repost_id}`}
+                  key={`profile-repost-${item.repost_id}`}
                   repost={item}
                   currentUserId={profileUserId || undefined}
                   onLikeToggle={(repostId, liked) => {
@@ -593,12 +615,24 @@ export default function ProfilePage() {
                   onDeleted={(repostId) => {
                     setPosts(prev => prev.filter(p => !(isRepost(p) && p.repost_id === repostId)));
                   }}
+                  onOriginalPostReposted={(originalPostId) => {
+                    // Update the original post's repost count when it's reposted from a RepostCard
+                    setPosts(prev => prev.map(p => {
+                      if (isPost(p) && p.post_id === originalPostId) {
+                        return {
+                          ...p,
+                          reposts_count: (p.reposts_count || 0) + 1
+                        };
+                      }
+                      return p;
+                    }));
+                  }}
                 />
               );
             } else {
               return (
                 <PostCard
-                  key={`post-${item.post_id}`}
+                  key={`profile-post-${item.post_id}`}
                   post={item}
                   currentUserId={profileUserId || undefined}
                   onLikeToggle={(postId, isLiked) => {
@@ -609,6 +643,10 @@ export default function ProfilePage() {
                     ));
                   }}
                   onOpenViewer={(post, type) => {
+                    console.log('Profile: Opening viewer for type:', type);
+                    console.log('Profile: Post data:', post);
+                    console.log('Profile: Likes data:', post.likes);
+                    console.log('Profile: Likes count:', post.likes?.length);
                     setSelectedPostStats(post);
                     setViewerType(type);
                     setViewerVisible(true);
@@ -622,6 +660,18 @@ export default function ProfilePage() {
                   }}
                   onDeleted={(postId) => {
                     setPosts(prev => prev.filter(p => !(isPost(p) && p.post_id === postId)));
+                  }}
+                  onRepostToggle={(postId, isReposted) => {
+                    // Update repost count when a repost is created/deleted
+                    setPosts(prev => prev.map(p => {
+                      if (isPost(p) && p.post_id === postId) {
+                        return {
+                          ...p,
+                          reposts_count: Math.max(0, (p.reposts_count || 0) + (isReposted ? 1 : -1))
+                        };
+                      }
+                      return p;
+                    }));
                   }}
                 />
               );
@@ -732,18 +782,39 @@ export default function ProfilePage() {
             </View>
 
             <ScrollView style={{ maxHeight: 320 }}>
-              {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
-                <View key={idx} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={u.profile_pic}
-                    firstName={u.f_name}
-                    lastName={u.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+              {/* Debug info */}
+              {viewerType === 'likes' && (
+                <View style={{ padding: 10, backgroundColor: '#f0f0f0', margin: 5, borderRadius: 5 }}>
+                  <Text style={{ fontSize: 12, color: '#666' }}>
+                    Debug: Likes count: {selectedPostStats?.likes?.length || 0}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#666' }}>
+                    Debug: Likes data: {JSON.stringify(selectedPostStats?.likes?.slice(0, 2) || [])}
+                  </Text>
                 </View>
-              ))}
+              )}
+              
+              {viewerType === 'likes' && selectedPostStats?.likes?.length > 0 && selectedPostStats?.likes?.map((u: any, idx: number) => {
+                console.log('Profile: Rendering like user:', u);
+                return (
+                  <View key={idx} style={styles.listItemRow}>
+                    <UserAvatar 
+                      profilePic={u.profile_pic}
+                      firstName={u.f_name}
+                      lastName={u.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  </View>
+                );
+              })}
+              
+              {viewerType === 'likes' && (!selectedPostStats?.likes || selectedPostStats?.likes?.length === 0) && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 16 }}>No likes yet</Text>
+                </View>
+              )}
 
               {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
                 <View key={r.repost_id} style={styles.listItemRow}>
@@ -766,20 +837,128 @@ export default function ProfilePage() {
       </Modal>
 
       {/* Followers Modal */}
-      <FollowModal
-        visible={showFollowers}
-        onClose={() => setShowFollowers(false)}
-        type="followers"
-        userId={profileUserId || 0}
-      />
+      {profileUserId && (
+        <FollowModal
+          visible={showFollowers}
+          onClose={() => setShowFollowers(false)}
+          type="followers"
+          userId={profileUserId}
+        />
+      )}
 
       {/* Following Modal */}
-      <FollowModal
-        visible={showFollowing}
-        onClose={() => setShowFollowing(false)}
-        type="following"
-        userId={profileUserId || 0}
-      />
+      {profileUserId && (
+        <FollowModal
+          visible={showFollowing}
+          onClose={() => setShowFollowing(false)}
+          type="following"
+          userId={profileUserId}
+        />
+      )}
+
+      {/* Edit Details Modal */}
+      <Modal
+        visible={showEditDetailsModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEditDetailsModal(false)}
+      >
+        <KeyboardAvoidingView 
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit public details</Text>
+              <TouchableOpacity onPress={() => setShowEditDetailsModal(false)}>
+                <FontAwesome name="times" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView 
+              style={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Bio</Text>
+                <TextInput
+                  style={[styles.modalInput, styles.bioInput]}
+                  value={editBio}
+                  onChangeText={setEditBio}
+                  placeholder="Enter your bio"
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Social Media Link</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={editSocialMedia}
+                  onChangeText={setEditSocialMedia}
+                  placeholder="e.g., facebook.com/yourpage"
+                  keyboardType="url"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email Address</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={editEmail}
+                  onChangeText={setEditEmail}
+                  placeholder="your.email@example.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setShowEditDetailsModal(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.saveBtn}
+                onPress={async () => {
+                  try {
+                    setSaving(true);
+                    await updateAlumniProfile({
+                      bio: editBio,
+                      socialMedia: editSocialMedia,
+                      email: editEmail
+                    });
+                    setUser((prev) => prev ? {
+                      ...prev,
+                      bio: editBio,
+                      socialMedia: editSocialMedia,
+                      email: editEmail
+                    } : prev);
+                    setShowEditDetailsModal(false);
+                    Alert.alert('Profile updated!');
+                  } catch (error) {
+                    console.error('Error updating profile:', error);
+                    Alert.alert('Error', 'Failed to update profile');
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                disabled={saving}
+              >
+                <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -875,6 +1054,124 @@ const styles = StyleSheet.create({
   bioText: {
     fontSize: 14,
     color: '#444',
+  },
+  detailsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+    width: '100%',
+  },
+  detailsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  detailIcon: {
+    marginRight: 12,
+    width: 16,
+  },
+  detailText: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
+  },
+  editDetailsBtn: {
+    backgroundColor: '#174f84',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  editDetailsIcon: {
+    marginRight: 6,
+  },
+  editDetailsText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalContent: {
+    padding: 20,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 6,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    marginRight: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+  },
+  cancelBtnText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  saveBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    marginLeft: 8,
+    borderRadius: 8,
+    backgroundColor: '#174f84',
+    alignItems: 'center',
+  },
+  saveBtnText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -1035,12 +1332,6 @@ const styles = StyleSheet.create({
   },
 
   /* Modals and lists */
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   viewerModalSmall: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -1052,8 +1343,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 16,
-    width: '92%',
-    maxHeight: '80%',
+    width: '90%',
+    maxHeight: '70%',
+    minHeight: 200,
   },
   modalTitle: {
     fontSize: 18,
@@ -1082,13 +1374,6 @@ const styles = StyleSheet.create({
     color: '#888',
   },
 
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '80%',
-    alignItems: 'center',
-  },
   editTabs: {
     flexDirection: 'row',
     width: '100%',
@@ -1125,6 +1410,11 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 15,
     color: '#333',
+  },
+  bioInput: {
+    minHeight: 60,
+    textAlignVertical: 'top',
+    paddingTop: 10,
   },
   modalBtn: {
     borderRadius: 8,
@@ -1180,4 +1470,5 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 10,
   },
+
 });

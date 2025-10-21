@@ -3,7 +3,8 @@ import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL } from '../../services/api';
+import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 import PostCard from './postCard';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -44,11 +45,13 @@ export default function PostDetailScreen() {
       setPost(detail);
       setMe(user);
       
-      // Check follow status
-      if (detail?.user?.user_id && user?.user_id) {
+      // Check follow status (support id or user_id)
+      const targetUserId = detail?.user?.user_id || detail?.user?.id;
+      const currentUserId = user?.user_id || user?.id;
+      if (targetUserId && currentUserId && targetUserId !== currentUserId) {
         try {
-          const followStatus = await checkFollowStatus(detail.user.user_id);
-          setIsFollowing(followStatus.is_following);
+          const followStatus = await checkFollowStatus(targetUserId);
+          setIsFollowing(!!followStatus?.is_following);
         } catch (error) {
           console.error('Error checking follow status:', error);
         }
@@ -146,6 +149,14 @@ export default function PostDetailScreen() {
     return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
   };
 
+  const getPostImages = (p: any): Array<{ image_url: string; order?: number }> => {
+    if (!p) return [];
+    const images: Array<{ image_url: string; order?: number }> = [];
+    if (p.post_image) images.push({ image_url: p.post_image, order: 0 });
+    if (Array.isArray(p.post_images)) images.push(...p.post_images);
+    return images.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  };
+
   const meId = me?.id || me?.user_id;
 
   useEffect(() => { load(); }, [postId]);
@@ -213,24 +224,44 @@ export default function PostDetailScreen() {
         {/* Post Header with Follow Button */}
         <View style={styles.postHeader}>
           <View style={styles.authorInfo}>
-            <View style={styles.avatarContainer}>
-              <Image source={renderAvatar(post.user?.profile_pic)} style={styles.authorAvatar} />
-            </View>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={() => {
+                const uid = post?.user?.user_id || post?.user?.id;
+                if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+              }}
+            >
+              <UserAvatar 
+                profilePic={post.user?.profile_pic}
+                firstName={post.user?.f_name}
+                lastName={post.user?.l_name}
+                size={48}
+                style={styles.authorAvatar}
+              />
+            </TouchableOpacity>
             <View style={styles.authorDetails}>
-              <Text style={styles.authorName}>
-                {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
-              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  const uid = post?.user?.user_id || post?.user?.id;
+                  if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.authorName}>
+                  {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
+                </Text>
+              </TouchableOpacity>
               <Text style={styles.postTime}>{dayjs(post.created_at).fromNow()}</Text>
             </View>
           </View>
-          {post.user?.user_id !== meId && (
+          {post.user?.user_id !== meId && (post.user?.id !== meId) && !isFollowing && (
             <TouchableOpacity
               style={[styles.followButton, isFollowing && styles.followingButton]}
               onPress={handleFollow}
               disabled={followLoading}
             >
               <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+                {followLoading ? '...' : 'Follow'}
               </Text>
             </TouchableOpacity>
           )}
@@ -240,17 +271,47 @@ export default function PostDetailScreen() {
         <View style={styles.postContent}>
           {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
           <Text style={styles.postText}>{post.post_content}</Text>
-          {post.post_image && renderImage(post.post_image) && (
-            <Image source={renderImage(post.post_image)!} style={styles.postImage} resizeMode="cover" />
-          )}
+          {(() => {
+            const images = getPostImages(post);
+            if (!images.length) return null;
+            if (images.length === 1) {
+              const uri = images[0].image_url;
+              return (
+                <Image source={renderImage(uri)!} style={styles.postImage} resizeMode="cover" />
+              );
+            }
+            return (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+                {images.map((img, idx) => (
+                  <Image key={idx} source={renderImage(img.image_url)!} style={[styles.postImage, { width: 220, marginRight: 8 }]} resizeMode="cover" />
+                ))}
+              </ScrollView>
+            );
+          })()}
         </View>
 
         {/* Stats */}
         <View style={styles.actionsCountsRow}>
-          <TouchableOpacity onPress={() => {
-            setSelectedPost(post);
-            setViewerType('likes');
-            setViewerVisible(true);
+          <TouchableOpacity onPress={async () => {
+            try {
+              // Use likes data from post detail if available, otherwise fetch fresh data
+              let likesArray = Array.isArray(post?.likes) && post.likes.length > 0 ? post.likes : null;
+              
+              if (!likesArray) {
+                // If no likes data, refresh the post detail to get fresh data
+                const updatedPost = await getPostDetail(postId);
+                likesArray = Array.isArray(updatedPost?.likes) ? updatedPost.likes : [];
+                setPost(updatedPost); // Update the post state with fresh data
+              }
+              
+              setSelectedPost({ ...post, likes: Array.isArray(likesArray) ? likesArray : [] });
+              setViewerType('likes');
+              setViewerVisible(true);
+            } catch (e) {
+              setSelectedPost({ ...post, likes: [] });
+              setViewerType('likes');
+              setViewerVisible(true);
+            }
           }}>
             <Text style={styles.countText}>{post.likes_count || 0} {post.likes_count === 1 ? 'like' : 'likes'}</Text>
           </TouchableOpacity>
@@ -259,10 +320,29 @@ export default function PostDetailScreen() {
           }}>
             <Text style={styles.countText}>{comments.length} comments</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => {
-            setSelectedPost(post);
-            setViewerType('reposts');
-            setViewerVisible(true);
+          <TouchableOpacity onPress={async () => {
+            try {
+              // Use reposts data from post detail if available, otherwise fetch fresh data
+              let repostsArray = Array.isArray(post?.reposts) && post.reposts.length > 0 ? post.reposts : null;
+              if (!repostsArray) {
+                // If no reposts data, try to get fresh reposts data
+                try {
+                  repostsArray = await getPostReposts(postId);
+                } catch (e) {
+                  // Fallback: refresh the post detail to get fresh data
+                  const updatedPost = await getPostDetail(postId);
+                  repostsArray = Array.isArray(updatedPost?.reposts) ? updatedPost.reposts : [];
+                  setPost(updatedPost); // Update the post state with fresh data
+                }
+              }
+              setSelectedPost({ ...post, reposts: repostsArray });
+              setViewerType('reposts');
+              setViewerVisible(true);
+            } catch (e) {
+              setSelectedPost({ ...post, reposts: [] });
+              setViewerType('reposts');
+              setViewerVisible(true);
+            }
           }}>
             <Text style={styles.countText}>{post.reposts_count || 0} reposts</Text>
           </TouchableOpacity>
@@ -362,12 +442,14 @@ export default function PostDetailScreen() {
                     <Image source={renderAvatar(c.user?.profile_pic)} style={styles.commentAvatar} />
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
-                        <Text style={styles.commentName}>
-                          {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
-                        </Text>
-                        {!!c.date_created && (
-                          <Text style={styles.commentMeta}>{dayjs(c.date_created).fromNow()}</Text>
-                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.commentName}>
+                            {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
+                          </Text>
+                          {!!c.date_created && (
+                            <Text style={styles.commentMeta}>{dayjs(c.date_created).fromNow()}</Text>
+                          )}
+                        </View>
                         {canManage && !isEditing && (
                           <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
                             <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
@@ -450,27 +532,49 @@ export default function PostDetailScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.viewerContent}>
-              {viewerType === 'likes' && selectedPost.likes && selectedPost.likes.map((like: any, index: number) => (
-                <View key={index} style={styles.viewerItem}>
-                  <Image source={renderAvatar(like.user?.profile_pic)} style={styles.viewerAvatar} />
-                  <Text style={styles.viewerItemText}>
-                    {like.user?.f_name} {like.user?.l_name}
-                  </Text>
-                </View>
-              ))}
-              {viewerType === 'reposts' && selectedPost.reposts && selectedPost.reposts.map((repost: any, index: number) => (
-                <View key={index} style={styles.viewerItem}>
-                  <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.viewerAvatar} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.viewerItemText}>
-                      {repost.user?.f_name} {repost.user?.l_name}
-                    </Text>
-                    {repost.repost_date && (
-                      <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>
-                    )}
-                  </View>
-                </View>
-              ))}
+              {viewerType === 'likes' && (
+                <>
+                  {selectedPost.likes && selectedPost.likes.length > 0 ? (
+                    selectedPost.likes.map((like: any, index: number) => (
+                      <View key={index} style={styles.viewerItem}>
+                        <Image source={renderAvatar(like.profile_pic)} style={styles.viewerAvatar} />
+                        <Text style={styles.viewerItemText}>
+                          {like.f_name} {like.l_name}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.emptyStateText}>No likes yet</Text>
+                      <Text style={styles.emptyStateSubtext}>Be the first to like this post!</Text>
+                    </View>
+                  )}
+                </>
+              )}
+              {viewerType === 'reposts' && (
+                <>
+                  {selectedPost.reposts && selectedPost.reposts.length > 0 ? (
+                    selectedPost.reposts.map((repost: any, index: number) => (
+                      <View key={index} style={styles.viewerItem}>
+                        <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.viewerAvatar} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.viewerItemText}>
+                            {repost.user?.f_name} {repost.user?.l_name}
+                          </Text>
+                          {repost.repost_date && (
+                            <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>
+                          )}
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.emptyStateText}>No reposts yet</Text>
+                      <Text style={styles.emptyStateSubtext}>Be the first to repost this!</Text>
+                    </View>
+                  )}
+                </>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -790,7 +894,7 @@ const styles = StyleSheet.create({
   commentMeta: {
     fontSize: 12,
     color: '#6b7280',
-    marginLeft: 8,
+    marginTop: 2,
   },
   commentBubble: {
     backgroundColor: '#f3f4f6',
@@ -809,6 +913,22 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
     fontSize: 14,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
   },
   
   // Comment Input Styles

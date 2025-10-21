@@ -5,9 +5,10 @@ import { useRouter } from 'expo-router';
 import { getUserInfo, logoutUser, getPosts } from '../services/api';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
-  repostPost, deleteRepost
+  repostPost, deleteRepost, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus
 } from '../services/api';
 import UserAvatar from '../components/UserAvatar';
+import TrackerReminderModal from '../components/TrackerReminderModal';
 
 export default function DashboardScreen() {
   const [user, setUser] = useState<any>(null);
@@ -23,6 +24,13 @@ export default function DashboardScreen() {
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPost, setSelectedPost] = useState<any | null>(null);
   const [commentText, setCommentText] = useState('');
+
+  // Tracker reminder state
+  const [showTrackerModal, setShowTrackerModal] = useState(false);
+  const [trackerStatus, setTrackerStatus] = useState<{
+    accepting: boolean;
+    hasSubmitted: boolean;
+  } | null>(null);
 
   useEffect(() => {
     loadUserInfo();
@@ -44,6 +52,15 @@ export default function DashboardScreen() {
           year_graduated: userInfo.year_graduated ? String(userInfo.year_graduated) : '',
           profile_pic: userInfo.profile_pic || '',
         });
+
+        // Check tracker status for alumni users
+        console.log('👤 User account type:', userInfo.account_type);
+        if (userInfo.account_type === 'alumni') {
+          console.log('🎓 User is alumni, checking tracker status...');
+          await checkTrackerStatus();
+        } else {
+          console.log('❌ User is not alumni, skipping tracker check');
+        }
       } else {
         router.replace('/login/login');
       }
@@ -54,6 +71,48 @@ export default function DashboardScreen() {
       console.error('Error loading user info:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkTrackerStatus = async () => {
+    try {
+      console.log('🔍 Checking tracker status for user...');
+      const [activeForm, status] = await Promise.all([
+        getActiveTrackerForm(),
+        checkUserTrackerStatus()
+      ]);
+
+      console.log('📊 Tracker API responses:', { activeForm, status });
+
+      // Get accepting status from the active form
+      let acceptingStatus = null;
+      try {
+        acceptingStatus = await getTrackerAcceptingStatus(activeForm?.tracker_form_id);
+        console.log('📋 Accepting status:', acceptingStatus);
+      } catch (error) {
+        console.warn('⚠️ Could not get accepting status, defaulting to true:', error);
+        // Default to true if we can't get the status (assume form is accepting)
+        acceptingStatus = { accepting_responses: true };
+      }
+
+      const trackerData = {
+        accepting: Boolean(acceptingStatus?.accepting_responses),
+        hasSubmitted: Boolean(status?.has_submitted)
+      };
+
+      console.log('📋 Processed tracker data:', trackerData);
+      setTrackerStatus(trackerData);
+
+      // Show modal if form is accepting and user hasn't submitted
+      if (trackerData.accepting && !trackerData.hasSubmitted) {
+        console.log('🚀 Showing tracker modal - form accepting and user not submitted');
+        setShowTrackerModal(true);
+      } else {
+        console.log('❌ Not showing modal - accepting:', trackerData.accepting, 'hasSubmitted:', trackerData.hasSubmitted);
+      }
+    } catch (error) {
+      console.error('❌ Error checking tracker status:', error);
+      // Don't show modal if there's an error checking status
     }
   };
 
@@ -88,6 +147,16 @@ export default function DashboardScreen() {
     setUser(user ? { ...user, ...editData } : editData);
     setEditModalVisible(false);
     Alert.alert('Profile updated (not saved to backend)');
+  };
+
+  const handleTakeSurvey = () => {
+    setShowTrackerModal(false);
+    console.log('🚀 Navigating to tracker form...');
+    router.push('/forms/forms');
+  };
+
+  const handleRemindLater = () => {
+    setShowTrackerModal(false);
   };
 
   if (loading) {
@@ -135,6 +204,37 @@ export default function DashboardScreen() {
           <TouchableOpacity style={styles.editProfileBtn} onPress={handleEditProfile}>
             <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Edit Profile</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Tracker Status Button for Alumni */}
+      {user && user.account_type === 'alumni' && (
+        <View style={styles.trackerStatusCard}>
+          <View style={styles.trackerStatusContent}>
+            <FontAwesome name="clipboard" size={20} color="#1e3a8a" />
+            <View style={styles.trackerStatusText}>
+              <Text style={styles.trackerStatusTitle}>Graduate Tracer Survey</Text>
+              <Text style={styles.trackerStatusSubtitle}>
+                {trackerStatus?.hasSubmitted 
+                  ? 'You have completed the survey. Thank you!' 
+                  : trackerStatus?.accepting 
+                    ? 'Please complete your graduate tracer survey'
+                    : 'Survey is currently closed'
+                }
+              </Text>
+            </View>
+            {trackerStatus?.accepting && !trackerStatus?.hasSubmitted && (
+              <TouchableOpacity 
+                style={styles.trackerButton}
+                onPress={() => {
+                  console.log('🚀 Tracker status card - Navigating to tracker form...');
+                  router.push('/forms/forms');
+                }}
+              >
+                <Text style={styles.trackerButtonText}>Take Survey</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       )}
 
@@ -356,8 +456,10 @@ export default function DashboardScreen() {
                   <Image source={{ uri: c.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.commentAvatar} />
                   <View style={{ flex: 1 }}>
                     <View style={styles.commentHeaderRow}>
-                      <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
-                      <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                        <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                      </View>
                     </View>
                     <View style={styles.commentBubble}>
                     <Text style={styles.commentBody}>{c.comment_content}</Text>
@@ -399,6 +501,14 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Tracker Reminder Modal */}
+      <TrackerReminderModal
+        isVisible={showTrackerModal}
+        onClose={() => setShowTrackerModal(false)}
+        onTakeSurvey={handleTakeSurvey}
+        onRemindLater={handleRemindLater}
+      />
     </View>
   );
 }
@@ -754,7 +864,7 @@ const styles = StyleSheet.create({
   commentMeta: {
     fontSize: 12,
     color: '#6b7280',
-    marginLeft: 'auto',
+    marginTop: 2,
   },
   commentBubble: {
     backgroundColor: '#f3f4f6',
@@ -787,5 +897,46 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
     marginLeft: 8,
+  },
+  trackerStatusCard: {
+    backgroundColor: 'white',
+    marginHorizontal: 10,
+    marginTop: 10,
+    borderRadius: 10,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  trackerStatusContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  trackerStatusText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  trackerStatusTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1e3a8a',
+    marginBottom: 4,
+  },
+  trackerStatusSubtitle: {
+    fontSize: 14,
+    color: '#666',
+  },
+  trackerButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  trackerButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
 }); 

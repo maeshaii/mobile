@@ -23,10 +23,22 @@ import {
   commentOnPost,
   deleteComment,
   getPostComments,
+  getPostDetail,
   getPosts,
   getUserInfo,
   updateComment,
+  commentOnForumPost,
+  getForumComments,
+  updateForumComment,
+  deleteForumComment,
+  getForumDetail,
+  commentOnDonationPost,
+  getDonationComments,
+  updateDonationComment,
+  deleteDonationComment,
+  getDonationDetail,
 } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 
 dayjs.extend(relativeTime);
 
@@ -46,6 +58,9 @@ export default function PostCommentsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const postId = Number(params.postId);
+  const isForumPost = params.isForumPost === 'true';
+  const isDonationPost = params.isDonationPost === 'true';
+  const highlightCommentId = params.highlightCommentId ? Number(params.highlightCommentId) : null;
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -62,6 +77,7 @@ export default function PostCommentsScreen() {
   const [me, setMe] = useState<any>(null);
 
   const [actionFor, setActionFor] = useState<CommentItem | null>(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState<number | null>(null);
 
   const [now, setNow] = useState(dayjs());
   useEffect(() => {
@@ -72,20 +88,68 @@ export default function PostCommentsScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [posts, user] = await Promise.all([getPosts(), getUserInfo()]);
+        const [postDetail, user] = await Promise.all([
+          isForumPost ? getForumDetail(postId) : isDonationPost ? getDonationDetail(postId) : getPostDetail(postId), 
+          getUserInfo()
+        ]);
       setMe(user);
-      const found = Array.isArray(posts) ? posts.find((p: any) => p.post_id === postId) : null;
-      setPost(found || null);
+      
+      // Normalize donation post data if it's a donation post
+      let normalizedPost = postDetail;
+      if (isDonationPost && postDetail) {
+        normalizedPost = {
+          post_id: postDetail.donation_id,
+          post_title: postDetail.post_title || undefined,
+          post_content: postDetail.description || postDetail.post_content || '',
+          post_image: postDetail.post_image || (postDetail.images?.[0]?.image_url || null),
+          post_images: postDetail.images || [],
+          type: 'donation',
+          created_at: postDetail.created_at,
+          likes_count: postDetail.likes_count || 0,
+          comments_count: postDetail.comments_count || 0,
+          reposts_count: postDetail.reposts_count || 0,
+          is_liked: !!postDetail.is_liked,
+          user: postDetail.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null }
+        };
+      }
+      
+      setPost(normalizedPost || null);
+      console.log('Comments - Post detail loaded:', postDetail);
+      console.log('Comments - Normalized post:', normalizedPost);
+      console.log('Comments - Post images:', postDetail?.post_images);
+      console.log('Comments - Post image:', postDetail?.post_image);
+      console.log('Comments - Post content:', postDetail?.post_content);
+      console.log('Comments - Post description:', postDetail?.description);
+      console.log('Comments - Post title:', postDetail?.post_title);
+      console.log('Comments - Is forum post:', isForumPost);
+      console.log('Comments - Is donation post:', isDonationPost);
+      console.log('Comments - Post user:', postDetail?.user);
+      console.log('Comments - Post user f_name:', postDetail?.user?.f_name);
+      console.log('Comments - Post user l_name:', postDetail?.user?.l_name);
 
-      const data = await getPostComments(postId);
+      const data = isForumPost ? await getForumComments(postId) : isDonationPost ? await getDonationComments(postId) : await getPostComments(postId);
+      console.log('Comments - Comments data:', data);
+      console.log('Comments - Comments array:', data?.comments);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
+      
+      // Highlight specific comment if provided
+      if (highlightCommentId && data?.comments) {
+        const commentExists = data.comments.some((c: CommentItem) => c.comment_id === highlightCommentId);
+        if (commentExists) {
+          setHighlightedCommentId(highlightCommentId);
+          // Remove highlight after 3 seconds
+          setTimeout(() => {
+            setHighlightedCommentId(null);
+          }, 3000);
+        }
+      }
     } catch (e) {
       console.error('[comments] load failed', e);
       setComments([]);
     } finally {
       setLoading(false);
     }
-  }, [postId]);
+  }, [postId, isForumPost, isDonationPost]);
 
   useEffect(() => {
     if (postId) load();
@@ -94,17 +158,19 @@ export default function PostCommentsScreen() {
   const onRefresh = useCallback(async () => {
     try {
       setRefreshing(true);
-      const data = await getPostComments(postId);
+      const data = isForumPost ? await getForumComments(postId) : isDonationPost ? await getDonationComments(postId) : await getPostComments(postId);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
     } finally {
       setRefreshing(false);
     }
-  }, [postId]);
+  }, [postId, isForumPost, isDonationPost]);
 
   const renderAvatar = (src?: string) => {
     if (!src) return require('../../assets/images/sample_pic.jpg');
     const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
-    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+    const imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
+    console.log('Comments - renderAvatar - src:', src, 'imageUrl:', imageUrl);
+    return { uri: imageUrl };
   };
 
   const meId = me?.id || me?.user_id;
@@ -114,7 +180,13 @@ export default function PostCommentsScreen() {
     if (!canSend) return;
     try {
       setSubmitting(true);
-      await commentOnPost(postId, commentText.trim());
+      if (isForumPost) {
+        await commentOnForumPost(postId, commentText.trim());
+      } else if (isDonationPost) {
+        await commentOnDonationPost(postId, commentText.trim());
+      } else {
+        await commentOnPost(postId, commentText.trim());
+      }
       setCommentText('');
       setInputHeight(44);
       await onRefresh();
@@ -129,7 +201,13 @@ export default function PostCommentsScreen() {
   async function handleUpdate(commentId: number) {
     if (!editText.trim()) return;
     try {
-      await updateComment(postId, commentId, editText.trim());
+      if (isForumPost) {
+        await updateForumComment(postId, commentId, editText.trim());
+      } else if (isDonationPost) {
+        await updateDonationComment(postId, commentId, editText.trim());
+      } else {
+        await updateComment(postId, commentId, editText.trim());
+      }
       setEditingId(null);
       setEditText('');
       await onRefresh();
@@ -140,7 +218,13 @@ export default function PostCommentsScreen() {
 
   async function handleDelete(commentId: number) {
     try {
-      await deleteComment(postId, commentId);
+      if (isForumPost) {
+        await deleteForumComment(postId, commentId);
+      } else if (isDonationPost) {
+        await deleteDonationComment(postId, commentId);
+      } else {
+        await deleteComment(postId, commentId);
+      }
       await onRefresh();
     } catch {
       Alert.alert('Error', 'Failed to delete comment');
@@ -187,15 +271,23 @@ export default function PostCommentsScreen() {
         activeOpacity={1}
       >
         <View style={styles.commentRow}>
-          <Image source={renderAvatar(c.user?.profile_pic)} style={styles.cAvatar} />
+          <UserAvatar 
+            profilePic={c.user?.profile_pic}
+            firstName={c.user?.f_name}
+            lastName={c.user?.l_name}
+            size={32}
+            style={styles.cAvatar}
+          />
           <View style={{ flex: 1 }}>
             <View style={styles.cHeaderRow}>
-              <Text style={styles.cName}>
-                {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
-              </Text>
-              {!!c.date_created && (
-                <Text style={styles.cMeta}>{dayjs(c.date_created).fromNow()}</Text>
-              )}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cName}>
+                  {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
+                </Text>
+                {!!c.date_created && (
+                  <Text style={styles.cMeta}>{dayjs(c.date_created).fromNow()}</Text>
+                )}
+              </View>
               {canManage && !isEditing && (
               <TouchableOpacity onPress={() => setActionFor(c)} style={{ padding: 4 }}>
                 <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
@@ -221,7 +313,10 @@ export default function PostCommentsScreen() {
                 </View>
               </View>
             ) : (
-              <View style={styles.bubble}>
+              <View style={[
+                styles.bubble,
+                highlightedCommentId === c.comment_id && styles.highlightedBubble
+              ]}>
                 <Text style={styles.cBody}>{c.comment_content}</Text>
               </View>
             )}
@@ -264,7 +359,13 @@ export default function PostCommentsScreen() {
             post ? (
               <View style={styles.postCard}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Image source={renderAvatar(post.user?.profile_pic)} style={styles.avatar} />
+                  <UserAvatar 
+                    profilePic={post.user?.profile_pic}
+                    firstName={post.user?.f_name}
+                    lastName={post.user?.l_name}
+                    size={40}
+                    style={styles.avatar}
+                  />
                   <View>
                     <Text style={styles.name}>
                       {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
@@ -278,13 +379,66 @@ export default function PostCommentsScreen() {
                 {!!post.post_content && (
                   <Text style={styles.postContent}>{post.post_content}</Text>
                 )}
-                {!!post.post_image && (
-                  <Image
-                    source={renderAvatar(post.post_image)}
-                    style={styles.postImage}
-                    resizeMode="cover"
-                  />
-                )}
+                {/* Images - support multiple images */}
+                {(() => {
+                  const images: any[] = [];
+                  
+                  // Add main post image if exists (backward compatibility)
+                  if (post.post_image) {
+                    images.push({
+                      image_id: 0,
+                      image_url: post.post_image,
+                      order: 0
+                    });
+                  }
+                  
+                  // Add post_images array if exists (multiple images)
+                  if (post.post_images && Array.isArray(post.post_images)) {
+                    images.push(...post.post_images);
+                  }
+                  
+                  console.log('Comments - Images to display:', images);
+                  return images.length > 0 && (
+                    <View style={styles.imagesContainer}>
+                      {images.length === 1 ? (
+                        <Image
+                          source={renderAvatar(images[0].image_url)}
+                          style={styles.postImage}
+                          resizeMode="cover"
+                          onError={(error) => {
+                            console.log('Comments - Image load error:', error.nativeEvent.error);
+                            console.log('Comments - Failed image URL:', images[0].image_url);
+                          }}
+                          onLoad={() => {
+                            console.log('Comments - Image loaded successfully:', images[0].image_url);
+                          }}
+                        />
+                      ) : (
+                        <FlatList
+                          horizontal
+                          data={images}
+                          keyExtractor={(item, index) => `image-${item.image_id || index}`}
+                          renderItem={({ item }) => (
+                            <Image
+                              source={renderAvatar(item.image_url)}
+                              style={styles.postImage}
+                              resizeMode="cover"
+                              onError={(error) => {
+                                console.log('Comments - Image load error:', error.nativeEvent.error);
+                                console.log('Comments - Failed image URL:', item.image_url);
+                              }}
+                              onLoad={() => {
+                                console.log('Comments - Image loaded successfully:', item.image_url);
+                              }}
+                            />
+                          )}
+                          showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={styles.imagesScrollContainer}
+                        />
+                      )}
+                    </View>
+                  );
+                })()}
                 <Text style={styles.sectionTitle}>Comments</Text>
               </View>
             ) : null
@@ -488,7 +642,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   cName: { fontWeight: '600', color: '#111827' },
-  cMeta: { fontSize: 12, color: '#6b7280', marginLeft: 'auto' },
+  cMeta: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   bubble: {
     backgroundColor: '#f3f4f6',
     borderRadius: 12,
@@ -496,6 +650,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignSelf: 'flex-start',
     maxWidth: '100%',
+  },
+  highlightedBubble: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 2,
+    borderColor: '#f59e0b',
+    shadowColor: '#f59e0b',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   cBody: { color: '#111827' },
 
@@ -622,6 +786,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1e3a8a',
     fontWeight: '600',
+  },
+  imagesContainer: {
+    marginTop: 10,
+  },
+  imagesScrollContainer: {
+    paddingRight: 10,
   },
   
 });

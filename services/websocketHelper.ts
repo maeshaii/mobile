@@ -23,7 +23,7 @@ export class ConversationWebSocket {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
   private maxReconnectDelay = 30000; // Max 30 seconds
-  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private isConnecting = false;
   private isDestroyed = false;
   private messageQueue: WsSendMessage[] = [];

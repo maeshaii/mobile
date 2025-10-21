@@ -1,8 +1,34 @@
-// services/api.ts
 import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+
+// Platform-specific storage utility
+const isWeb = Platform.OS === 'web';
+
+const Storage = {
+  setItem: async (key: string, value: string) => {
+    if (isWeb) {
+      localStorage.setItem(key, value);
+    } else {
+      await SecureStore.setItemAsync(key, value);
+    }
+  },
+  getItem: async (key: string) => {
+    if (isWeb) {
+      return localStorage.getItem(key);
+    } else {
+      return await SecureStore.getItemAsync(key);
+    }
+  },
+  deleteItem: async (key: string) => {
+    if (isWeb) {
+      localStorage.removeItem(key);
+    } else {
+      await SecureStore.deleteItemAsync(key);
+    }
+  },
+};
 
 /** Base URL handling */
 function normalizeBaseUrl(raw?: string): string {
@@ -17,7 +43,11 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
 // Prefer explicit config (Expo extra or env). Fallback to a default ngrok URL only if not provided.
 // To change at runtime without code edits, set expo.extra.API_BASE_URL in app.json/app.config.
-export const API_BASE_URL = normalizeBaseUrl('https://simultaneously-wrinkliest-dominik.ngrok-free.dev');
+// Use localhost for development, ngrok for production
+const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+// Ngrok URL for production - this line will be updated by the ngrok script
+const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || 'https://simultaneously-wrinkliest-dominik.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -36,18 +66,41 @@ const api = axios.create({
 export { api };
 
 /** Auth helpers */
-export const getAccessToken = async () => SecureStore.getItemAsync('accessToken');
-export const getRefreshToken = async () => SecureStore.getItemAsync('refreshToken');
+export const getAccessToken = async () => Storage.getItem('accessToken');
+export const getRefreshToken = async () => Storage.getItem('refreshToken');
 export const getUserInfo = async () => {
-  const user = await SecureStore.getItemAsync('user');
+  const user = await Storage.getItem('user');
   return user ? JSON.parse(user) : null;
 };
+
+// Helper function to get current user ID (web compatibility)
+export const getCurrentUserId = (user: any): number | null => {
+  if (!user) return null;
+  if (typeof user.user_id === 'number') return user.user_id;
+  if (typeof user.id === 'number') return user.id;
+  return null;
+};
 export const logoutUser = async () => {
-  // Clear all stored tokens
-  await SecureStore.deleteItemAsync('accessToken');
-  await SecureStore.deleteItemAsync('refreshToken');
-  await SecureStore.deleteItemAsync('user');
-  await SecureStore.deleteItemAsync('lastLogin');
+  try {
+    await Storage.deleteItem('accessToken');
+  } catch (e) {
+    console.warn('Failed to delete accessToken:', e);
+  }
+  try {
+    await Storage.deleteItem('refreshToken');
+  } catch (e) {
+    console.warn('Failed to delete refreshToken:', e);
+  }
+  try {
+    await Storage.deleteItem('user');
+  } catch (e) {
+    console.warn('Failed to delete user:', e);
+  }
+  try {
+    await Storage.deleteItem('lastLogin');
+  } catch (e) {
+    console.warn('Failed to delete lastLogin:', e);
+  }
   
   // Reset token refresh state to prevent issues with subsequent logins
   isRefreshing = false;
@@ -56,10 +109,26 @@ export const logoutUser = async () => {
 
 // Clear all stored tokens - useful for debugging login issues
 export const clearAllTokens = async () => {
-  await SecureStore.deleteItemAsync('accessToken');
-  await SecureStore.deleteItemAsync('refreshToken');
-  await SecureStore.deleteItemAsync('user');
-  await SecureStore.deleteItemAsync('lastLogin');
+  try {
+    await Storage.deleteItem('accessToken');
+  } catch (e) {
+    console.warn('Failed to delete accessToken:', e);
+  }
+  try {
+    await Storage.deleteItem('refreshToken');
+  } catch (e) {
+    console.warn('Failed to delete refreshToken:', e);
+  }
+  try {
+    await Storage.deleteItem('user');
+  } catch (e) {
+    console.warn('Failed to delete user:', e);
+  }
+  try {
+    await Storage.deleteItem('lastLogin');
+  } catch (e) {
+    console.warn('Failed to delete lastLogin:', e);
+  }
   
   // Reset token refresh state
   isRefreshing = false;
@@ -109,7 +178,7 @@ async function refreshAccessToken(): Promise<string | null> {
   const { data } = await api.post('/api/token/refresh/', { refresh });
   const newAccess = data?.access as string | undefined;
   if (!newAccess) return null;
-  await SecureStore.setItemAsync('accessToken', newAccess);
+  await Storage.setItem('accessToken', newAccess);
   return newAccess;
 }
 
@@ -169,12 +238,12 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
     const response = await api.post('/api/token/', { acc_username: trimmedUsername, acc_password: trimmedPassword });
     console.log('Mobile: Login response received:', response.data);
     
-    // Save tokens and user info to SecureStore (mobile equivalent of localStorage)
+    // Save tokens and user info to Storage (mobile equivalent of localStorage)
     if (response.data.access && response.data.refresh) {
-      await SecureStore.setItemAsync('accessToken', response.data.access);
-      await SecureStore.setItemAsync('refreshToken', response.data.refresh);
+      await Storage.setItem('accessToken', response.data.access);
+      await Storage.setItem('refreshToken', response.data.refresh);
       if (response.data.user) {
-        await SecureStore.setItemAsync('user', JSON.stringify(response.data.user));
+        await Storage.setItem('user', JSON.stringify(response.data.user));
       }
     }
     
@@ -232,29 +301,102 @@ export const deleteNotifications = async (ids: number[]) => {
 /** Follow */
 // Mobile -> Backend: GET /api/alumni/{user_id}/followers/
 export const fetchFollowers = async (userId: number) => {
-  const { data } = await api.get(`/api/alumni/${userId}/followers/`);
-  return data.followers || [];
+  try {
+    console.log('fetchFollowers: Calling API for userId:', userId);
+    console.log('fetchFollowers: API base URL:', API_BASE_URL);
+    const { data } = await api.get(`/api/alumni/${userId}/followers/`);
+    console.log('fetchFollowers: API response:', data);
+    console.log('fetchFollowers: Response structure:', {
+      success: data?.success,
+      followersCount: data?.followers?.length || 0,
+      hasFollowers: Array.isArray(data?.followers),
+      sampleFollower: data?.followers?.[0] || null
+    });
+    return data;
+  } catch (error: any) {
+    console.error('fetchFollowers error:', error);
+    console.error('fetchFollowers error response:', error.response?.data);
+    console.error('fetchFollowers error status:', error.response?.status);
+    console.error('fetchFollowers error config:', error.config?.url);
+    if (error?.response?.status === 404) {
+      console.log('fetchFollowers: 404 error - returning empty followers');
+      return { success: true, followers: [], count: 0 };
+    }
+    // Return empty data instead of throwing to prevent app crashes
+    console.log('fetchFollowers: Returning empty data due to error');
+    return { success: true, followers: [], count: 0 };
+  }
 };
 
 // Mobile -> Backend: GET /api/alumni/{user_id}/following/
 export const fetchFollowing = async (userId: number) => {
-  const { data } = await api.get(`/api/alumni/${userId}/following/`);
-  return data.following || [];
+  try {
+    console.log('fetchFollowing: Calling API for userId:', userId);
+    console.log('fetchFollowing: API base URL:', API_BASE_URL);
+    const { data } = await api.get(`/api/alumni/${userId}/following/`);
+    console.log('fetchFollowing: API response:', data);
+    console.log('fetchFollowing: Response structure:', {
+      success: data?.success,
+      followingCount: data?.following?.length || 0,
+      hasFollowing: Array.isArray(data?.following),
+      sampleFollowing: data?.following?.[0] || null
+    });
+    return data;
+  } catch (error: any) {
+    console.error('fetchFollowing error:', error);
+    console.error('fetchFollowing error response:', error.response?.data);
+    console.error('fetchFollowing error status:', error.response?.status);
+    console.error('fetchFollowing error config:', error.config?.url);
+    if (error?.response?.status === 404) {
+      console.log('fetchFollowing: 404 error - returning empty following');
+      return { success: true, following: [], count: 0 };
+    }
+    // Return empty data instead of throwing to prevent app crashes
+    console.log('fetchFollowing: Returning empty data due to error');
+    return { success: true, following: [], count: 0 };
+  }
 };
 // Mobile -> Backend: POST /api/follow/{user_id}/
 export const followUser = async (userId: number) => {
-  const { data } = await api.post(`/api/follow/${userId}/`, {});
-  return data;
+  try {
+    console.log('followUser: Calling API for userId:', userId);
+    const { data } = await api.post(`/api/follow/${userId}/`, {});
+    console.log('followUser: API response:', data);
+    return data;
+  } catch (error: any) {
+    console.error('followUser error:', error);
+    console.error('followUser error response:', error.response?.data);
+    throw error;
+  }
 };
+
 // Mobile -> Backend: DELETE /api/follow/{user_id}/
 export const unfollowUser = async (userId: number) => {
-  const { data } = await api.delete(`/api/follow/${userId}/`);
-  return data;
+  try {
+    console.log('unfollowUser: Calling API for userId:', userId);
+    const { data } = await api.delete(`/api/follow/${userId}/`);
+    console.log('unfollowUser: API response:', data);
+    return data;
+  } catch (error: any) {
+    console.error('unfollowUser error:', error);
+    console.error('unfollowUser error response:', error.response?.data);
+    throw error;
+  }
 };
+
 // Mobile -> Backend: GET /api/follow/{user_id}/status/
 export const checkFollowStatus = async (userId: number) => {
-  const { data } = await api.get(`/api/follow/${userId}/status/`);
-  return data;
+  try {
+    console.log('checkFollowStatus: Calling API for userId:', userId);
+    const { data } = await api.get(`/api/follow/${userId}/status/`);
+    console.log('checkFollowStatus: API response:', data);
+    return data;
+  } catch (error: any) {
+    console.error('checkFollowStatus error:', error);
+    console.error('checkFollowStatus error response:', error.response?.data);
+    // Return default status instead of throwing
+    return { success: true, is_following: false };
+  }
 };
 
 /** Suggested Users */
@@ -263,6 +405,46 @@ export const fetchSuggestedUsers = async () => {
   const user = await getUserInfo();
   const currentUserId = user?.user_id || user?.id;
   const { data } = await api.get(`/api/users_list_view/?current_user_id=${currentUserId}`);
+  return data;
+};
+
+// Mobile -> Backend: GET /api/admin-peso-users/
+export const getAdminPesoUsers = async () => {
+  const response = await api.get('/api/admin-peso-users/');
+  return response.data;
+};
+
+// Mobile -> Backend: GET /api/alumni/search/
+export const searchAlumni = async (query: string) => {
+  const response = await api.get('/api/alumni/search/', { params: { q: query } });
+  return response.data;
+};
+
+/** Recent Searches */
+export const listRecentSearches = async (limit: number = 10) => {
+  try {
+    const url = `/api/search/recent/?limit=${limit}`;
+    const { data } = await api.get(url);
+    console.log('listRecentSearches GET', API_BASE_URL + url, '->', Array.isArray(data?.recent) ? data.recent.length : 0);
+    return (data?.recent ?? []) as Array<{ user_id: number; f_name?: string; l_name?: string; profile_pic?: string; created_at?: string }>;
+  } catch (e: any) {
+    console.warn('listRecentSearches error:', e?.response?.status, e?.response?.data || e?.message);
+    throw e;
+  }
+};
+export const addRecentSearch = async (searchedUserId: number) => {
+  const url = '/api/search/recent/';
+  try {
+    const { data } = await api.post(url, { searched_user_id: searchedUserId });
+    console.log('addRecentSearch POST', API_BASE_URL + url, 'payload:', { searched_user_id: searchedUserId }, '->', data);
+    return data;
+  } catch (e: any) {
+    console.warn('addRecentSearch error:', e?.response?.status, e?.response?.data || e?.message);
+    throw e;
+  }
+};
+export const clearRecentSearches = async () => {
+  const { data } = await api.delete('/api/search/recent/');
   return data;
 };
 
@@ -280,17 +462,87 @@ export const submitTrackerResponse = async (payload: FormData | any) => {
   return data;
 };
 // Mobile -> Backend: GET /api/tracker/check-status/
-export const checkUserTrackerStatus = async () =>
-  (await api.get('/api/tracker/check-status/')).data;
+export const checkUserTrackerStatus = async () => {
+  const user = await getUserInfo();
+  const userId = user?.user_id || user?.id;
+  if (!userId) {
+    throw new Error('User ID not found');
+  }
+  return (await api.get(`/api/tracker/check-status/?user_id=${userId}`)).data;
+};
+// Mobile -> Backend: GET /api/tracker/accepting/{tracker_form_id}/
+export const getTrackerAcceptingStatus = async (trackerFormId: number) => {
+  if (!trackerFormId) {
+    throw new Error('Tracker form ID is required');
+  }
+  return (await api.get(`/api/tracker/accepting/${trackerFormId}/`)).data;
+};
 
 /** Alumni */
 // Mobile -> Backend: GET /api/alumni/statistics/
 export const getAlumniStatistics = async () => (await api.get('/api/alumni/statistics/')).data;
 // Mobile -> Backend: GET /api/alumni-list/ (alias of alumni/list/)
 export const getAlumniList = async () => (await api.get('/api/alumni-list/')).data;
+
+// Mobile -> Convenience: Get alumni by batch/year (client-side filter)
+export const getAlumniByBatch = async (batchYear: string | number) => {
+  try {
+    const year = String(batchYear).trim();
+    const { data } = await api.get(`/api/alumni/list/?year=${encodeURIComponent(year)}`);
+    // Backend returns { success: True, alumni: [...] }
+    return (data?.alumni ?? []) as any[];
+  } catch (e) {
+    console.error('getAlumniByBatch error:', (e as any)?.response?.data || (e as any)?.message || e);
+    return [] as any[];
+  }
+};
 // Mobile -> Backend: GET /api/alumni/{user_id}/
 export const getAlumniDetails = async (userId: number) =>
   (await api.get(`/api/alumni/${userId}/`)).data;
+
+// Mobile -> Backend: GET /api/alumni/profile/{user_id}/
+export const getAlumniProfile = async (userId: number) =>
+  (await api.get(`/api/alumni/profile/${userId}/`)).data;
+
+// Mobile -> Backend: PUT /api/alumni/profile/{user_id}/
+export const putAlumniProfile = async (
+  userId: number,
+  payload: {
+    f_name?: string;
+    m_name?: string;
+    l_name?: string;
+    civil_status?: string;
+    contact_number?: string;
+    email?: string;
+    address?: string;
+    home_address?: string;
+    social_media?: string;
+  }
+) => {
+  const body: any = {};
+  if (typeof payload.f_name === 'string') body.f_name = payload.f_name;
+  if (typeof payload.m_name === 'string') body.m_name = payload.m_name;
+  if (typeof payload.l_name === 'string') body.l_name = payload.l_name;
+  if (typeof payload.civil_status === 'string') body.civil_status = payload.civil_status;
+  if (typeof payload.contact_number === 'string') body.contact_number = payload.contact_number;
+  if (typeof payload.email === 'string') body.email = payload.email;
+  if (typeof payload.address === 'string') body.address = payload.address;
+  if (typeof payload.home_address === 'string') body.home_address = payload.home_address;
+  if (typeof payload.social_media === 'string') body.social_media = payload.social_media;
+
+  const { data } = await api.put(`/api/alumni/profile/${userId}/`, body, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return data;
+};
+
+// Mobile -> Backend: GET /api/userprofile/{user_id}/social_media/
+export const getUserProfileSocialMedia = async (userId: number) =>
+  (await api.get(`/api/userprofile/${userId}/social_media/`)).data;
+
+// Mobile -> Backend: GET /api/userprofile/{user_id}/email/
+export const getUserProfileEmail = async (userId: number) =>
+  (await api.get(`/api/userprofile/${userId}/email/`)).data;
 
 /** Reminder */
 // Mobile -> Backend: POST /api/send-reminder/
@@ -311,27 +563,51 @@ export const getPosts = async () => {
   }
 };
 
-// Get combined feed of posts and reposts
+// Get combined feed of posts and reposts (including donation reposts)
 export const getFeed = async () => {
   try {
-    const [postsResponse, repostsResponse] = await Promise.all([
-      api.get('/api/posts/'),
-      api.get('/api/reposts/') // This endpoint may need to be created
-    ]);
-    
+    // Get posts (which includes regular reposts)
+    const postsResponse = await api.get('/api/posts/');
     const posts = postsResponse.data?.posts || [];
-    const reposts = repostsResponse.data?.reposts || [];
     
-    // Combine and sort by date
+    // Get donation posts (which includes donation reposts)
+    const donationsResponse = await api.get('/api/donations/');
+    const donations = donationsResponse.data?.donations || [];
+    
+    // Extract reposts from donations
+    const donationReposts: any[] = [];
+    donations.forEach((donation: any) => {
+      if (Array.isArray(donation.reposts)) {
+        donation.reposts.forEach((repost: any) => {
+          donationReposts.push({
+            ...repost,
+            item_type: 'repost',
+            original_post: {
+              post_id: donation.donation_id,
+              post_content: donation.description,
+              post_image: donation.images?.[0]?.image_url || null,
+              user: donation.user,
+              created_at: donation.created_at,
+              likes_count: donation.likes_count || 0,
+              comments_count: donation.comments_count || 0,
+              reposts_count: donation.reposts_count || 0,
+              is_liked: donation.is_liked || false,
+            }
+          });
+        });
+      }
+    });
+    
+    // Combine all feed items
     const feedItems = [
-      ...posts.map((post: any) => ({ ...post, item_type: 'post' })),
-      ...reposts.map((repost: any) => ({ ...repost, item_type: 'repost' }))
+      ...posts.map((post: any) => ({ ...post, item_type: post.item_type || 'post' })),
+      ...donationReposts
     ].sort((a, b) => new Date(b.created_at || b.repost_date).getTime() - new Date(a.created_at || a.repost_date).getTime());
     
     return feedItems;
   } catch (error) {
     console.error('Mobile getFeed API Error:', error);
-    // Fallback to just posts if reposts endpoint doesn't exist
+    // Fallback to just posts if donations endpoint doesn't exist
     return getPosts().then(posts => posts.map((post: any) => ({ ...post, item_type: 'post' })));
   }
 };
@@ -340,13 +616,56 @@ export const getPostsByUserType = async (userType: 'peso' | 'admin') =>
   (await api.get(`/api/posts/by-user-type/?user_type=${userType}`)).data.posts || [];
 // Mobile -> Backend: POST /api/posts/
 export const createPost = async (postData: {
-  post_title: string; post_content: string; post_image?: string; post_cat_id: number; type?: string;
+  post_content: string;
+  post_image?: string; // Backward compatibility
+  post_images?: string[]; // Multiple images
+  type?: string;
+  post_title?: string; // Optional for compatibility
+  post_cat_id?: number; // Optional for compatibility
 }) => {
   try {
     console.log('Mobile createPost sending:', postData);
-    const response = await api.post('/api/posts/', postData);
-    console.log('Mobile createPost response:', response.data);
-    return response.data;
+    
+    // If we have images, upload them using FormData
+    if (postData.post_images && postData.post_images.length > 0) {
+      const formData = new FormData();
+      formData.append('post_content', postData.post_content);
+      if (postData.type) formData.append('type', postData.type);
+      if (postData.post_title) formData.append('post_title', postData.post_title);
+      if (postData.post_cat_id) formData.append('post_cat_id', postData.post_cat_id.toString());
+      
+      // Add each image as a file
+      postData.post_images.forEach((imageData, index) => {
+        if (imageData.startsWith('data:image/')) {
+          // Handle base64 data
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
+          // Handle file URIs directly
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        }
+      });
+      
+      const response = await api.post('/api/posts/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('Mobile createPost response:', response.data);
+      return response.data;
+    } else {
+      // No images, send as JSON
+      const response = await api.post('/api/posts/', postData);
+      console.log('Mobile createPost response:', response.data);
+      return response.data;
+    }
   } catch (error) {
     console.error('Mobile createPost error:', error);
     throw error;
@@ -371,8 +690,102 @@ export const getPostLikes = async (postId: number) => {
   // Backend may respond with { likes: [...] } or an array payload
   return (data && (data.likes ?? data)) as any[];
 };
-// Mobile -> Backend: GET /api/posts/{post_id}/
-export const getPostDetail = async (postId: number) => (await api.get(`/api/posts/${postId}/`)).data;
+
+// Mobile -> Backend: GET /api/posts/{post_id}/detail/ (includes reposts)
+export const getPostReposts = async (postId: number) => {
+  try {
+    const { data } = await api.get(`/api/posts/${postId}/detail/`);
+    // Extract reposts from post detail response
+    return Array.isArray(data?.reposts) ? data.reposts : [];
+  } catch (error) {
+    console.error('Error fetching post reposts:', error);
+    return [];
+  }
+};
+// Mobile -> Backend: GET /api/posts/{post_id}/detail/
+export const getPostDetail = async (postId: number) => {
+  console.log('getPostDetail - Requesting post ID:', postId);
+  console.log('getPostDetail - API URL:', `/api/posts/${postId}/detail/`);
+  const result = (await api.get(`/api/posts/${postId}/detail/`)).data;
+  console.log('getPostDetail - API Response:', result);
+  return result;
+};
+
+// Get all user posts including donation reposts
+export const getAllUserPosts = async (userId: number) => {
+  try {
+    // Get regular posts and reposts
+    const regularPosts = await getUserPosts(userId);
+    
+    // Get donation posts to extract reposts
+    const donationsResponse = await api.get('/api/donations/');
+    const donations = donationsResponse.data?.donations || [];
+    
+    // Extract donation reposts by this user
+    const userDonationReposts: any[] = [];
+    donations.forEach((donation: any) => {
+      if (Array.isArray(donation.reposts)) {
+        donation.reposts.forEach((repost: any) => {
+          if (repost.user?.user_id === userId) {
+            userDonationReposts.push({
+              ...repost,
+              item_type: 'repost',
+              original_post: {
+                post_id: donation.donation_id,
+                post_content: donation.description,
+                post_image: donation.images?.[0]?.image_url || null,
+                user: donation.user,
+                created_at: donation.created_at,
+                likes_count: donation.likes_count || 0,
+                comments_count: donation.comments_count || 0,
+                reposts_count: donation.reposts_count || 0,
+                is_liked: donation.is_liked || false,
+              }
+            });
+          }
+        });
+      }
+    });
+    
+    // Combine all posts and reposts
+    const allPosts = [
+      ...(regularPosts?.posts || regularPosts || []),
+      ...userDonationReposts
+    ].sort((a, b) => new Date(b.created_at || b.repost_date).getTime() - new Date(a.created_at || a.repost_date).getTime());
+    
+    return { posts: allPosts };
+  } catch (error) {
+    console.error('Error getting all user posts:', error);
+    // Fallback to regular posts if error
+    return getUserPosts(userId);
+  }
+};
+
+// Mobile -> Backend: GET /api/posts/ (filter by user_id on client side)
+export const getUserPosts = async (userId: number) => {
+  try {
+    console.log('getUserPosts: Fetching all posts and filtering for userId:', userId);
+    
+    // Get all posts and filter by user_id on the client side
+    const allPostsResponse = await api.get('/api/posts/');
+    const allPosts = allPostsResponse.data?.posts || [];
+    
+    console.log('getUserPosts: Total posts received:', allPosts.length);
+    
+    // Filter posts by user_id
+    const userPosts = allPosts.filter((post: any) => {
+      const postUserId = post.user?.user_id || post.user?.id;
+      return postUserId === userId;
+    });
+    
+    console.log('getUserPosts: Filtered posts for user:', userPosts.length);
+    
+    return { posts: userPosts };
+  } catch (error: any) {
+    console.error('getUserPosts error:', error);
+    return { posts: [] };
+  }
+};
 // Mobile -> Backend: PUT /api/posts/{post_id}/comments/{comment_id}/
 export const updateComment = async (postId: number, commentId: number, content: string) =>
   (await api.put(`/api/posts/${postId}/comments/${commentId}/`, { comment_content: content })).data;
@@ -382,11 +795,11 @@ export const deleteComment = async (postId: number, commentId: number) =>
 // Mobile -> Backend: DELETE /api/posts/delete/{post_id}/
 export const deletePost = async (postId: number) =>
   (await api.delete(`/api/posts/delete/${postId}/`)).data;
-// Mobile -> Backend: PUT /api/posts/{post_id}/edit/
+// Mobile -> Backend: PUT /api/posts/{post_id}/
 export const editPost = async (
   postId: number,
   postData: { post_title?: string; post_content?: string }
-) => (await api.put(`/api/posts/${postId}/edit/`, postData)).data;
+) => (await api.put(`/api/posts/${postId}/`, postData)).data;
 
 /** Categories */
 // Mobile -> Backend: GET /api/post-categories/
@@ -405,17 +818,63 @@ export async function repostPost(postId: number, caption?: string | null) {
   return data;
 }
 
-// Mobile -> Backend: PATCH /api/reposts/{repost_id}/
+// Mobile -> Backend: PUT /api/reposts/{repost_id}/
 export async function updateRepost(repostId: number, caption?: string | null) {
-  const { data } = await api.patch(
+  const { data } = await api.put(
     `/api/reposts/${repostId}/`,
     { caption: caption?.trim() ?? '' },
     { headers: { 'Content-Type': 'application/json' } }
   );
   return data;
 }
+
+// Mobile -> Backend: PUT /api/reposts/{repost_id}/ (alias for web compatibility)
+export const editRepost = async (repostId: number, repostData: { caption?: string }) => {
+  const response = await api.put(`/api/reposts/${repostId}/`, repostData);
+  return response.data;
+};
 export const deleteRepost = async (repostId: number) =>
-  (await api.delete(`/api/reposts/delete/${repostId}/`)).data;
+  (await api.delete(`/api/reposts/${repostId}/`)).data;
+
+// Mobile -> Backend: GET /api/reposts/{repost_id}/detail/
+export const getRepostDetail = async (repostId: number) => {
+  try {
+    return (await api.get(`/api/reposts/${repostId}/detail/`)).data;
+  } catch (error: any) {
+    // Avoid red screen spam; log compact message and provide safe fallback for UI
+    console.warn('getRepostDetail error:', error?.response?.status, error?.response?.data || error?.message);
+    if (error?.response?.status === 500 || error?.response?.status === 404) {
+      return {
+        repost_id: repostId,
+        caption: '',
+        repost_date: new Date().toISOString(),
+        user: {
+          user_id: 0,
+          f_name: 'Unknown',
+          l_name: 'User',
+          profile_pic: null
+        },
+        likes_count: 0,
+        comments_count: 0,
+        likes: [],
+        comments: [],
+        original: {
+          post_id: 0,
+          user: {
+            user_id: 0,
+            f_name: 'Unknown',
+            l_name: 'User',
+            profile_pic: null
+          },
+          post_content: 'Original post content unavailable',
+          post_image: null,
+          post_images: []
+        }
+      };
+    }
+    throw error;
+  }
+};
 
 // Mobile -> Backend: POST /api/reposts/{repost_id}/like/
 export const likeRepost = async (repostId: number) =>
@@ -425,60 +884,120 @@ export const likeRepost = async (repostId: number) =>
 export const unlikeRepost = async (repostId: number) =>
   (await api.delete(`/api/reposts/${repostId}/like/`)).data;
 
-// Mobile -> Backend: GET /api/reposts/{repost_id}/
-export const getRepostDetail = async (repostId: number) => {
-  const { data } = await api.get(`/api/reposts/${repostId}/`);
-  return data;
-};
-
 // Mobile -> Backend: GET /api/reposts/{repost_id}/likes/
 export const getRepostLikes = async (repostId: number) => {
-  const { data } = await api.get(`/api/reposts/${repostId}/likes/`);
-  return Array.isArray(data) ? data : data?.likes || [];
-};
-
-// Repost comments
-export const getRepostComments = async (repostId: number) => {
-  console.log('[API] getRepostComments called with repostId:', repostId);
   try {
-    const response = await api.get(`/api/reposts/${repostId}/comments/`);
-    console.log('[API] getRepostComments response:', response.data);
-    return response.data?.comments || [];
-  } catch (error) {
-    console.error('[API] getRepostComments error:', error);
-    throw error;
-  }
-};
-
-export const commentOnRepost = async (repostId: number, comment: string) => {
-  console.log('[API] commentOnRepost called with repostId:', repostId, 'comment:', comment);
-  try {
-    const response = await api.post(`/api/reposts/${repostId}/comments/`, { comment_content: comment });
-    console.log('[API] commentOnRepost response:', response.data);
+    const response = await api.get(`/api/reposts/${repostId}/likes/`);
     return response.data;
   } catch (error) {
-    console.error('[API] commentOnRepost error:', error);
+    console.error('Error fetching repost likes:', error);
     throw error;
   }
 };
 
-export const updateRepostComment = async (
-  repostId: number,
-  commentId: number,
-  content: string
-) => (await api.put(`/api/reposts/${repostId}/comments/${commentId}/`, { comment_content: content })).data;
+// Mobile -> Backend: GET /api/reposts/{repost_id}/comments/
+export const getRepostComments = async (repostId: number) => {
+  try {
+    return (await api.get(`/api/reposts/${repostId}/comments/`)).data;
+  } catch (error: any) {
+    console.error('getRepostComments error:', error);
+    // Return empty comments if there's an error
+    if (error?.response?.status === 500 || error?.response?.status === 404) {
+      console.log('Returning empty comments due to error');
+      return { comments: [] };
+    }
+    throw error;
+  }
+};
 
+// Mobile -> Backend: POST /api/reposts/{repost_id}/comments/
+export const commentOnRepost = async (repostId: number, commentText: string) =>
+  (await api.post(`/api/reposts/${repostId}/comments/`, { comment_content: commentText })).data;
+
+// Mobile -> Backend: PUT /api/reposts/{repost_id}/comments/{comment_id}/
+export const updateRepostComment = async (repostId: number, commentId: number, commentText: string) =>
+  (await api.put(`/api/reposts/${repostId}/comments/${commentId}/`, { comment_content: commentText })).data;
+
+// Mobile -> Backend: DELETE /api/reposts/{repost_id}/comments/{comment_id}/
 export const deleteRepostComment = async (repostId: number, commentId: number) =>
   (await api.delete(`/api/reposts/${repostId}/comments/${commentId}/`)).data;
 
 /** Forum (separate storage) */
 // Mobile -> Backend: GET /api/forum/
 export const getForumPosts = async () => (await api.get('/api/forum/')).data.forums || [];
+
+// Web-compatible alias
+export const getForums = async () => {
+  const response = await api.get('/api/forum/');
+  return response.data?.forums || [];
+};
 // Mobile -> Backend: POST /api/forum/
-export const createForumPost = async (payload: { title?: string; content: string; image?: string }) =>
-  (await api.post('/api/forum/', { post_title: payload.title, post_content: payload.content, post_image: payload.image })).data;
+export const createForumPost = async (payload: { title?: string; content: string; image?: string; images?: string[] }) => {
+  try {
+    console.log('Mobile createForumPost sending:', payload);
+    
+    // If we have images, upload them using FormData
+    if (payload.images && payload.images.length > 0) {
+      const formData = new FormData();
+      formData.append('post_content', payload.content);
+      if (payload.title) formData.append('post_title', payload.title);
+      
+      // Add each image as a file
+      payload.images.forEach((imageData, index) => {
+        if (imageData.startsWith('data:image/')) {
+          // Handle base64 data
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
+          // Handle file URIs directly
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        }
+      });
+      
+      const response = await api.post('/api/forum/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('Mobile createForumPost response:', response.data);
+      return response.data;
+    } else {
+      // No images, send as JSON (backward compatibility)
+      const response = await api.post('/api/forum/', { 
+        post_title: payload.title, 
+        post_content: payload.content, 
+        post_image: payload.image 
+      });
+      console.log('Mobile createForumPost response:', response.data);
+      return response.data;
+    }
+  } catch (error) {
+    console.error('Mobile createForumPost error:', error);
+    throw error;
+  }
+};
 // Mobile -> Backend: GET /api/forum/{forum_id}/
 export const getForumDetail = async (forumId: number) => (await api.get(`/api/forum/${forumId}/`)).data;
+
+/** Mentions */
+// Mobile -> Backend: GET /api/following/mentions/
+export const getFollowingForMentions = async () => {
+  try {
+    const response = await api.get('/api/following/mentions/');
+    console.log('Mobile getFollowingForMentions response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Mobile getFollowingForMentions error:', error);
+    throw error;
+  }
+};
 // Mobile -> Backend: PUT /api/forum/{forum_id}/
 export const editForumPost = async (forumId: number, payload: { title?: string; content?: string; post_content?: string }) =>
   (await api.put(`/api/forum/${forumId}/`, { post_title: payload.title, post_content: payload.content || payload.post_content })).data;
@@ -500,40 +1019,175 @@ export const updateForumComment = async (forumId: number, commentId: number, con
 export const deleteForumComment = async (forumId: number, commentId: number) =>
   (await api.delete(`/api/forum/${forumId}/comments/${commentId}/`)).data;
 // Mobile -> Backend: POST /api/forum/{forum_id}/repost/
-export const repostForumPost = async (forumId: number) => (await api.post(`/api/forum/${forumId}/repost/`)).data;
+export const repostForumPost = async (forumId: number, caption?: string) => 
+  (await api.post(`/api/forum/${forumId}/repost/`, { caption: caption || '' })).data;
 // Mobile -> Backend: DELETE /api/forum-reposts/{repost_id}/
 export const deleteForumRepost = async (repostId: number) => (await api.delete(`/api/forum-reposts/${repostId}/`)).data;
 
+// Mobile -> Backend: DELETE /api/reposts/{repost_id}/ (alias for web compatibility)
+export const unrepostForumPost = async (repostId: number) => {
+  const response = await api.delete(`/api/reposts/${repostId}/`);
+  return response.data;
+};
+
 /** Donation (separate storage) */
-// Mobile -> Backend: GET /api/donation/
-export const getDonationPosts = async () => (await api.get('/api/donation/')).data.donations || [];
-// Mobile -> Backend: POST /api/donation/
-export const createDonationPost = async (payload: { title?: string; content: string; image?: string }) =>
-  (await api.post('/api/donation/', { post_title: payload.title, post_content: payload.content, post_image: payload.image })).data;
-// Mobile -> Backend: GET /api/donation/{donation_id}/
-export const getDonationDetail = async (donationId: number) => (await api.get(`/api/donation/${donationId}/`)).data;
-// Mobile -> Backend: PUT /api/donation/{donation_id}/
-export const editDonationPost = async (donationId: number, payload: { title?: string; content?: string; post_content?: string }) =>
-  (await api.put(`/api/donation/${donationId}/`, { post_title: payload.title, post_content: payload.content || payload.post_content })).data;
-// Mobile -> Backend: DELETE /api/donation/{donation_id}/
-export const deleteDonationPost = async (donationId: number) => (await api.delete(`/api/donation/${donationId}/`)).data;
-// Mobile -> Backend: POST /api/donation/{donation_id}/like/
-export const likeDonationPost = async (donationId: number) => (await api.post(`/api/donation/${donationId}/like/`)).data;
-// Mobile -> Backend: DELETE /api/donation/{donation_id}/like/
-export const unlikeDonationPost = async (donationId: number) => (await api.delete(`/api/donation/${donationId}/like/`)).data;
-// Mobile -> Backend: POST /api/donation/{donation_id}/comments/
+// Mobile -> Backend: GET /api/donations/
+export const getDonationPosts = async () => (await api.get('/api/donations/')).data.donations || [];
+// Mobile -> Backend: POST /api/donations/
+export const createDonationPost = async (payload: { description: string; images?: string[] }) => {
+  try {
+    console.log('Mobile createDonationPost sending:', payload);
+    
+    // If we have images, upload them using FormData
+    if (payload.images && payload.images.length > 0) {
+      const formData = new FormData();
+      formData.append('description', payload.description);
+      
+      // Add each image as a file
+      payload.images.forEach((imageData, index) => {
+        if (imageData.startsWith('data:image/')) {
+          // Handle base64 data
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
+          // Handle file URIs directly
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        }
+      });
+      
+      const response = await api.post('/api/donations/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('Mobile createDonationPost response:', response.data);
+      return response.data;
+    } else {
+      // No images, send as JSON
+      const response = await api.post('/api/donations/', { description: payload.description });
+      console.log('Mobile createDonationPost response:', response.data);
+      return response.data;
+    }
+  } catch (error) {
+    console.error('Mobile createDonationPost error:', error);
+    throw error;
+  }
+};
+// Mobile -> Backend: GET /api/donations/{donation_id}/
+export const getDonationDetail = async (donationId: number) => (await api.get(`/api/donations/${donationId}/`)).data;
+// Mobile -> Backend: PUT /api/donations/{donation_id}/
+export const editDonationPost = async (donationId: number, payload: { description?: string }) =>
+  (await api.put(`/api/donations/${donationId}/`, { description: payload.description })).data;
+// Mobile -> Backend: DELETE /api/donations/{donation_id}/
+export const deleteDonationPost = async (donationId: number) => (await api.delete(`/api/donations/${donationId}/`)).data;
+
+// Web-compatible aliases for donation operations
+export const getDonationRequests = async () => {
+  console.log('API: Fetching donation requests from donations/ endpoint');
+  try {
+    const response = await api.get('/api/donations/');
+    console.log('API: Donation requests response:', response);
+    console.log('API: Response data:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('API: Error fetching donation requests:', error);
+    console.error('API: Error response:', error.response);
+    throw error;
+  }
+};
+
+export const createDonationRequest = async (donationData: {
+  description: string;
+  images?: string[];
+}) => {
+  console.log('Creating donation request with data:', donationData);
+  try {
+    const response = await api.post('/api/donations/', donationData);
+    console.log('Donation request response:', response);
+    console.log('Response data:', response.data);
+    console.log('Response status:', response.status);
+    return response.data;
+  } catch (error: any) {
+    console.error('Donation request API error:', error);
+    console.error('Error response:', error.response);
+    console.error('Error response data:', error.response?.data);
+    throw error;
+  }
+};
+
+export const updateDonationRequest = async (donationId: number, updateData: {
+  description?: string;
+  status?: string;
+}) => {
+  const response = await api.put(`/api/donations/${donationId}/`, updateData);
+  return response.data;
+};
+
+export const deleteDonationRequest = async (donationId: number) => {
+  const response = await api.delete(`/api/donations/${donationId}/`);
+  return response.data;
+};
+// Mobile -> Backend: POST /api/donations/{donation_id}/like/
+export const likeDonationPost = async (donationId: number) => (await api.post(`/api/donations/${donationId}/like/`)).data;
+// Mobile -> Backend: DELETE /api/donations/{donation_id}/like/
+export const unlikeDonationPost = async (donationId: number) => (await api.delete(`/api/donations/${donationId}/like/`)).data;
+// Mobile -> Backend: GET /api/donations/{donation_id}/ (includes likes and reposts)
+export const getDonationLikes = async (donationId: number) => {
+  const data = await (await api.get(`/api/donations/${donationId}/`)).data;
+  return { likes: data.likes || [] };
+};
+export const getDonationReposts = async (donationId: number) => {
+  const data = await (await api.get(`/api/donations/${donationId}/`)).data;
+  return { reposts: data.reposts || [] };
+};
+
+// Web-compatible aliases for donation likes
+export const likeDonation = async (donationId: number) => {
+  const response = await api.post(`/api/donations/${donationId}/like/`);
+  return response.data;
+};
+
+export const unlikeDonation = async (donationId: number) => {
+  const response = await api.delete(`/api/donations/${donationId}/like/`);
+  return response.data;
+};
+// Mobile -> Backend: POST /api/donations/{donation_id}/comments/
 export const commentOnDonationPost = async (donationId: number, comment: string) =>
-  (await api.post(`/api/donation/${donationId}/comments/`, { comment_content: comment })).data;
-// Mobile -> Backend: GET /api/donation/{donation_id}/comments/
-export const getDonationComments = async (donationId: number) => (await api.get(`/api/donation/${donationId}/comments/`)).data;
-// Mobile -> Backend: PUT /api/donation/{donation_id}/comments/{comment_id}/
+  (await api.post(`/api/donations/${donationId}/comments/`, { comment_content: comment })).data;
+// Mobile -> Backend: GET /api/donations/{donation_id}/comments/
+export const getDonationComments = async (donationId: number) => (await api.get(`/api/donations/${donationId}/comments/`)).data;
+// Mobile -> Backend: PUT /api/donations/{donation_id}/comments/{comment_id}/
 export const updateDonationComment = async (donationId: number, commentId: number, content: string) =>
-  (await api.put(`/api/donation/${donationId}/comments/${commentId}/`, { comment_content: content })).data;
-// Mobile -> Backend: DELETE /api/donation/{donation_id}/comments/{comment_id}/
+  (await api.put(`/api/donations/${donationId}/comments/${commentId}/`, { comment_content: content })).data;
+// Mobile -> Backend: DELETE /api/donations/{donation_id}/comments/{comment_id}/
 export const deleteDonationComment = async (donationId: number, commentId: number) =>
-  (await api.delete(`/api/donation/${donationId}/comments/${commentId}/`)).data;
-// Mobile -> Backend: POST /api/donation/{donation_id}/repost/
-export const repostDonationPost = async (donationId: number) => (await api.post(`/api/donation/${donationId}/repost/`)).data;
+  (await api.delete(`/api/donations/${donationId}/comments/${commentId}/`)).data;
+// Mobile -> Backend: POST /api/donations/{donation_id}/repost/
+export const repostDonationPost = async (donationId: number, repostCaption?: string) => 
+  (await api.post(`/api/donations/${donationId}/repost/`, { caption: repostCaption || '' })).data;
+
+// Mobile -> Backend: POST /api/donations/{donation_id}/comments/ (alias for web compatibility)
+export const commentOnDonation = async (donationId: number, commentContent: string) => {
+  const response = await api.post(`/api/donations/${donationId}/comments/`, {
+    comment_content: commentContent
+  });
+  return response.data;
+};
+
+// Mobile -> Backend: POST /api/donations/{donation_id}/repost/ (alias for web compatibility)
+export const repostDonation = async (donationId: number, repostCaption: string) => {
+  const response = await api.post(`/api/donations/${donationId}/repost/`, {
+    caption: repostCaption
+  });
+  return response.data;
+};
 // Mobile -> Backend: DELETE /api/donation-reposts/{repost_id}/
 export const deleteDonationRepost = async (repostId: number) => (await api.delete(`/api/donation-reposts/${repostId}/`)).data;
 
@@ -564,38 +1218,105 @@ export const updateProfile = async (bio: string, profile_pic: string) =>
   (await api.put('/api/profile/update/', { bio, profile_pic })).data;
 
 // Mobile -> Backend: PUT /api/alumni/profile/update/?user_id={id}
-export const updateAlumniProfile = async (params: { bio?: string; imageUri?: string }) => {
-    const meRaw = await SecureStore.getItemAsync('user');
+export const updateAlumniProfile = async (params: { bio?: string; imageUri?: string; socialMedia?: string; email?: string }) => {
+    const meRaw = await Storage.getItem('user');
     const me = meRaw ? JSON.parse(meRaw) : null;
     const userId = me?.id || me?.user_id;
     if (!userId) throw new Error('Missing user id');
 
+    // Update bio and profile picture using the main endpoint
     const form = new FormData();
-  if (typeof params.bio === 'string') form.append('bio', params.bio);
+    if (typeof params.bio === 'string') form.append('bio', params.bio);
     if (params.imageUri) {
-    form.append('profile_pic', { uri: params.imageUri, name: 'profile.jpg', type: 'image/jpeg' } as any);
-  }
-
-  const { data } = await api.put(`/api/alumni/profile/update/?user_id=${userId}`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-
-  const updated = data?.user || {};
-    if (me) {
-    const merged = {
-      ...me,
-      profile_bio: updated.bio ?? me.profile_bio,
-      profile_pic: updated.profile_pic ?? me.profile_pic,
-      name: updated.name ?? me.name,
-    };
-      await SecureStore.setItemAsync('user', JSON.stringify(merged));
+      form.append('profile_pic', { uri: params.imageUri, name: 'profile.jpg', type: 'image/jpeg' } as any);
     }
-    return updated;
+
+    // Normalize optional fields (allow clearing when provided as empty string)
+    const normalizedSocial = typeof params.socialMedia === 'string' ? params.socialMedia.trim() : undefined;
+    const normalizedEmail = typeof params.email === 'string' ? params.email.trim() : undefined;
+
+    // Fire requests; keep references by name to avoid index math
+    const bioPromise = (params.bio || params.imageUri)
+      ? api.put(`/api/alumni/profile/update/?user_id=${userId}`, form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+      : null;
+
+    const socialPromise = (typeof normalizedSocial !== 'undefined')
+      ? api.put(
+          `/api/userprofile/${userId}/social_media/`,
+          { social_media: normalizedSocial },
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+      : null;
+
+    const emailPromise = (typeof normalizedEmail !== 'undefined')
+      ? api.put(
+          `/api/userprofile/${userId}/email/`,
+          { email: normalizedEmail },
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+      : null;
+
+    const [bioRes, socialRes, emailRes] = await Promise.all([
+      bioPromise?.catch((e) => { console.error('Update bio/photo failed:', e?.response?.data || e?.message); return null; }),
+      socialPromise?.catch((e) => { console.error('Update social media failed:', e?.response?.data || e?.message); return null; }),
+      emailPromise?.catch((e) => { console.error('Update email failed:', e?.response?.data || e?.message); return null; }),
+    ]);
+
+    // Update local storage with new data
+    if (me) {
+      const merged = { ...me };
+
+      if (bioRes?.data?.user) {
+        const bioResult = bioRes.data.user;
+        merged.profile_bio = bioResult.bio ?? merged.profile_bio;
+        merged.profile_pic = bioResult.profile_pic ?? merged.profile_pic;
+        merged.name = bioResult.name ?? merged.name;
+      }
+
+      if (socialRes?.data) {
+        merged.social_media = socialRes.data.social_media ?? merged.social_media;
+      }
+
+      if (emailRes?.data) {
+        merged.email = emailRes.data.email ?? merged.email;
+      }
+
+      await Storage.setItem('user', JSON.stringify(merged));
+    }
+
+    return { success: true };
 };
 
 /** Messaging API - UNIFIED WITH WEB FRONTEND */
 
-// TypeScript types for messaging (matching web frontend)
+/** Notification API */
+// Mobile -> Backend: GET /api/notifications/?user_id={userId}
+export const fetchNotifications = async (userId: number) => {
+  const response = await api.get(`/api/notifications/?user_id=${userId}`);
+  return response.data;
+};
+
+// Mobile -> Backend: GET /api/notifications/count/?user_id={userId}
+export const fetchNotificationCount = async (userId: number) => {
+  const response = await api.get(`/api/notifications/count/?user_id=${userId}`);
+  return response.data;
+};
+
+// Mobile -> Backend: POST /api/notifications/mark-read/
+export const markNotificationAsRead = async (notificationId: number) => {
+  const response = await api.post('/api/notifications/mark-read/', { notification_id: notificationId });
+  return response.data;
+};
+
+// Mobile -> Backend: POST /api/notifications/mark-all-read/
+export const markAllNotificationsAsRead = async (userId: number) => {
+  const response = await api.post('/api/notifications/mark-all-read/', { user_id: userId });
+  return response.data;
+};
+
+/** Messaging API */
 export type ConversationSummary = {
   conversation_id: number;
   updated_at: string;
