@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { API_BASE_URL, likeForumPost, unlikeForumPost, repostForumPost, deleteForumPost, editForumPost, followUser, unfollowUser, checkFollowStatus } from '../../services/api';
+import dayjs from 'dayjs';
+import { API_BASE_URL, likeForumPost, unlikeForumPost, repostForumPost, deleteForumPost, editForumPost, commentOnForumPost } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 interface Post {
   post_id: number;
@@ -13,11 +16,21 @@ interface Post {
   post_images?: any[];
   type?: string | null;
   created_at?: string | null;
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
   likes_count: number;
   comments_count: number;
   reposts_count?: number;
   is_liked?: boolean;
-  user: { user_id: number; f_name: string; l_name: string; profile_pic?: string | null };
+  user: { 
+    user_id: number; 
+    f_name: string; 
+    l_name: string; 
+    profile_pic?: string | null;
+    account_type?: string;
+    user_type?: string;
+  };
 }
 
 interface Props {
@@ -27,11 +40,13 @@ interface Props {
   onOpenViewer?: (post: Post, type: 'likes' | 'comments' | 'reposts') => void;
   onEdited?: (postId: number, newContent: string) => void;
   onDeleted?: (postId: number) => void;
-  onCommentCountUpdate?: (postId: number, newCount: number) => void;
+  onRepostToggle?: (postId: number, isReposted: boolean) => void;
 }
 
-const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onCommentCountUpdate }) => {
+const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
+
+  // Local state
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
@@ -40,126 +55,56 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   const [editModal, setEditModal] = useState(false);
   const [editContent, setEditContent] = useState(post.post_content);
   const [editLoading, setEditLoading] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
-  const [showFollowButton, setShowFollowButton] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
+  const isPriorityUser = post.user?.account_type === 'admin' || post.user?.account_type === 'peso' || 
+                        post.user?.user_type === 'admin' || post.user?.user_type === 'peso';
+  const isAdmin = post.user?.account_type === 'admin' || post.user?.user_type === 'admin';
 
-  // Handle both single image and multiple images
+  // Get images - check multiple possible image fields for forum posts
   const getImagesFromPost = (post: any) => {
-    const images = [];
+    const images: any[] = [];
     
-    // Add main post image if exists (backward compatibility)
-    if (post.post_image) {
-      images.push({
-        image_id: 0,
-        image_url: post.post_image,
-        order: 0
-      });
-    }
-    
-    // Add post_images array if exists (multiple images)
+    // Check post_images (from ContentImage model)
     if (post.post_images && Array.isArray(post.post_images)) {
       images.push(...post.post_images);
     }
     
-    return images.sort((a, b) => a.order - b.order);
+    // Check images field
+    if (post.images && Array.isArray(post.images)) {
+      images.push(...post.images);
+    }
+    
+    // Check content_images field
+    if (post.content_images && Array.isArray(post.content_images)) {
+      images.push(...post.content_images);
+    }
+    
+    // Check single post_image field
+    if (post.post_image) {
+      images.push({ image_url: post.post_image });
+    }
+    
+    console.log('ForumPostCard - post data:', post);
+    console.log('ForumPostCard - extracted images:', images);
+    
+    return images;
   };
 
   const images = getImagesFromPost(post);
-  const imageUrl = images.length > 0 
-    ? (String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}`)
-    : null;
+  const imageUrl = images.length > 0 ? images[0].image_url : '';
+  const hasPostImages = images.length > 0;
 
-  // Debug logging for image
-  console.log('ForumPostCard - Post ID:', post.post_id);
-  console.log('ForumPostCard - Post image field:', post.post_image);
-  console.log('ForumPostCard - Constructed imageUrl:', imageUrl);
-
-  // Check follow status when component mounts
-  useEffect(() => {
-    const checkFollow = async () => {
-      if (currentUserId && post.user?.user_id && currentUserId !== post.user.user_id) {
-        try {
-          const status = await checkFollowStatus(post.user.user_id);
-          setIsFollowing(status.is_following || false);
-          setShowFollowButton(true);
-        } catch (error) {
-          console.error('Error checking follow status:', error);
-          setShowFollowButton(true); // Show button anyway, let user try
-        }
-      }
-    };
-    checkFollow();
-  }, [currentUserId, post.user?.user_id]);
-
-  // Update comment count when post prop changes
-  useEffect(() => {
-    setCommentCount(post.comments_count || 0);
-  }, [post.comments_count]);
-
-  // Sync like state and repost count when post data changes
+  // Sync like state when post data changes
   useEffect(() => {
     setIsLiked(post.is_liked || false);
     setLikeCount(post.likes_count || 0);
     setRepostCount(post.reposts_count || 0);
-  }, [post.is_liked, post.likes_count, post.reposts_count]);
+    setCommentCount(post.comments_count || 0);
+  }, [post.is_liked, post.likes_count, post.reposts_count, post.comments_count]);
 
-  const formatDate = (dateString?: string | null) => {
-    if (!dateString) return '';
-    try {
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMins = Math.floor(diffMs / (1000 * 60));
-      if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins}m`;
-      const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) return `${diffHours}h`;
-      const diffDays = Math.floor(diffHours / 24);
-      if (diffDays < 7) return `${diffDays}d`;
-      const diffWeeks = Math.floor(diffDays / 7);
-      if (diffWeeks < 5) return `${diffWeeks}w`;
-      const diffMonths = Math.floor(diffDays / 30);
-      if (diffMonths < 12) return `${diffMonths}mo`;
-      const diffYears = Math.floor(diffDays / 365);
-      return `${diffYears}y`;
-    } catch {
-      return '';
-    }
-  };
-
-  /** --- Navigation --- **/
-  const handleUserPress = () => {
-    if (post.user?.user_id) {
-      router.push(`/otheruser/otheruser?viewUserId=${post.user.user_id}`);
-    }
-  };
-
-  /** --- Follow Actions --- **/
-  const handleFollow = async () => {
-    if (!post.user?.user_id || followLoading) return;
-    
-    try {
-      setFollowLoading(true);
-      if (isFollowing) {
-        await unfollowUser(post.user.user_id);
-        setIsFollowing(false);
-      } else {
-        await followUser(post.user.user_id);
-        setIsFollowing(true);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update follow status');
-    } finally {
-      setFollowLoading(false);
-    }
-  };
-
-  /** --- Actions --- **/
   const handleLike = async () => {
     try {
       if (isLiked) {
@@ -178,26 +123,44 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
     }
   };
 
-  const handleRepost = async () => {
+  const handleRepost = () => {
+    console.log('ForumPostCard - post:', post);
+    
+    // Validate post ID
     if (!post.post_id) {
       Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
       return;
     }
 
-    try {
-      console.log('ForumPostCard - Reposting forum post with ID:', post.post_id);
-      const response = await repostForumPost(post.post_id);
-      console.log('ForumPostCard - Repost response:', response);
-      
-      if (response.success !== false) {
-        setRepostCount((c) => c + 1);
-        Alert.alert('Success', 'Post reposted successfully');
-      } else {
-        Alert.alert('Error', response.message || 'Failed to repost');
-      }
-    } catch (error: any) {
-      console.error('ForumPostCard - Repost error:', error);
-      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to repost');
+    // Check if current user already reposted this post
+    const meId = currentUserId;
+    const alreadyReposted = Array.isArray(post.reposts) 
+      ? post.reposts.find((r: any) => r.user?.user_id === meId)
+      : null;
+    
+    console.log('ForumPostCard - alreadyReposted:', alreadyReposted);
+    
+    if (alreadyReposted) {
+      Alert.alert(
+        'Already Reposted',
+        'You have already reposted this post. Would you like to edit your repost?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Edit Repost', 
+            onPress: () => {
+              console.log('ForumPostCard - Navigating to repost screen for edit with postId:', post.post_id);
+              router.push(`/repost/repost?postId=${post.post_id}&isForumPost=true`);
+              // Note: Repost count will be updated when the user returns to this screen
+            }
+          }
+        ]
+      );
+    } else {
+      // Navigate to repost screen so user can add an optional caption
+      console.log('ForumPostCard - Navigating to repost screen with postId:', post.post_id);
+      router.push(`/repost/repost?postId=${post.post_id}&isForumPost=true`);
+      // Note: Repost count will be updated when the user returns to this screen
     }
   };
 
@@ -216,13 +179,11 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
               const response = await deleteForumPost(post.post_id);
               if (response.success !== false) {
                 Alert.alert('Success', 'Post deleted successfully.');
-                setShowActions(false);
                 onDeleted?.(post.post_id);
               } else {
                 Alert.alert('Error', response.message || 'Failed to delete post.');
               }
             } catch (error: any) {
-              console.error('Delete forum post error:', error);
               Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not delete post.');
             }
           }
@@ -237,6 +198,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
       return;
     }
 
+    setEditLoading(true);
     try {
       const response = await editForumPost(post.post_id, { post_content: editContent.trim() });
       if (response.success !== false) {
@@ -247,8 +209,9 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
         Alert.alert('Error', response.message || 'Failed to update post.');
       }
     } catch (error: any) {
-      console.error('Edit forum post error:', error);
       Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not update post.');
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -257,7 +220,16 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
       <View style={styles.card}>
         {/* Header */}
         <View style={styles.cardHeader}>
-          <TouchableOpacity onPress={handleUserPress} style={styles.userInfo}>
+          <TouchableOpacity
+            onPress={() => {
+              const uid = post.user?.user_id;
+              if (uid) {
+                router.push(`/profile/profilepage?viewUserId=${uid}`);
+              }
+            }}
+            disabled={!post.user?.user_id}
+            style={styles.userContainer}
+          >
             <UserAvatar 
               profilePic={post.user?.profile_pic}
               firstName={post.user?.f_name}
@@ -266,29 +238,25 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
               style={styles.avatar}
             />
             <View style={{ flex: 1 }}>
-              <Text style={styles.name}>{userName}</Text>
-              <Text style={styles.meta}>{formatDate(post.created_at)}</Text>
+              <View style={styles.nameContainer}>
+                <Text style={[
+                  styles.name,
+                  (post.user?.user_id && post.user?.user_id !== currentUserId) ? styles.clickableName : null
+                ]}>{userName}</Text>
+                {isPriorityUser && (
+                  <View style={[
+                    styles.priorityBadge,
+                    isAdmin ? styles.adminBadge : styles.pesoBadge
+                  ]}>
+                    <Text style={styles.priorityBadgeText}>
+                      {isAdmin ? 'ADMIN' : 'PESO'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
             </View>
           </TouchableOpacity>
-          
-          {/* Follow button for other users */}
-          {showFollowButton && currentUserId !== post.user?.user_id && (
-            <TouchableOpacity
-              style={[styles.followButton, isFollowing && styles.followingButton]}
-              onPress={handleFollow}
-              disabled={followLoading}
-            >
-              {followLoading ? (
-                <ActivityIndicator size="small" color={isFollowing ? "#fff" : "#174f84"} />
-              ) : (
-                <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                  {isFollowing ? 'Following' : 'Follow'}
-                </Text>
-              )}
-            </TouchableOpacity>
-          )}
-          
-          {/* Actions menu for own posts */}
           {currentUserId === post.user?.user_id && (
             <TouchableOpacity
               onPress={() => setShowActions(true)}
@@ -302,38 +270,65 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
         {/* Content */}
         {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
-        <Text style={styles.content}>{post.post_content}</Text>
-        
-        {/* Images - support multiple images */}
-        {images.length > 0 && (
+        <Text style={styles.content}>
+          {renderTextWithMentions(post.post_content, [], (userId) => {
+            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+          })}
+        </Text>
+
+        {/* Images - Facebook-style grid layout like web */}
+        {hasPostImages && (
           <View style={styles.imagesContainer}>
             {images.length === 1 ? (
+              // Single image - full width
               <TouchableOpacity 
                 onPress={() => {
-                  setCurrentImageIndex(0);
+                  setSelectedImageIndex(0);
                   setImageViewerVisible(true);
                 }}
               >
-                <Image source={{ uri: imageUrl }} style={styles.postImage} resizeMode="cover" />
+                <Image 
+                  source={{ uri: imageUrl || '' }} 
+                  style={styles.singleImage} 
+                  resizeMode="contain" 
+                />
               </TouchableOpacity>
             ) : (
-              <ScrollView horizontal style={styles.imagesScroll} showsHorizontalScrollIndicator={false}>
-                {images.map((image, index) => (
+              // Multiple images - grid layout like web
+              <View style={[
+                styles.imagesGrid,
+                images.length === 2 && styles.twoImagesGrid,
+                images.length === 3 && styles.threeImagesGrid,
+                images.length === 4 && styles.fourImagesGrid,
+                images.length >= 5 && styles.fivePlusImagesGrid
+              ]}>
+                {images.slice(0, 6).map((image, index) => (
                   <TouchableOpacity 
                     key={index}
+                    style={[
+                      styles.gridImageContainer,
+                      images.length === 3 && index === 0 && styles.threeImagesFirst,
+                      images.length === 3 && index > 0 && styles.threeImagesRest
+                    ]}
                     onPress={() => {
-                      setCurrentImageIndex(index);
+                      setSelectedImageIndex(index);
                       setImageViewerVisible(true);
                     }}
                   >
                     <Image 
                       source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
-                      style={styles.postImage} 
+                      style={styles.gridImage} 
                       resizeMode="cover" 
                     />
+                    {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                    {index === 5 && images.length > 6 && (
+                      <View style={styles.moreImagesOverlay}>
+                        <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
             )}
           </View>
         )}
@@ -343,11 +338,11 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
             <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isForumPost=true`)}>
-            <Text style={styles.countText}>{commentCount} comments</Text>
+          <TouchableOpacity onPress={() => onOpenViewer?.(post, 'comments')}>
+            <Text style={styles.countText}>{commentCount} {commentCount === 1 ? 'comment' : 'comments'}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
-            <Text style={styles.countText}>{repostCount} reposts</Text>
+            <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -362,7 +357,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             <Text style={[styles.actionText, isLiked && styles.likedText]}>Like</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionIcon} onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isForumPost=true`)}>
+          <TouchableOpacity style={styles.actionIcon} onPress={() => onOpenViewer?.(post, 'comments')}>
             <FontAwesome name="comment-o" size={18} color="#555" />
             <Text style={styles.actionText}>Comment</Text>
           </TouchableOpacity>
@@ -413,7 +408,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
               <TouchableOpacity 
                 onPress={handleEdit}
                 disabled={editLoading}
-                style={[styles.editModalSaveButton, editLoading && { opacity: 0.7 }]}
+                style={[styles.editModalSaveButton, editLoading && styles.editModalSaveButtonDisabled]}
               >
                 {editLoading ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -426,9 +421,9 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
               style={styles.editModalInput}
               value={editContent}
               onChangeText={setEditContent}
-              placeholder="What's happening?"
+              placeholder="What's on your mind?"
               multiline
-              maxLength={500}
+              numberOfLines={4}
             />
           </View>
         </View>
@@ -441,27 +436,12 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             style={styles.imageViewerCloseButton}
             onPress={() => setImageViewerVisible(false)}
           >
-            <Text style={styles.imageViewerCloseText}>✕</Text>
+            <FontAwesome name="times" size={24} color="#fff" />
           </TouchableOpacity>
-          
-          {/* Image counter for multiple images */}
-          {images.length > 1 && (
-            <View style={styles.imageCounter}>
-              <Text style={styles.imageCounterText}>
-                {currentImageIndex + 1} / {images.length}
-              </Text>
-            </View>
-          )}
           
           <View style={styles.imageViewerContainer}>
             <Image
-              source={{ 
-                uri: images.length > 0 
-                  ? (String(images[currentImageIndex].image_url).startsWith('http') 
-                      ? images[currentImageIndex].image_url 
-                      : `${API_BASE_URL}${images[currentImageIndex].image_url}`)
-                  : imageUrl
-              }}
+              source={{ uri: images[selectedImageIndex]?.image_url || '' }}
               style={styles.imageViewerImage}
               resizeMode="contain"
             />
@@ -470,18 +450,18 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
           {/* Navigation arrows for multiple images */}
           {images.length > 1 && (
             <>
-              {currentImageIndex > 0 && (
+              {selectedImageIndex > 0 && (
                 <TouchableOpacity 
                   style={[styles.imageNavButton, styles.imageNavLeft]}
-                  onPress={() => setCurrentImageIndex(currentImageIndex - 1)}
+                  onPress={() => setSelectedImageIndex(selectedImageIndex - 1)}
                 >
                   <FontAwesome name="chevron-left" size={24} color="#fff" />
                 </TouchableOpacity>
               )}
-              {currentImageIndex < images.length - 1 && (
+              {selectedImageIndex < images.length - 1 && (
                 <TouchableOpacity 
                   style={[styles.imageNavButton, styles.imageNavRight]}
-                  onPress={() => setCurrentImageIndex(currentImageIndex + 1)}
+                  onPress={() => setSelectedImageIndex(selectedImageIndex + 1)}
                 >
                   <FontAwesome name="chevron-right" size={24} color="#fff" />
                 </TouchableOpacity>
@@ -500,46 +480,24 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
     padding: 15,
-    marginVertical: 8,
+    marginBottom: 10,
     borderRadius: 12,
-    elevation: 3,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
-    width: '100%',
-    alignSelf: 'center',
+    elevation: 3,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 10,
   },
-  userInfo: {
+  userContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-  },
-  followButton: {
-    backgroundColor: '#e3ecf7',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#174f84',
-    marginLeft: 8,
-  },
-  followingButton: {
-    backgroundColor: '#174f84',
-    borderColor: '#174f84',
-  },
-  followButtonText: {
-    color: '#174f84',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  followingButtonText: {
-    color: '#fff',
   },
   avatar: {
     width: 40,
@@ -548,18 +506,123 @@ const styles = StyleSheet.create({
     marginRight: 10,
     backgroundColor: '#ccc',
   },
-  name: { fontWeight: 'bold', fontSize: 14 },
-  meta: { fontSize: 12, color: '#666' },
-  postTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, color: '#333' },
-  content: { fontSize: 14, marginTop: 10, color: '#333' },
-  postImage: { width: '100%', height: 200, borderRadius: 10, marginTop: 10, backgroundColor: '#ccc' },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  name: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  clickableName: {
+    color: '#1e3a8a',
+  },
+  priorityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  adminBadge: {
+    backgroundColor: '#dc2626',
+  },
+  pesoBadge: {
+    backgroundColor: '#059669',
+  },
+  priorityBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  meta: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  postTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#333',
+  },
+  content: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#333',
+    marginBottom: 10,
+  },
+  imagesContainer: {
+    marginTop: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  singleImage: {
+    width: '100%',
+    height: 300,
+    borderRadius: 8,
+  },
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
+  twoImagesGrid: {
+    height: 200,
+  },
+  threeImagesGrid: {
+    height: 200,
+  },
+  fourImagesGrid: {
+    height: 200,
+  },
+  fivePlusImagesGrid: {
+    height: 200,
+  },
+  gridImageContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  threeImagesFirst: {
+    width: '50%',
+    height: '100%',
+  },
+  threeImagesRest: {
+    width: '50%',
+    height: '50%',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 100,
+  },
+  moreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreImagesText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
   actionsCountsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
     marginTop: 8,
+    marginBottom: 8,
   },
-  countText: { fontSize: 12, color: '#666' },
+  countText: {
+    fontSize: 12,
+    color: '#666',
+  },
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -568,19 +631,41 @@ const styles = StyleSheet.create({
     borderTopColor: '#eee',
     paddingTop: 10,
   },
-  actionIcon: { alignItems: 'center', gap: 2 },
-  actionText: { fontSize: 12, color: '#555' },
-  likedText: { color: '#1e3a8a', fontWeight: 'bold' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#fff', width: '90%', borderRadius: 12, padding: 20 },
-  modalTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 12 },
-  modalButton: { padding: 12, borderRadius: 8, marginVertical: 6, backgroundColor: '#1e3a8a' },
-  modalButtonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' },
-  button: { backgroundColor: '#1e3a8a', borderRadius: 8, padding: 12, marginVertical: 6 },
-  buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
-  
-  // Standardized Edit Modal Styles
+  actionIcon: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  actionText: {
+    fontSize: 12,
+    color: '#555',
+  },
+  likedText: {
+    color: '#1e3a8a',
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    width: '90%',
+    borderRadius: 12,
+    padding: 20,
+  },
+  modalButton: {
+    padding: 12,
+    borderRadius: 8,
+    marginVertical: 6,
+    backgroundColor: '#1e3a8a',
+  },
+  modalButtonText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
   editModalContent: {
     backgroundColor: '#fff',
     width: '90%',
@@ -613,6 +698,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
   },
+  editModalSaveButtonDisabled: {
+    backgroundColor: '#9ca3af',
+  },
   editModalSaveText: {
     color: '#fff',
     fontWeight: '600',
@@ -625,7 +713,6 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: 'top',
   },
-  // Image Viewer Styles
   imageViewerOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.9)',
@@ -638,60 +725,26 @@ const styles = StyleSheet.create({
     right: 20,
     zIndex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageViewerCloseText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
+    padding: 12,
+    borderRadius: 25,
   },
   imageViewerContainer: {
-    flex: 1,
-    width: '100%',
+    width: '90%',
+    height: '70%',
     justifyContent: 'center',
     alignItems: 'center',
   },
   imageViewerImage: {
-    width: 400,
-    height: 400,
-  },
-  imagesContainer: {
-    marginTop: 10,
-  },
-  imagesScroll: {
-    maxHeight: 200,
-  },
-  // Image Viewer Styles
-  imageCounter: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    zIndex: 2,
-  },
-  imageCounterText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
+    width: '100%',
+    height: '100%',
   },
   imageNavButton: {
     position: 'absolute',
     top: '50%',
     transform: [{ translateY: -20 }],
     backgroundColor: 'rgba(0,0,0,0.7)',
+    padding: 12,
     borderRadius: 25,
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 2,
   },
   imageNavLeft: {
     left: 20,

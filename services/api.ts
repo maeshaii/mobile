@@ -622,8 +622,26 @@ export const getFeed = async () => {
   }
 };
 // Mobile -> Backend: GET /api/posts/by-user-type/?user_type={peso|admin}
-export const getPostsByUserType = async (userType: 'peso' | 'admin') =>
-  (await api.get(`/api/posts/by-user-type/?user_type=${userType}`)).data.posts || [];
+export const getPostsByUserType = async (userType: 'peso' | 'admin') => {
+  try {
+    const response = await api.get(`/api/posts/by-user-type/?user_type=${userType}`);
+    console.log('API Response for userType:', userType, response.data);
+    
+    // Handle different response formats
+    if (response.data && response.data.posts) {
+      return response.data.posts;
+    } else if (Array.isArray(response.data)) {
+      return response.data;
+    } else {
+      console.warn('Unexpected API response format:', response.data);
+      return [];
+    }
+  } catch (error) {
+    console.error('Error fetching posts by user type:', error);
+    throw error;
+  }
+};
+
 // Mobile -> Backend: POST /api/posts/
 export const createPost = async (postData: {
   post_content: string;

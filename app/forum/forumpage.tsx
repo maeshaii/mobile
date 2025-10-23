@@ -1,8 +1,8 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
-import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
-import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch } from '../../services/api';
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput } from 'react-native';
+import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch, getPostLikes, getPostReposts, commentOnPost, getPostComments } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import ForumPostCard from './ForumPostCard';
 import RepostCard from '../repost/RepostCard';
@@ -46,6 +46,7 @@ export default function CCICTPage() {
   const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [membersYear, setMembersYear] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState('');
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -114,7 +115,7 @@ export default function CCICTPage() {
 
   useEffect(() => { loadForumPosts(); }, []);
 
-  // Refresh forum posts when user returns to this screen (e.g., from comments)
+  // Refresh forum posts when user returns to this screen (e.g., from comments, reposts)
   useFocusEffect(
     useCallback(() => {
       loadForumPosts();
@@ -222,7 +223,28 @@ export default function CCICTPage() {
               onLikeToggle={(repostId: number, liked: boolean) => {
                 setPosts(prev => prev.map(p => (p.repost_id === repostId ? { ...p, is_liked: liked, likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)) } : p)));
               }}
-              onOpenViewer={() => { /* viewer not wired for forum reposts */ }}
+              onOpenViewer={async (repost, type) => {
+                try {
+                  setSelectedPostStats(repost);
+                  setViewerType(type);
+                  setViewerVisible(true);
+
+                  // Fetch fresh data for the viewer
+                  if (type === 'likes') {
+                    const likesData = await getPostLikes(repost.repost_id);
+                    setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                  } else if (type === 'reposts') {
+                    const repostsData = await getPostReposts(repost.repost_id);
+                    setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                  } else if (type === 'comments') {
+                    const commentsData = await getPostComments(repost.repost_id);
+                    setSelectedPostStats((prev: any) => ({ ...prev, comments: commentsData || [] }));
+                  }
+                } catch (error) {
+                  console.error('Error fetching viewer data:', error);
+                  Alert.alert('Error', 'Failed to load data');
+                }
+              }}
               onEdited={(repostId: number, newCaption: string) => {
                 setPosts(prev => prev.map(p => (p.repost_id === repostId ? { ...p, repost_caption: newCaption } : p)));
               }}
@@ -245,10 +267,27 @@ export default function CCICTPage() {
                   : p
               ));
             }}
-            onOpenViewer={(post, type) => {
-              setSelectedPostStats(post);
-              setViewerType(type);
-              setViewerVisible(true);
+            onOpenViewer={async (post, type) => {
+              try {
+                setSelectedPostStats(post);
+                setViewerType(type);
+                setViewerVisible(true);
+
+                // Fetch fresh data for the viewer
+                if (type === 'likes') {
+                  const likesData = await getPostLikes(post.post_id);
+                  setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                } else if (type === 'reposts') {
+                  const repostsData = await getPostReposts(post.post_id);
+                  setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                } else if (type === 'comments') {
+                  const commentsData = await getPostComments(post.post_id);
+                  setSelectedPostStats((prev: any) => ({ ...prev, comments: commentsData || [] }));
+                }
+              } catch (error) {
+                console.error('Error fetching viewer data:', error);
+                Alert.alert('Error', 'Failed to load data');
+              }
             }}
             onEdited={(postId, newContent) => {
               setPosts(prev => prev.map(p =>
@@ -260,10 +299,10 @@ export default function CCICTPage() {
             onDeleted={(postId) => {
               setPosts(prev => prev.filter(p => p.post_id !== postId));
             }}
-            onCommentCountUpdate={(postId, newCount) => {
+            onRepostToggle={(postId, reposted) => {
               setPosts(prev => prev.map(p =>
                 p.post_id === postId
-                  ? { ...p, comments_count: newCount }
+                  ? { ...p, reposts_count: Math.max(0, (p.reposts_count || 0) + (reposted ? 1 : -1)) }
                   : p
               ));
             }}
@@ -291,7 +330,7 @@ export default function CCICTPage() {
                     profilePic={u.profile_pic}
                     firstName={u.f_name}
                     lastName={u.l_name}
-                    size={36}
+                    size={32}
                     style={styles.listAvatar}
                   />
                   <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
@@ -304,16 +343,67 @@ export default function CCICTPage() {
                     profilePic={r.user?.profile_pic}
                     firstName={r.user?.f_name}
                     lastName={r.user?.l_name}
-                    size={36}
+                    size={32}
                     style={styles.listAvatar}
                   />
                   <View>
                     <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
-                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
+                    <Text style={styles.listSubText}>{new Date(r.repost_date || r.created_at).toLocaleString()}</Text>
+                  </View>
+                </View>
+              ))}
+
+              {viewerType === 'comments' && selectedPostStats?.comments?.map((c: any) => (
+                <View key={c.comment_id} style={styles.commentRow}>
+                  <UserAvatar 
+                    profilePic={c.user?.profile_pic}
+                    firstName={c.user?.f_name}
+                    lastName={c.user?.l_name}
+                    size={32}
+                    style={styles.commentAvatar}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.commentHeaderRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                        <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.commentBubble}>
+                      <Text style={styles.commentBody}>{c.comment_content}</Text>
+                    </View>
                   </View>
                 </View>
               ))}
             </ScrollView>
+
+            {viewerType === 'comments' && selectedPostStats ? (
+              <View style={styles.commentInputRow}>
+                <TextInput
+                  style={styles.commentInput}
+                  placeholder="Write a comment..."
+                  value={commentText}
+                  onChangeText={setCommentText}
+                />
+                <TouchableOpacity
+                  style={styles.sendBtn}
+                  onPress={async () => {
+                    const message = (commentText || '').trim();
+                    if (!message) return;
+                    try {
+                      await commentOnPost(selectedPostStats.post_id, message);
+                      setCommentText('');
+                      setViewerVisible(false);
+                      await loadForumPosts(); // Refresh posts
+                    } catch (e) {
+                      Alert.alert('Error', 'Failed to add comment');
+                    }
+                  }}
+                >
+                  <Text style={{ color: 'white', fontWeight: 'bold' }}>Send</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -513,5 +603,71 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#333',
     textAlign: 'center',
+  },
+  commentRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
+  },
+  commentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  commentName: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  commentMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  commentBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  commentBody: {
+    color: '#111827',
+  },
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  commentInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#f9f9f9',
+  },
+  sendBtn: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginLeft: 8,
+  },
+  imagesContainer: {
+    marginTop: 10,
+  },
+  imagesScroll: {
+    marginTop: 10,
   },
 });

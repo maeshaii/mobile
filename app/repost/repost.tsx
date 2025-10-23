@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment } from '../../services/api';
+import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +14,7 @@ export default function RepostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
+  const isForumPost = params.isForumPost === 'true';
   
   const [me, setMe] = useState<any>(null);
   const [original, setOriginal] = useState<any>(null);
@@ -39,7 +40,7 @@ export default function RepostScreen() {
         setLoading(true);
         const [u, detail] = await Promise.all([
           getUserInfo(),
-          postId ? getPostDetail(postId) : Promise.resolve(null),
+          postId ? (isForumPost ? getForumDetail(postId) : getPostDetail(postId)) : Promise.resolve(null),
         ]);
         setMe(u);
         setOriginal(detail);
@@ -98,7 +99,9 @@ export default function RepostScreen() {
   const loadComments = async () => {
     if (!original?.post_id) return;
     try {
-      const data = await getPostComments(original.post_id);
+      const data = isForumPost 
+        ? await getForumComments(original.post_id)
+        : await getPostComments(original.post_id);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
     } catch (e) {
       console.error('[repost] load comments failed', e);
@@ -118,7 +121,11 @@ export default function RepostScreen() {
     if (!original?.post_id || !commentText.trim()) return;
     try {
       setSubmittingComment(true);
-      await commentOnPost(original.post_id, commentText.trim());
+      if (isForumPost) {
+        await commentOnForumPost(original.post_id, commentText.trim());
+      } else {
+        await commentOnPost(original.post_id, commentText.trim());
+      }
       setCommentText('');
       await loadComments();
     } catch (err: any) {
@@ -132,7 +139,11 @@ export default function RepostScreen() {
   const handleUpdateComment = async (commentId: number) => {
     if (!editText.trim()) return;
     try {
-      await updateComment(original.post_id, commentId, editText.trim());
+      if (isForumPost) {
+        await updateForumComment(original.post_id, commentId, editText.trim());
+      } else {
+        await updateComment(original.post_id, commentId, editText.trim());
+      }
       setEditingId(null);
       setEditText('');
       await loadComments();
@@ -143,7 +154,11 @@ export default function RepostScreen() {
 
   const handleDeleteComment = async (commentId: number) => {
     try {
-      await deleteComment(original.post_id, commentId);
+      if (isForumPost) {
+        await deleteForumComment(original.post_id, commentId);
+      } else {
+        await deleteComment(original.post_id, commentId);
+      }
       await loadComments();
     } catch {
       Alert.alert('Error', 'Failed to delete comment');
@@ -180,7 +195,13 @@ export default function RepostScreen() {
             if (myRepostId) {
               // update my existing repost caption
               console.log('Updating existing repost with ID:', myRepostId);
-              await updateRepost(myRepostId, cleaned);
+              if (isForumPost) {
+                // For forum posts, we need to delete and recreate the repost
+                await deleteForumRepost(myRepostId);
+                await repostForumPost(postId, cleaned);
+              } else {
+                await updateRepost(myRepostId, cleaned);
+              }
               Alert.alert(
                 'Success',
                 'Your repost caption has been updated',
@@ -188,8 +209,10 @@ export default function RepostScreen() {
               );
             } else {
               // create repost; helper will omit caption if empty
-              console.log('Creating new repost for postId:', postId);
-              const response = await repostPost(postId, cleaned);
+              console.log('Creating new repost for postId:', postId, 'isForumPost:', isForumPost);
+              const response = isForumPost 
+                ? await repostForumPost(postId, cleaned)
+                : await repostPost(postId, cleaned);
               console.log('Repost response:', response);
               
               if (response.success !== false) {

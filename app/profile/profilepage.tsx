@@ -24,6 +24,10 @@ import {
   unfollowUser,
   updateAlumniProfile,
   getPostDetail,
+  getPostLikes,
+  getPostReposts,
+  getRepostLikes,
+  getRepostDetail,
 } from '../../services/api';
 import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
@@ -618,10 +622,24 @@ export default function ProfilePage() {
                         : p
                     ));
                   }}
-                  onOpenViewer={(repost, type) => {
-                    setSelectedPostStats(repost);
-                    setViewerType(type);
-                    setViewerVisible(true);
+                  onOpenViewer={async (repost, type) => {
+                    try {
+                      setSelectedPostStats(repost);
+                      setViewerType(type);
+                      setViewerVisible(true);
+                      
+                      // Fetch likes or reposts data based on type
+                      if (type === 'likes') {
+                        const likesData = await getRepostLikes(repost.repost_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                      } else if (type === 'reposts') {
+                        const repostDetail = await getRepostDetail(repost.repost_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostDetail?.reposts || [] }));
+                      }
+                    } catch (error) {
+                      console.error('Error fetching repost viewer data:', error);
+                      Alert.alert('Error', 'Failed to load data');
+                    }
                   }}
                   onEdited={(repostId, newCaption) => {
                     setPosts(prev => prev.map(p => 
@@ -660,14 +678,24 @@ export default function ProfilePage() {
                         : p
                     ));
                   }}
-                  onOpenViewer={(post, type) => {
-                    console.log('Profile: Opening viewer for type:', type);
-                    console.log('Profile: Post data:', post);
-                    console.log('Profile: Likes data:', post.likes);
-                    console.log('Profile: Likes count:', post.likes?.length);
-                    setSelectedPostStats(post);
-                    setViewerType(type);
-                    setViewerVisible(true);
+                  onOpenViewer={async (post, type) => {
+                    try {
+                      setSelectedPostStats(post);
+                      setViewerType(type);
+                      setViewerVisible(true);
+                      
+                      // Fetch likes or reposts data based on type
+                      if (type === 'likes') {
+                        const likesData = await getPostLikes(post.post_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                      } else if (type === 'reposts') {
+                        const repostsData = await getPostReposts(post.post_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                      }
+                    } catch (error) {
+                      console.error('Error fetching viewer data:', error);
+                      Alert.alert('Error', 'Failed to load data');
+                    }
                   }}
                   onEdited={(postId, newContent) => {
                     setPosts(prev => prev.map(p => 
@@ -991,19 +1019,7 @@ export default function ProfilePage() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 320 }}>
-              {/* Debug info */}
-              {viewerType === 'likes' && (
-                <View style={{ padding: 10, backgroundColor: '#f0f0f0', margin: 5, borderRadius: 5 }}>
-                  <Text style={{ fontSize: 12, color: '#666' }}>
-                    Debug: Likes count: {selectedPostStats?.likes?.length || 0}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: '#666' }}>
-                    Debug: Likes data: {JSON.stringify(selectedPostStats?.likes?.slice(0, 2) || [])}
-                  </Text>
-                </View>
-              )}
-              
+            <ScrollView style={{ maxHeight: 320, paddingHorizontal: 16 }}>
               {viewerType === 'likes' && selectedPostStats?.likes?.length > 0 && selectedPostStats?.likes?.map((u: any, idx: number) => {
                 console.log('Profile: Rendering like user:', u);
                 return (
@@ -1026,7 +1042,7 @@ export default function ProfilePage() {
                 </View>
               )}
 
-              {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
+              {viewerType === 'reposts' && selectedPostStats?.reposts?.length > 0 && selectedPostStats?.reposts?.map((r: any) => (
                 <View key={r.repost_id} style={styles.listItemRow}>
                   <UserAvatar 
                     profilePic={r.user?.profile_pic}
@@ -1041,6 +1057,12 @@ export default function ProfilePage() {
                   </View>
                 </View>
               ))}
+
+              {viewerType === 'reposts' && (!selectedPostStats?.reposts || selectedPostStats?.reposts?.length === 0) && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 16 }}>No reposts yet</Text>
+                </View>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -1565,7 +1587,8 @@ const styles = StyleSheet.create({
   listItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
   },
   listAvatar: {
     width: 36,
@@ -1581,7 +1604,8 @@ const styles = StyleSheet.create({
   },
   listSubText: {
     fontSize: 12,
-    color: '#888',
+    color: '#666',
+    marginTop: 2,
   },
 
   editTabs: {
