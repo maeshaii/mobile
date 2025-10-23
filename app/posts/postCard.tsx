@@ -5,6 +5,8 @@ import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
 import { API_BASE_URL, likePost, unlikePost, repostPost, deleteRepost, editPost, deletePost } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 interface Post {
   post_id: number;
@@ -75,38 +77,23 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   const isPeso = userType === 'peso';
   const isPriorityUser = isAdmin || isPeso;
 
-  // Handle both single image and multiple images
-  const getImagesFromPost = (post: any) => {
-    const images = [];
-    
-    // Add main post image if exists (backward compatibility)
-    if (post.post_image) {
-      images.push({
-        image_id: 0,
-        image_url: post.post_image,
-        order: 0
-      });
-    }
-    
-    // Add post_images array if exists (multiple images)
-    if (post.post_images && Array.isArray(post.post_images)) {
-      images.push(...post.post_images);
-    }
-    
-    return images.sort((a, b) => a.order - b.order);
-  };
-
-  const images = getImagesFromPost(post);
-  const imageUrl = images.length > 0 
-    ? (String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}`)
-    : null;
+  // Use utility functions for image handling
+  const images = getImagesFromContent(post);
+  const imageUrl = getFirstImageUrl(post);
 
   // Debug logging for images
+  console.log('=== POST CARD DEBUG ===');
   console.log('PostCard - Post ID:', post.post_id);
   console.log('PostCard - Post image field:', post.post_image);
   console.log('PostCard - Post images array:', post.post_images);
+  console.log('PostCard - Post images field type:', typeof post.post_images);
+  console.log('PostCard - Post images field length:', post.post_images?.length);
   console.log('PostCard - Processed images:', images);
+  console.log('PostCard - Processed images length:', images.length);
   console.log('PostCard - Constructed imageUrl:', imageUrl);
+  console.log('PostCard - Full post object keys:', Object.keys(post));
+  console.log('PostCard - Images condition check:', images.length > 0);
+  console.log('=== END POST CARD DEBUG ===');
 
   /** --- Actions --- **/
   const handleLike = async () => {
@@ -280,24 +267,45 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
 
       {/* Content */}
       {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
-      <Text style={styles.content}>{post.post_content}</Text>
-      {/* Images - support multiple images */}
+      <Text style={styles.content}>
+        {renderTextWithMentions(post.post_content, [], (userId) => {
+          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+        })}
+      </Text>
+      {/* Images - Facebook-style grid layout like web */}
       {images.length > 0 && (
         <View style={styles.imagesContainer}>
           {images.length === 1 ? (
+            // Single image - full width
             <TouchableOpacity 
               onPress={() => {
                 setSelectedImageIndex(0);
                 setImageViewerVisible(true);
               }}
             >
-              <Image source={{ uri: imageUrl }} style={styles.postImage} resizeMode="cover" />
+              <Image 
+                source={{ uri: imageUrl }} 
+                style={styles.singleImage} 
+                resizeMode="contain" 
+              />
             </TouchableOpacity>
           ) : (
-            <ScrollView horizontal style={styles.imagesScroll} showsHorizontalScrollIndicator={false}>
-              {images.map((image, index) => (
+            // Multiple images - grid layout like web
+            <View style={[
+              styles.imagesGrid,
+              images.length === 2 && styles.twoImagesGrid,
+              images.length === 3 && styles.threeImagesGrid,
+              images.length === 4 && styles.fourImagesGrid,
+              images.length >= 5 && styles.fivePlusImagesGrid
+            ]}>
+              {images.slice(0, 6).map((image, index) => (
                 <TouchableOpacity 
                   key={index}
+                  style={[
+                    styles.gridImageContainer,
+                    images.length === 3 && index === 0 && styles.threeImagesFirst,
+                    images.length === 3 && index > 0 && styles.threeImagesRest
+                  ]}
                   onPress={() => {
                     setSelectedImageIndex(index);
                     setImageViewerVisible(true);
@@ -305,12 +313,18 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                 >
                   <Image 
                     source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
-                    style={styles.postImage} 
+                    style={styles.gridImage} 
                     resizeMode="cover" 
                   />
+                  {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                  {index === 5 && images.length > 6 && (
+                    <View style={styles.moreImagesOverlay}>
+                      <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </View>
           )}
         </View>
       )}
@@ -491,6 +505,62 @@ const styles = StyleSheet.create({
   postImage: { width: 200, height: 200, borderRadius: 10, marginTop: 10, marginRight: 10, backgroundColor: '#ccc' },
   imagesContainer: {
     marginTop: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  singleImage: {
+    width: '100%',
+    height: 300,
+    borderRadius: 8,
+  },
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
+  twoImagesGrid: {
+    height: 200,
+  },
+  threeImagesGrid: {
+    height: 200,
+  },
+  fourImagesGrid: {
+    height: 200,
+  },
+  fivePlusImagesGrid: {
+    height: 200,
+  },
+  gridImageContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  threeImagesFirst: {
+    width: '50%',
+    height: '100%',
+  },
+  threeImagesRest: {
+    width: '50%',
+    height: '50%',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 100,
+  },
+  moreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreImagesText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   imagesScroll: {
     maxHeight: 200,

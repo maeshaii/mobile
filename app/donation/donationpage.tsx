@@ -6,6 +6,10 @@ import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDon
 import UserAvatar from '../../components/UserAvatar';
 import DonationPostCard from './DonationPostCard';
 import RepostCard from '../repost/RepostCard';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import MentionInput from '../../components/MentionInput';
+import { convertImageToBase64 } from '../../utils/imageUtils';
 
 const donationLogo = require('../../assets/images/wny_logo.jpg');
 
@@ -47,6 +51,7 @@ export default function DonationPage() {
   const [showDonationCreate, setShowDonationCreate] = useState(false);
   const [donationMessage, setDonationMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -155,6 +160,33 @@ export default function DonationPage() {
     try { await loadDonationPosts(); } finally { setRefreshing(false); }
   };
 
+  const pickImages = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false, // Disable editing when multiple selection is enabled
+        quality: 0.8,
+        allowsMultipleSelection: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const maxImages = 10;
+        const newImages = result.assets.slice(0, maxImages - selectedImages.length);
+        
+        // Store image URIs directly instead of converting to base64
+        const imageUris = newImages.map(asset => asset.uri);
+        setSelectedImages(prev => [...prev, ...imageUris]);
+      }
+    } catch (error) {
+      console.error('Error picking images:', error);
+      Alert.alert('Error', 'Failed to pick images');
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleDonationSubmit = async () => {
     if (!donationMessage.trim()) {
       Alert.alert('Error', 'Please provide a description of your need');
@@ -163,14 +195,23 @@ export default function DonationPage() {
 
     setIsSubmitting(true);
     try {
+      console.log('=== DONATION SUBMISSION DEBUG ===');
+      console.log('Donation message:', donationMessage.trim());
+      console.log('Selected images:', selectedImages);
+      console.log('Selected images length:', selectedImages.length);
+      console.log('Selected images types:', selectedImages.map(img => typeof img));
+      console.log('=== END DONATION SUBMISSION DEBUG ===');
+      
+      // Pass image URIs directly without base64 conversion
       const response = await createDonationPost({
         description: donationMessage.trim(),
-        images: [] // For now, no images - can be enhanced later
+        images: selectedImages
       });
       
       if (response.success) {
         Alert.alert('Success', 'Your donation request has been posted!');
         setDonationMessage('');
+        setSelectedImages([]);
         setShowDonationCreate(false);
         // Refresh the donation posts
         await loadDonationPosts();
@@ -433,15 +474,40 @@ export default function DonationPage() {
 
               <View style={styles.donationInputContainer}>
                 <Text style={styles.donationInputLabel}>Tell us about your need:</Text>
-                <TextInput
-                  style={styles.donationInput}
-                  placeholder="Describe your situation and how donations would help (e.g., therapy sessions, medical expenses, emergency fund, etc.)..."
+                <MentionInput
                   value={donationMessage}
-                  onChangeText={setDonationMessage}
+                  onChange={setDonationMessage}
+                  placeholder="Describe your situation and how donations would help (e.g., therapy sessions, medical expenses, emergency fund, etc.)..."
+                  style={styles.donationInput}
                   multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
                 />
+              </View>
+
+              {/* Image Upload Section */}
+              <View style={styles.imageUploadContainer}>
+                <TouchableOpacity style={styles.imageUploadButton} onPress={pickImages}>
+                  <FontAwesome name="image" size={20} color="#1e3a8a" />
+                  <Text style={styles.imageUploadText}>
+                    {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Images (Optional)'}
+                  </Text>
+                </TouchableOpacity>
+                
+                {/* Display selected images */}
+                {selectedImages.length > 0 && (
+                  <ScrollView horizontal style={styles.selectedImagesContainer}>
+                    {selectedImages.map((image, index) => (
+                      <View key={index} style={styles.selectedImageWrapper}>
+                        <Image source={{ uri: image }} style={styles.selectedImage} />
+                        <TouchableOpacity 
+                          style={styles.removeImageButton}
+                          onPress={() => removeImage(index)}
+                        >
+                          <FontAwesome name="times" size={12} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
               </View>
 
               <View style={styles.donationModalActions}>
@@ -728,5 +794,49 @@ const styles = StyleSheet.create({
   bulletText: {
     color: '#4b5563',
     fontSize: 12,
+  },
+  // Image upload styles
+  imageUploadContainer: {
+    marginBottom: 20,
+  },
+  imageUploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderStyle: 'dashed',
+  },
+  imageUploadText: {
+    marginLeft: 8,
+    color: '#1e3a8a',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  selectedImagesContainer: {
+    marginTop: 10,
+    maxHeight: 120,
+  },
+  selectedImageWrapper: {
+    position: 'relative',
+    marginRight: 8,
+  },
+  selectedImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

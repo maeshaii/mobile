@@ -25,10 +25,10 @@ import {
   fetchFollowers,
   fetchFollowing
 } from '../../services/api';
+import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
-import FollowModal from '../follow/follow';
 
 interface UserProfile {
   id: number;
@@ -584,6 +584,7 @@ export default function OtherUserPage() {
           userId={user.id}
         />
       )}
+
     </View>
   );
 }

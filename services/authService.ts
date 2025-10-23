@@ -1,5 +1,33 @@
-import * as SecureStore from 'expo-secure-store';
 import { loginUser, getAccessToken, getRefreshToken, logoutUser } from './api';
+import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+
+// Platform-specific storage utility
+const isWeb = Platform.OS === 'web';
+
+const Storage = {
+  setItem: async (key: string, value: string) => {
+    if (isWeb) {
+      localStorage.setItem(key, value);
+    } else {
+      await SecureStore.setItemAsync(key, value);
+    }
+  },
+  getItem: async (key: string) => {
+    if (isWeb) {
+      return localStorage.getItem(key);
+    } else {
+      return await SecureStore.getItemAsync(key);
+    }
+  },
+  deleteItem: async (key: string) => {
+    if (isWeb) {
+      localStorage.removeItem(key);
+    } else {
+      await SecureStore.deleteItemAsync(key);
+    }
+  },
+};
 
 export interface AuthCredentials {
   acc_username: string;
@@ -54,10 +82,10 @@ class AuthService {
   }
 
   private async storeSession(session: UserSession): Promise<void> {
-    await SecureStore.setItemAsync('accessToken', session.accessToken);
-    await SecureStore.setItemAsync('refreshToken', session.refreshToken);
-    await SecureStore.setItemAsync('user', JSON.stringify(session.user));
-    await SecureStore.setItemAsync('lastLogin', session.lastLogin.toISOString());
+    await Storage.setItem('accessToken', session.accessToken);
+    await Storage.setItem('refreshToken', session.refreshToken);
+    await Storage.setItem('user', JSON.stringify(session.user));
+    await Storage.setItem('lastLogin', session.lastLogin.toISOString());
     this.currentSession = session;
   }
 
@@ -65,8 +93,8 @@ class AuthService {
     if (this.currentSession) return this.currentSession;
     const accessToken = await getAccessToken();
     const refreshToken = await getRefreshToken();
-    const userStr = await SecureStore.getItemAsync('user');
-    const lastLoginStr = await SecureStore.getItemAsync('lastLogin');
+    const userStr = await Storage.getItem('user');
+    const lastLoginStr = await Storage.getItem('lastLogin');
     if (accessToken && refreshToken && userStr && lastLoginStr) {
       this.currentSession = {
         user: JSON.parse(userStr),
@@ -94,15 +122,15 @@ class AuthService {
 
   async logout(): Promise<void> {
     await logoutUser();
-    await SecureStore.deleteItemAsync('accessToken');
-    await SecureStore.deleteItemAsync('refreshToken');
-    await SecureStore.deleteItemAsync('user');
-    await SecureStore.deleteItemAsync('lastLogin');
+    await Storage.deleteItem('accessToken');
+    await Storage.deleteItem('refreshToken');
+    await Storage.deleteItem('user');
+    await Storage.deleteItem('lastLogin');
     this.currentSession = null;
   }
 
   async getUserInfo(): Promise<any> {
-    const userStr = await SecureStore.getItemAsync('user');
+    const userStr = await Storage.getItem('user');
     return userStr ? JSON.parse(userStr) : null;
   }
 

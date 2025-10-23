@@ -551,6 +551,7 @@ export default function ProfilePage() {
         </View>
       </View>
 
+
       {/* Details Card */}
       <View style={styles.detailsCard}>
           <Text style={styles.detailsTitle}>Details</Text>

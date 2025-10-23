@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  ScrollView,
   Dimensions,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
@@ -47,8 +46,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const [followStatuses, setFollowStatuses] = useState<{ [key: number]: boolean }>({});
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
 
-
-
   const loadUsers = async () => {
     if (!userId) {
       setLoading(false);
@@ -58,14 +55,11 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
     try {
       setLoading(true);
 
-      // Get data from API - match web frontend approach
-      const response = await api.get(`api/alumni/${userId}/${type}/`);
+      // Get data from API
+      const response = await api.get(`/api/alumni/${userId}/${type}/`);
       const data = response.data;
       
-      // Debug: Log the response to understand the data structure
       console.log(`API Response for ${type}:`, data);
-
-
       
       let usersArray: any[] = [];
       if (type === 'followers' && Array.isArray(data.followers)) {
@@ -78,8 +72,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
         usersArray = [];
       }
 
-
-      // Use the data directly from backend - match web frontend approach
+      // Normalize user data
       const normalizedUsers = usersArray.map((u: any) => ({
         user_id: u.user_id,
         ctu_id: u.ctu_id,
@@ -144,34 +137,29 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const handleFollow = async (targetUserId: number) => {
     try {
       setFollowLoading(prev => ({ ...prev, [targetUserId]: true }));
-
+      
       const isCurrentlyFollowing = followStatuses[targetUserId];
-
+      
       if (isCurrentlyFollowing) {
-        const res = await unfollowUser(targetUserId);
-        if (res?.success) {
-          setFollowStatuses(prev => ({ ...prev, [targetUserId]: false }));
-        }
+        await unfollowUser(targetUserId);
+        setFollowStatuses(prev => ({ ...prev, [targetUserId]: false }));
       } else {
-        const res = await followUser(targetUserId);
-        if (res?.success) {
-          setFollowStatuses(prev => ({ ...prev, [targetUserId]: true }));
-        }
+        await followUser(targetUserId);
+        setFollowStatuses(prev => ({ ...prev, [targetUserId]: true }));
       }
     } catch (error) {
-      console.error('Error toggling follow:', error);
+      console.error('Error toggling follow status:', error);
       Alert.alert('Error', 'Failed to update follow status');
     } finally {
       setFollowLoading(prev => ({ ...prev, [targetUserId]: false }));
     }
   };
 
-
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
@@ -185,73 +173,79 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
             </TouchableOpacity>
           </View>
           
-
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#174f84" />
               <Text style={styles.loadingText}>Loading {type}...</Text>
             </View>
           ) : (
-            <>
-            <ScrollView
-              style={styles.list}
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={true}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  colors={["#174f84"]}
-                  tintColor="#174f84"
-                />
-              }
-            >
+            <View style={styles.contentContainer}>
+              {/* Debug info to ensure data is loaded */}
+              <Text style={styles.debugText}>
+                Found {users.length} {type}
+              </Text>
+              
               {users.length > 0 ? (
-                <View style={styles.gridContainer}>
-                  {users.map((user, idx) => {
-                    return (
-                      <TouchableOpacity 
-                        key={user.user_id || idx} 
-                        style={styles.userCard}
-                        onPress={() => {
-                          onClose();
-                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
+                <FlatList
+                  data={users}
+                  keyExtractor={(item) => item.user_id.toString()}
+                  renderItem={({ item: user, index }) => (
+                    <TouchableOpacity 
+                      key={`${user.user_id}-${index}`}
+                      style={[styles.userCard, { backgroundColor: '#f8f9fa' }]}
+                      onPress={() => {
+                        onClose();
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
+                      }}
+                    >
+                      <UserAvatar
+                        profilePic={user.profile_pic}
+                        firstName={user.f_name}
+                        lastName={user.l_name}
+                        size={50}
+                        style={styles.avatar}
+                      />
+                      <View style={styles.userInfo}>
+                        <Text style={styles.userName} numberOfLines={1}>
+                          {user.name || `${user.f_name || ''} ${user.l_name || ''}`.trim()}
+                        </Text>
+                        <Text style={styles.userHandle}>@{user.ctu_id}</Text>
+                        {user.batch && (
+                          <Text style={styles.userBatch}>Batch {user.batch}</Text>
+                        )}
+                      </View>
+                      <TouchableOpacity
+                        style={[
+                          styles.followButton,
+                          followStatuses[user.user_id] && styles.followingButton
+                        ]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleFollow(user.user_id);
                         }}
+                        disabled={followLoading[user.user_id]}
                       >
-                        <UserAvatar
-                          profilePic={user.profile_pic}
-                          firstName={user.f_name}
-                          lastName={user.l_name}
-                          size={80}
-                          style={styles.cardAvatar}
-                        />
-                        <View style={styles.cardUserInfo}>
-                          <Text style={styles.cardUserName} numberOfLines={2}>
-                            {user.name || `${user.f_name || ''} ${user.l_name || ''}`.trim()}
-                          </Text>
-                          {user.batch && (
-                            <Text style={styles.cardUserBatch}>
-                              Batch {user.batch}
-                            </Text>
-                          )}
-                          <Text style={styles.cardUserHandle}>@{user.ctu_id}</Text>
-                        </View>
-                        <TouchableOpacity
-                          style={[styles.cardFollowButton, followStatuses[user.user_id] && styles.cardFollowingButton]}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            handleFollow(user.user_id);
-                          }}
-                          disabled={followLoading[user.user_id]}
-                        >
-                          <Text style={[styles.cardFollowButtonText, followStatuses[user.user_id] && styles.cardFollowingButtonText]}>
-                            {followLoading[user.user_id] ? '...' : followStatuses[user.user_id] ? 'Following' : 'Follow'}
-                          </Text>
-                        </TouchableOpacity>
+                        <Text style={[
+                          styles.followButtonText,
+                          followStatuses[user.user_id] && styles.followingButtonText
+                        ]}>
+                          {followLoading[user.user_id] ? '...' : followStatuses[user.user_id] ? 'Following' : 'Follow'}
+                        </Text>
                       </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                    </TouchableOpacity>
+                  )}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={onRefresh}
+                      colors={["#174f84"]}
+                      tintColor="#174f84"
+                    />
+                  }
+                  style={styles.list}
+                  contentContainerStyle={styles.listContent}
+                  showsVerticalScrollIndicator={true}
+                />
               ) : (
                 <View style={styles.emptyContainer}>
                   <FontAwesome
@@ -267,8 +261,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                   </Text>
                 </View>
               )}
-            </ScrollView>
-            </>
+            </View>
           )}
         </View>
       </View>
@@ -279,16 +272,16 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   container: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    width: '95%',
-    maxWidth: 500,
-    maxHeight: '85%',
+    width: width * 0.9,
+    maxWidth: 400,
+    maxHeight: '80%',
     overflow: 'hidden',
   },
   header: {
@@ -316,95 +309,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
+  contentContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  debugText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 10,
+    backgroundColor: '#e9ecef',
+    padding: 8,
+    borderRadius: 4,
+  },
   list: {
     flex: 1,
-    minHeight: 300,
-    maxHeight: 500,
   },
   listContent: {
-    padding: 16,
-  },
-  // Grid layout styles - similar to web frontend
-  gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
+    paddingBottom: 20,
   },
   userCard: {
-    width: (width - 80) / 2, // Two columns with gap
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    minHeight: 80,
+    marginBottom: 8,
+    borderRadius: 8,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 2,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  cardAvatar: {
-    marginBottom: 12,
-    borderWidth: 3,
-    borderColor: '#f0f0f0',
-  },
-  cardUserInfo: {
-    alignItems: 'center',
-    marginBottom: 12,
-    width: '100%',
-  },
-  cardUserName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  cardUserBatch: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 4,
-  },
-  cardUserHandle: {
-    fontSize: 12,
-    color: '#999',
-  },
-  cardFollowButton: {
-    backgroundColor: '#174f84',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  cardFollowingButton: {
-    backgroundColor: '#e3ecf7',
-    borderWidth: 1,
-    borderColor: '#174f84',
-  },
-  cardFollowButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  cardFollowingButtonText: {
-    color: '#174f84',
-  },
-  // Legacy list styles (keeping for backward compatibility)
-  userItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f8f8f8',
-    backgroundColor: '#fff',
-    minHeight: 60,
+    shadowRadius: 3,
+    elevation: 3,
   },
   avatar: {
     marginRight: 12,
@@ -413,49 +354,61 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#222',
+    color: '#1a1a1a',
     marginBottom: 2,
   },
   userHandle: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
+    marginBottom: 2,
+  },
+  userBatch: {
+    fontSize: 11,
+    color: '#999',
   },
   followButton: {
     backgroundColor: '#174f84',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
+    minWidth: 80,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   followingButton: {
-    backgroundColor: '#e3ecf7',
-    borderWidth: 1,
-    borderColor: '#174f84',
+    backgroundColor: '#6c757d',
   },
   followButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   followingButtonText: {
-    color: '#174f84',
+    color: '#fff',
   },
   emptyContainer: {
     padding: 40,
     alignItems: 'center',
   },
   emptyText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
+    fontSize: 18,
     fontWeight: '600',
+    color: '#666',
+    marginTop: 16,
   },
   emptySubText: {
-    marginTop: 8,
     fontSize: 14,
     color: '#999',
+    marginTop: 8,
     textAlign: 'center',
-    lineHeight: 20,
   },
 });
