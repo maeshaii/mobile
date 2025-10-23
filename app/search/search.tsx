@@ -136,6 +136,23 @@ export default function SearchPage() {
     setSelectedIds({});
   };
 
+  const selectAllRecent = () => {
+    const selectedCount = Object.values(selectedIds).filter(Boolean).length;
+    const totalCount = recent.length;
+    
+    if (selectedCount === totalCount) {
+      // If all are selected, deselect all
+      setSelectedIds({});
+    } else {
+      // Select all
+      const allSelected: Record<string, boolean> = {};
+      recent.forEach(item => {
+        allSelected[String(item.id)] = true;
+      });
+      setSelectedIds(allSelected);
+    }
+  };
+
   const filteredUsers = search
     ? users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()))
     : [];
@@ -157,12 +174,21 @@ export default function SearchPage() {
       </View>
       {/* Recent Section */}
       <View style={styles.recentHeaderRow}>
-        <Text style={styles.recentHeader}>Recent</Text>
+        <Text style={styles.recentHeader}>
+          Recent{selecting && ` (${Object.values(selectedIds).filter(Boolean).length}/${recent.length} selected)`}
+        </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           {selecting && (
-            <TouchableOpacity onPress={cancelSelecting} accessibilityLabel="Cancel selection">
-              <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Cancel</Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity onPress={selectAllRecent} accessibilityLabel="Select all recent searches">
+                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>
+                  {Object.values(selectedIds).filter(Boolean).length === recent.length ? 'Deselect All' : 'Select All'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={cancelSelecting} accessibilityLabel="Cancel selection">
+                <Text style={{ color: '#174f84', fontWeight: 'bold' }}>Cancel</Text>
+              </TouchableOpacity>
+            </>
           )}
           <TouchableOpacity
             onPress={() => {

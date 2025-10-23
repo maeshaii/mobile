@@ -18,15 +18,20 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
-const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
+const ngrokUrl = 'https://saul-relevant-letha.ngrok-free.dev'; // This will be replaced by ngrok script
+// Use ngrok for production, localhost for development
 export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
+console.log('Raw from Expo:', rawFromExpo);
+console.log('Raw from Env:', rawFromEnv);
+console.log('Ngrok URL:', ngrokUrl);
+console.log('Localhost URL:', localhostUrl);
 
 /** Axios instance */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 60000, // Increased to 60 seconds for image uploads
   headers: { 
     Accept: 'application/json',
     'ngrok-skip-browser-warning': 'true'  // Required for ngrok free accounts
@@ -151,6 +156,7 @@ api.interceptors.response.use(
 // Mobile -> Backend: POST /api/token/ (CustomTokenObtainPairView)
 export const loginUser = async (acc_username: string, acc_password: string) => {
   console.log('Mobile: Sending login request:', { acc_username, acc_password });
+  console.log('Mobile: API Base URL:', API_BASE_URL);
   try {
     const response = await api.post('/api/token/', { acc_username, acc_password });
     console.log('Mobile: Login response received:', response.data);
@@ -480,6 +486,35 @@ export const getPosts = async () => {
   }
 };
 
+// Helper function to sort feed with admin/peso priority
+const sortFeedWithPriority = (items: any[]) => {
+  return items.sort((a, b) => {
+    // Get user account types
+    const aUserType = a.user?.account_type || a.user?.user_type || 'user';
+    const bUserType = b.user?.account_type || b.user?.user_type || 'user';
+    
+    // Priority order: admin > peso > others
+    const getPriority = (userType: string) => {
+      if (userType === 'admin') return 3;
+      if (userType === 'peso') return 2;
+      return 1;
+    };
+    
+    const aPriority = getPriority(aUserType);
+    const bPriority = getPriority(bUserType);
+    
+    // First sort by priority (admin/peso first)
+    if (aPriority !== bPriority) {
+      return bPriority - aPriority;
+    }
+    
+    // Then sort by date within same priority
+    const aDate = new Date(a.created_at || a.repost_date || 0).getTime();
+    const bDate = new Date(b.created_at || b.repost_date || 0).getTime();
+    return bDate - aDate;
+  });
+};
+
 // Get combined feed of posts and reposts (including donation reposts)
 export const getFeed = async () => {
   try {
@@ -516,10 +551,13 @@ export const getFeed = async () => {
     });
     
     // Combine all feed items
-    const feedItems = [
+    const allItems = [
       ...posts.map((post: any) => ({ ...post, item_type: post.item_type || 'post' })),
       ...donationReposts
-    ].sort((a, b) => new Date(b.created_at || b.repost_date).getTime() - new Date(a.created_at || a.repost_date).getTime());
+    ];
+    
+    // Sort with admin/peso priority
+    const feedItems = sortFeedWithPriority(allItems);
     
     return feedItems;
   } catch (error) {
@@ -562,6 +600,19 @@ export const commentOnPost = async (postId: number, comment: string) =>
 // Mobile -> Backend: GET /api/posts/{post_id}/comments/
 export const getPostComments = async (postId: number) =>
   (await api.get(`/api/posts/${postId}/comments/`)).data;
+
+// Mobile -> Backend: Comment Reply APIs
+// Mobile -> Backend: GET /api/comments/{comment_id}/replies/
+export const getCommentReplies = async (commentId: number) => (await api.get(`/api/comments/${commentId}/replies/`)).data;
+// Mobile -> Backend: POST /api/comments/{comment_id}/replies/
+export const createCommentReply = async (commentId: number, replyContent: string) => 
+  (await api.post(`/api/comments/${commentId}/replies/`, { reply_content: replyContent })).data;
+// Mobile -> Backend: PUT /api/comments/{comment_id}/replies/{reply_id}/
+export const updateCommentReply = async (commentId: number, replyId: number, replyContent: string) => 
+  (await api.put(`/api/comments/${commentId}/replies/${replyId}/`, { reply_content: replyContent })).data;
+// Mobile -> Backend: DELETE /api/comments/{comment_id}/replies/{reply_id}/
+export const deleteCommentReply = async (commentId: number, replyId: number) => 
+  (await api.delete(`/api/comments/${commentId}/replies/${replyId}/`)).data;
 // Some screens expect a dedicated likes endpoint. Provide a flexible helper.
 // Mobile -> Backend: GET /api/posts/{post_id}/likes/
 export const getPostLikes = async (postId: number) => {
@@ -811,8 +862,22 @@ export const getForums = async () => {
   return response.data?.forums || [];
 };
 // Mobile -> Backend: POST /api/forum/
-export const createForumPost = async (payload: { title?: string; content: string; image?: string }) =>
-  (await api.post('/api/forum/', { post_title: payload.title, post_content: payload.content, post_image: payload.image })).data;
+export const createForumPost = async (payload: { title?: string; content: string; image?: string; images?: string[] }) => {
+  const forumData: any = { 
+    post_title: payload.title, 
+    post_content: payload.content 
+  };
+  
+  // Handle multiple images if provided
+  if (payload.images && payload.images.length > 0) {
+    forumData.post_images = payload.images;
+  } else if (payload.image) {
+    // Fallback to single image for backward compatibility
+    forumData.post_image = payload.image;
+  }
+  
+  return (await api.post('/api/forum/', forumData)).data;
+};
 // Mobile -> Backend: GET /api/forum/{forum_id}/
 export const getForumDetail = async (forumId: number) => (await api.get(`/api/forum/${forumId}/`)).data;
 // Mobile -> Backend: PUT /api/forum/{forum_id}/
@@ -1001,6 +1066,7 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
     const form = new FormData();
     if (typeof params.bio === 'string') form.append('bio', params.bio);
     if (params.imageUri) {
+      console.log('Adding image to FormData:', params.imageUri);
       form.append('profile_pic', { uri: params.imageUri, name: 'profile.jpg', type: 'image/jpeg' } as any);
     }
 
@@ -1011,9 +1077,14 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
     // Fire requests; keep references by name to avoid index math
     const bioPromise = (params.bio || params.imageUri)
       ? api.put(`/api/alumni/profile/update/?user_id=${userId}`, form, {
-          headers: { 'Content-Type': 'multipart/form-data' },
+          headers: { 
+            'Content-Type': 'multipart/form-data',
+          },
         })
       : null;
+    
+    console.log('Making API request to:', `/api/alumni/profile/update/?user_id=${userId}`);
+    console.log('FormData contents:', form);
 
     const socialPromise = (typeof normalizedSocial !== 'undefined')
       ? api.put(
@@ -1032,7 +1103,11 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
       : null;
 
     const [bioRes, socialRes, emailRes] = await Promise.all([
-      bioPromise?.catch((e) => { console.error('Update bio/photo failed:', e?.response?.data || e?.message); return null; }),
+      bioPromise?.catch((e) => { 
+        console.error('Update bio/photo failed:', e?.response?.data || e?.message);
+        console.error('Full error:', e);
+        return null; 
+      }),
       socialPromise?.catch((e) => { console.error('Update social media failed:', e?.response?.data || e?.message); return null; }),
       emailPromise?.catch((e) => { console.error('Update email failed:', e?.response?.data || e?.message); return null; }),
     ]);
@@ -1044,7 +1119,13 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
       if (bioRes?.data?.user) {
         const bioResult = bioRes.data.user;
         merged.profile_bio = bioResult.bio ?? merged.profile_bio;
-        merged.profile_pic = bioResult.profile_pic ?? merged.profile_pic;
+        // Handle profile picture URL properly
+        if (bioResult.profile_pic) {
+          // If it's a full URL, use it directly, otherwise prepend API_BASE_URL
+          merged.profile_pic = bioResult.profile_pic.startsWith('http') 
+            ? bioResult.profile_pic 
+            : `${API_BASE_URL}${bioResult.profile_pic}`;
+        }
         merged.name = bioResult.name ?? merged.name;
       }
 

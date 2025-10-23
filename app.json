@@ -8,7 +8,11 @@
     "scheme": "wnymobile",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to attach images to posts.",
+        "NSCameraUsageDescription": "This app needs access to your camera to take photos for posts."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -16,7 +20,12 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.wnymobile"
+      "package": "com.anonymous.wnymobile",
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -42,7 +51,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "API_BASE_URL": "https://fcd335ee6e94.ngrok-free.app"
+      "API_BASE_URL": "https://saul-relevant-letha.ngrok-free.dev"
     }
   }
 }

@@ -183,6 +183,13 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     }
   }, [currentUserId, post.user.user_id]);
 
+  // Sync like state when post data changes
+  useEffect(() => {
+    setIsLiked(post.is_liked || false);
+    setLikeCount(post.likes_count || 0);
+    setRepostCount(post.reposts_count || 0);
+  }, [post.is_liked, post.likes_count, post.reposts_count]);
+
   return (
     <View style={styles.card}>
       {/* Header */}

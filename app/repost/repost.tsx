@@ -6,6 +6,7 @@ import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikeP
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { Ionicons } from '@expo/vector-icons';
+import UserAvatar from '../../components/UserAvatar';
 
 dayjs.extend(relativeTime);
 

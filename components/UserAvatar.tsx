@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, Image, StyleSheet, ImageSourcePropType } from 'react-native';
 import { API_BASE_URL } from '../services/api';
 
@@ -17,6 +17,8 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   size = 40,
   style 
 }) => {
+  const [imageError, setImageError] = useState(false);
+  
   // Generate initials from first and last name
   const getInitials = (first: string, last: string) => {
     const firstInitial = first.charAt(0).toUpperCase();
@@ -27,7 +29,11 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   const initials = getInitials(firstName, lastName);
   
   // Determine if we have a valid profile picture
-  const hasValidProfilePic = profilePic && profilePic.trim() !== '' && profilePic !== 'null' && profilePic !== 'undefined';
+  const hasValidProfilePic = profilePic && 
+    profilePic.trim() !== '' && 
+    profilePic !== 'null' && 
+    profilePic !== 'undefined' && 
+    !imageError;
   
   const avatarStyle = {
     width: size,
@@ -35,7 +41,7 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
     borderRadius: size / 2,
   };
 
-  // Always prioritize initials if no valid profile pic
+  // Show initials if no valid profile pic or if image failed to load
   if (!hasValidProfilePic || !firstName) {
     return (
       <View style={[
@@ -66,8 +72,8 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
       style={[avatarStyle, style]}
       resizeMode="cover"
       onError={() => {
-        // If image fails to load, this will cause a re-render with hasValidProfilePic = false
         console.warn('Failed to load profile image:', profilePic);
+        setImageError(true);
       }}
     />
   );

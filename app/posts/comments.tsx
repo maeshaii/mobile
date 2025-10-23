@@ -6,8 +6,10 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -37,6 +39,10 @@ import {
   updateDonationComment,
   deleteDonationComment,
   getDonationDetail,
+  getCommentReplies,
+  createCommentReply,
+  updateCommentReply,
+  deleteCommentReply,
 } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 
@@ -45,6 +51,19 @@ dayjs.extend(relativeTime);
 type CommentItem = {
   comment_id: number;
   comment_content: string;
+  date_created?: string;
+  replies_count?: number;
+  user: {
+    user_id: number;
+    f_name?: string;
+    l_name?: string;
+    profile_pic?: string;
+  };
+};
+
+type ReplyItem = {
+  reply_id: number;
+  reply_content: string;
   date_created?: string;
   user: {
     user_id: number;
@@ -79,11 +98,43 @@ export default function PostCommentsScreen() {
   const [actionFor, setActionFor] = useState<CommentItem | null>(null);
   const [highlightedCommentId, setHighlightedCommentId] = useState<number | null>(null);
 
+  // Reply state management
+  const [commentReplies, setCommentReplies] = useState<{ [commentId: number]: ReplyItem[] }>({});
+  const [showReplies, setShowReplies] = useState<{ [commentId: number]: boolean }>({});
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [submittingReply, setSubmittingReply] = useState(false);
+  const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
+  const [editReplyText, setEditReplyText] = useState('');
+  
+  // Image viewer state
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+
   const [now, setNow] = useState(dayjs());
   useEffect(() => {
     const t = setInterval(() => setNow(dayjs()), 60000);
     return () => clearInterval(t);
   }, []);
+
+  const renderAvatar = (src: string | null | undefined) => {
+    if (!src) return require('../../assets/images/sample_pic.jpg');
+    const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
+    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+  };
+
+  // Load replies for comments that have replies when comments change
+  useEffect(() => {
+    if (comments.length > 0) {
+      comments.forEach(comment => {
+        if ((comment.replies_count || 0) > 0) {
+          loadReplies(comment.comment_id);
+          // Automatically show replies when they exist
+          setShowReplies(prev => ({ ...prev, [comment.comment_id]: true }));
+        }
+      });
+    }
+  }, [comments]);
 
   const load = useCallback(async () => {
     try {
@@ -165,13 +216,6 @@ export default function PostCommentsScreen() {
     }
   }, [postId, isForumPost, isDonationPost]);
 
-  const renderAvatar = (src?: string) => {
-    if (!src) return require('../../assets/images/sample_pic.jpg');
-    const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
-    const imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
-    console.log('Comments - renderAvatar - src:', src, 'imageUrl:', imageUrl);
-    return { uri: imageUrl };
-  };
 
   const meId = me?.id || me?.user_id;
   const canSend = !!postId && !!commentText.trim() && !submitting;
@@ -231,7 +275,82 @@ export default function PostCommentsScreen() {
     }
   }
 
-  const hideComposer = !!actionFor || editingId !== null;
+  // Reply functions
+  async function loadReplies(commentId: number) {
+    try {
+      console.log('Loading replies for comment:', commentId);
+      const response = await getCommentReplies(commentId);
+      console.log('Replies response:', response);
+      console.log('Number of replies received:', response.replies?.length || 0);
+      setCommentReplies(prev => {
+        const newReplies = { ...prev, [commentId]: response.replies || [] };
+        console.log('Updated commentReplies state:', newReplies);
+        return newReplies;
+      });
+    } catch (error) {
+      console.error('Error loading replies:', error);
+    }
+  }
+
+  async function handleReplySubmit(commentId: number) {
+    if (!replyText.trim() || submittingReply) return;
+    
+    setSubmittingReply(true);
+    try {
+      // Find the comment to get the user info for mention
+      const comment = comments.find(c => c.comment_id === commentId);
+      const mentionText = comment ? `@${comment.user?.f_name || 'User'} ` : '';
+      const replyWithMention = `${mentionText}${replyText.trim()}`;
+      
+      await createCommentReply(commentId, replyWithMention);
+      setReplyText('');
+      setReplyingTo(null);
+      // Show replies after submitting a new reply
+      setShowReplies(prev => ({ ...prev, [commentId]: true }));
+      await loadReplies(commentId);
+    } catch (error) {
+      console.error('Error submitting reply:', error);
+      Alert.alert('Error', 'Failed to post reply');
+    } finally {
+      setSubmittingReply(false);
+    }
+  }
+
+  async function handleReplyUpdate(commentId: number, replyId: number) {
+    if (!editReplyText.trim()) return;
+    
+    try {
+      await updateCommentReply(commentId, replyId, editReplyText.trim());
+      setEditingReplyId(null);
+      setEditReplyText('');
+      await loadReplies(commentId);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update reply');
+    }
+  }
+
+  async function handleReplyDelete(commentId: number, replyId: number) {
+    try {
+      await deleteCommentReply(commentId, replyId);
+      await loadReplies(commentId);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete reply');
+    }
+  }
+
+  function toggleReplies(commentId: number) {
+    setShowReplies(prev => ({
+      ...prev,
+      [commentId]: !prev[commentId]
+    }));
+    
+    // Load replies if not already loaded
+    if (!commentReplies[commentId]) {
+      loadReplies(commentId);
+    }
+  }
+
+  const hideComposer = !!actionFor || editingId !== null || replyingTo !== null;
   const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
 
   const commentCount = comments.length;
@@ -320,6 +439,183 @@ export default function PostCommentsScreen() {
                 <Text style={styles.cBody}>{c.comment_content}</Text>
               </View>
             )}
+
+            {/* Reply section */}
+            {!isEditing && (
+              <View style={styles.replySection}>
+                {/* Reply button */}
+                <TouchableOpacity 
+                  style={styles.replyButton}
+                  onPress={() => setReplyingTo(replyingTo === c.comment_id ? null : c.comment_id)}
+                >
+                  <Text style={styles.replyButtonText}>
+                    {replyingTo === c.comment_id ? 'Cancel Reply' : 'Reply'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Show replies count and toggle */}
+                {(c.replies_count || 0) > 0 && (
+                  <TouchableOpacity 
+                    style={styles.repliesToggle}
+                    onPress={() => toggleReplies(c.comment_id)}
+                  >
+                    <Text style={styles.repliesToggleText}>
+                      {showReplies[c.comment_id] ? 'Hide' : 'View'} {c.replies_count || 0} {(c.replies_count || 0) === 1 ? 'reply' : 'replies'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Reply input */}
+                {replyingTo === c.comment_id && (
+                  <View style={styles.replyInputContainer}>
+                    <View style={styles.replyingToContainer}>
+                      <Text style={styles.replyingToText}>
+                        Replying to {c.user?.f_name || 'User'}
+                      </Text>
+                      <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                        <Ionicons name="close" size={16} color="#6b7280" />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.replyInputRow}>
+                      <TextInput
+                        style={styles.replyInput}
+                        value={replyText}
+                        onChangeText={setReplyText}
+                        placeholder={`Reply to ${c.user?.f_name || 'User'}...`}
+                        placeholderTextColor="#9ca3af"
+                        multiline
+                        returnKeyType="send"
+                        blurOnSubmit
+                        onSubmitEditing={() => handleReplySubmit(c.comment_id)}
+                      />
+                      <TouchableOpacity
+                        disabled={!replyText.trim() || submittingReply}
+                        onPress={() => handleReplySubmit(c.comment_id)}
+                        style={[
+                          styles.replySendButton,
+                          (!replyText.trim() || submittingReply) && { opacity: 0.5 }
+                        ]}
+                      >
+                        {submittingReply ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Ionicons name="send" size={18} color="#fff" />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* Replies list */}
+                {(() => {
+                  const shouldShow = showReplies[c.comment_id];
+                  const hasReplies = commentReplies[c.comment_id];
+                  console.log(`Comment ${c.comment_id} - shouldShow: ${shouldShow}, hasReplies: ${!!hasReplies}, repliesCount: ${hasReplies?.length || 0}`);
+                  return shouldShow && hasReplies;
+                })() && (
+                  <View style={styles.repliesContainer}>
+                    {commentReplies[c.comment_id].map((reply, replyIndex) => {
+                      const isMyReply = reply.user?.user_id === meId;
+                      const isEditingReply = editingReplyId === reply.reply_id;
+                      
+                      return (
+                        <View key={replyIndex} style={styles.replyItem}>
+                          <Image source={renderAvatar(reply.user?.profile_pic)} style={styles.replyAvatar} />
+                          <View style={styles.replyContent}>
+                            <TouchableOpacity 
+                              onPress={() => {
+                                if (reply.user?.user_id && reply.user.user_id !== meId) {
+                                  router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
+                                }
+                              }}
+                              disabled={!reply.user?.user_id || reply.user.user_id === meId}
+                            >
+                              <Text style={[
+                                styles.replyName,
+                                (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
+                              ]}>
+                                {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
+                              </Text>
+                            </TouchableOpacity>
+                            
+                            {isEditingReply ? (
+                              <KeyboardAvoidingView
+                                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                                style={styles.editReplyContainer}
+                              >
+                                <TextInput
+                                  style={styles.editReplyInput}
+                                  value={editReplyText}
+                                  onChangeText={setEditReplyText}
+                                  placeholder="Edit your reply..."
+                                  placeholderTextColor="#9ca3af"
+                                  multiline
+                                  autoFocus
+                                  returnKeyType="default"
+                                  blurOnSubmit={false}
+                                />
+                                <View style={styles.editReplyActions}>
+                                  <TouchableOpacity
+                                    style={styles.editReplyButton}
+                                    onPress={() => handleReplyUpdate(c.comment_id, reply.reply_id)}
+                                  >
+                                    <Text style={styles.editReplyButtonText}>Update</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={styles.cancelReplyButton}
+                                    onPress={() => setEditingReplyId(null)}
+                                  >
+                                    <Text style={styles.cancelReplyButtonText}>Cancel</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </KeyboardAvoidingView>
+                            ) : (
+                              <Text style={styles.replyText}>{reply.reply_content}</Text>
+                            )}
+                            
+                            <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
+                            
+                            {/* Reply Actions */}
+                            {isMyReply && !isEditingReply && (
+                              <View style={styles.replyActions}>
+                                <TouchableOpacity
+                                  style={styles.replyActionButton}
+                                  onPress={() => {
+                                    setEditingReplyId(reply.reply_id);
+                                    setEditReplyText(reply.reply_content);
+                                  }}
+                                >
+                                  <Text style={styles.replyActionText}>Edit</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.replyActionButton}
+                                  onPress={() => {
+                                    Alert.alert(
+                                      'Delete Reply',
+                                      'Are you sure you want to delete this reply?',
+                                      [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: () => handleReplyDelete(c.comment_id, reply.reply_id)
+                                        }
+                                      ]
+                                    );
+                                  }}
+                                >
+                                  <Text style={[styles.replyActionText, styles.replyDeleteText]}>Delete</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -385,6 +681,7 @@ export default function PostCommentsScreen() {
                   
                   // Add main post image if exists (backward compatibility)
                   if (post.post_image) {
+                    console.log('Comments - Adding post_image:', post.post_image);
                     images.push({
                       image_id: 0,
                       image_url: post.post_image,
@@ -394,43 +691,62 @@ export default function PostCommentsScreen() {
                   
                   // Add post_images array if exists (multiple images)
                   if (post.post_images && Array.isArray(post.post_images)) {
+                    console.log('Comments - Adding post_images:', post.post_images);
                     images.push(...post.post_images);
                   }
                   
                   console.log('Comments - Images to display:', images);
+                  console.log('Comments - Images length:', images.length);
+                  console.log('Comments - Will render images:', images.length > 0);
                   return images.length > 0 && (
                     <View style={styles.imagesContainer}>
                       {images.length === 1 ? (
-                        <Image
-                          source={renderAvatar(images[0].image_url)}
-                          style={styles.postImage}
-                          resizeMode="cover"
-                          onError={(error) => {
-                            console.log('Comments - Image load error:', error.nativeEvent.error);
-                            console.log('Comments - Failed image URL:', images[0].image_url);
+                        <TouchableOpacity 
+                          onPress={() => {
+                            setSelectedImageIndex(0);
+                            setImageViewerVisible(true);
                           }}
-                          onLoad={() => {
-                            console.log('Comments - Image loaded successfully:', images[0].image_url);
-                          }}
-                        />
+                          style={styles.imageWrapper}
+                        >
+                          <Image
+                            source={renderAvatar(images[0].image_url)}
+                            style={styles.postImage}
+                            resizeMode="cover"
+                            onError={(error) => {
+                              console.log('Comments - Image load error:', error.nativeEvent.error);
+                              console.log('Comments - Failed image URL:', images[0].image_url);
+                            }}
+                            onLoad={() => {
+                              console.log('Comments - Image loaded successfully:', images[0].image_url);
+                            }}
+                          />
+                        </TouchableOpacity>
                       ) : (
                         <FlatList
                           horizontal
                           data={images}
                           keyExtractor={(item, index) => `image-${item.image_id || index}`}
-                          renderItem={({ item }) => (
-                            <Image
-                              source={renderAvatar(item.image_url)}
-                              style={styles.postImage}
-                              resizeMode="cover"
-                              onError={(error) => {
-                                console.log('Comments - Image load error:', error.nativeEvent.error);
-                                console.log('Comments - Failed image URL:', item.image_url);
+                          renderItem={({ item, index }) => (
+                            <TouchableOpacity 
+                              onPress={() => {
+                                setSelectedImageIndex(index);
+                                setImageViewerVisible(true);
                               }}
-                              onLoad={() => {
-                                console.log('Comments - Image loaded successfully:', item.image_url);
-                              }}
-                            />
+                              style={styles.imageWrapper}
+                            >
+                              <Image
+                                source={renderAvatar(item.image_url)}
+                                style={[styles.postImage, { width: 220, marginRight: 8 }]}
+                                resizeMode="cover"
+                                onError={(error) => {
+                                  console.log('Comments - Image load error:', error.nativeEvent.error);
+                                  console.log('Comments - Failed image URL:', item.image_url);
+                                }}
+                                onLoad={() => {
+                                  console.log('Comments - Image loaded successfully:', item.image_url);
+                                }}
+                              />
+                            </TouchableOpacity>
                           )}
                           showsHorizontalScrollIndicator={false}
                           contentContainerStyle={styles.imagesScrollContainer}
@@ -543,6 +859,56 @@ export default function PostCommentsScreen() {
         </View>
       </View>
     )}
+
+      {/* Image Viewer Modal */}
+      {imageViewerVisible && post && (() => {
+        const images: any[] = [];
+        if (post.post_image) images.push({ image_url: post.post_image, order: 0 });
+        if (Array.isArray(post.post_images)) images.push(...post.post_images);
+        const sortedImages = images.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        
+        return sortedImages.length > 0 && (
+          <Modal visible={imageViewerVisible} transparent animationType="fade">
+            <View style={styles.imageViewerOverlay}>
+              <TouchableOpacity 
+                style={styles.imageViewerContainer}
+                onPress={() => setImageViewerVisible(false)}
+              >
+                <View style={styles.imageViewerHeader}>
+                  <TouchableOpacity
+                    onPress={() => setImageViewerVisible(false)}
+                    style={styles.imageViewerCloseButton}
+                  >
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                  {sortedImages.length > 1 && (
+                    <Text style={styles.imageViewerPagination}>
+                      {selectedImageIndex + 1} of {sortedImages.length}
+                    </Text>
+                  )}
+                </View>
+                <ScrollView 
+                  horizontal 
+                  pagingEnabled 
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.imageViewerScroll}
+                  contentOffset={{ x: selectedImageIndex * 400, y: 0 }}
+                >
+                  {sortedImages.map((image, index) => (
+                    <View key={index} style={styles.imageViewerItem}>
+                      <Image 
+                        source={renderAvatar(image.image_url)} 
+                        style={styles.imageViewerImage}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  ))}
+                </ScrollView>
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        );
+      })()}
     </SafeAreaView>
   );
 }
@@ -561,6 +927,7 @@ const styles = StyleSheet.create({
   },
   subtle: {
     color: '#6b7280',
+    fontSize: 12,
   },
 
   // Top bar
@@ -625,9 +992,7 @@ const styles = StyleSheet.create({
   commentRow: {
     flexDirection: 'row',
     gap: 10,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e5e7eb',
+    paddingVertical: 8,
   },
   cAvatar: {
     width: 32,
@@ -639,17 +1004,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   cName: { fontWeight: '600', color: '#111827' },
   cMeta: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   bubble: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    backgroundColor: '#f1f5f9',
     paddingVertical: 8,
-    alignSelf: 'flex-start',
-    maxWidth: '100%',
+    paddingHorizontal: 12,
+    borderRadius: 14,
   },
   highlightedBubble: {
     backgroundColor: '#fef3c7',
@@ -794,4 +1157,299 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   
+  // Reply styles
+  replySection: {
+    marginTop: 8,
+    marginLeft: 40,
+  },
+  replyButton: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+  },
+  replyButtonText: { color: '#1d4ed8', fontWeight: '600' },
+  repliesToggle: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    marginTop: 6,
+  },
+  repliesToggleText: {
+    color: '#1d4ed8',
+    fontWeight: '600',
+  },
+  replyInputContainer: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  replyInput: {
+    backgroundColor: '#fff',
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 14,
+    minHeight: 40,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  replyActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  replyCancelButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    backgroundColor: '#f3f4f6',
+  },
+  replyCancelText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  replySubmitButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    backgroundColor: '#1e3a8a',
+  },
+  replySubmitButtonDisabled: {
+    opacity: 0.5,
+  },
+  replySubmitText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  repliesContainer: {
+    marginTop: 8,
+    marginLeft: 36,
+    gap: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: '#e5e7eb',
+    paddingLeft: 10,
+  },
+  replyItem: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  replyAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
+    backgroundColor: '#e5e7eb',
+  },
+  replyContent: {
+    flex: 1,
+  },
+  replyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  replyName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#111827',
+    marginRight: 8,
+  },
+  replyTime: {
+    fontSize: 10,
+    color: '#6b7280',
+  },
+  replyBubble: {
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+  },
+  replyText: {
+    fontSize: 13,
+    color: '#111827',
+    lineHeight: 18,
+  },
+  replyEditContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  replyEditInput: {
+    fontSize: 13,
+    minHeight: 40,
+    maxHeight: 100,
+    textAlignVertical: 'top',
+  },
+  replyEditActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  replyEditSave: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#1e3a8a',
+  },
+  replyEditSaveText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  replyEditCancel: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#f3f4f6',
+  },
+  replyEditCancelText: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  replyActionButton: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 3,
+    backgroundColor: '#e5e7eb',
+  },
+  replyActionText: {
+    fontSize: 10,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  replyDeleteText: {
+    color: '#dc2626',
+  },
+  clickableName: {
+    color: '#1e3a8a',
+  },
+  replyingToContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  replyingToText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  replyInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  replySendButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editReplyContainer: {
+    marginTop: 8,
+  },
+  editReplyInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 13,
+    minHeight: 40,
+    maxHeight: 100,
+    textAlignVertical: 'top',
+  },
+  editReplyActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  editReplyButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#1e3a8a',
+  },
+  editReplyButtonText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  cancelReplyButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#f3f4f6',
+  },
+  cancelReplyButtonText: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  imageWrapper: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerHeader: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 1,
+  },
+  imageViewerCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  imageViewerPagination: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  imageViewerScroll: {
+    flex: 1,
+    width: '100%',
+  },
+  imageViewerItem: {
+    width: 400,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerImage: {
+    width: '100%',
+    height: '100%',
+  },
 });

@@ -25,7 +25,9 @@ interface Post {
     user_id: number; 
     f_name: string; 
     l_name: string; 
-    profile_pic?: string | null 
+    profile_pic?: string | null;
+    account_type?: string;
+    user_type?: string;
   };
 }
 
@@ -58,7 +60,20 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     setEditContent(post.post_content);
   }, [post.post_content]);
 
+  // Sync like state and repost count when post data changes
+  useEffect(() => {
+    setIsLiked(post.is_liked || false);
+    setLikeCount(post.likes_count || 0);
+    setRepostCount(post.reposts_count || 0);
+  }, [post.is_liked, post.likes_count, post.reposts_count]);
+
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
+  
+  // Check if user is admin or peso for priority display
+  const userType = post.user?.account_type || post.user?.user_type || 'user';
+  const isAdmin = userType === 'admin';
+  const isPeso = userType === 'peso';
+  const isPriorityUser = isAdmin || isPeso;
 
   // Handle both single image and multiple images
   const getImagesFromPost = (post: any) => {
@@ -215,17 +230,43 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     <View style={styles.card}>
       {/* Header */}
       <View style={styles.cardHeader}>
-        <UserAvatar 
-          profilePic={post.user?.profile_pic}
-          firstName={post.user?.f_name}
-          lastName={post.user?.l_name}
-          size={40}
-          style={styles.avatar}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{userName}</Text>
-          <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
-        </View>
+        <TouchableOpacity
+          onPress={() => {
+            const uid = post.user?.user_id;
+            if (uid) {
+              router.push(`/profile/profilepage?viewUserId=${uid}`);
+            }
+          }}
+          disabled={!post.user?.user_id}
+          style={styles.userContainer}
+        >
+          <UserAvatar 
+            profilePic={post.user?.profile_pic}
+            firstName={post.user?.f_name}
+            lastName={post.user?.l_name}
+            size={40}
+            style={styles.avatar}
+          />
+          <View style={{ flex: 1 }}>
+            <View style={styles.nameContainer}>
+              <Text style={[
+                styles.name,
+                (post.user?.user_id && post.user?.user_id !== currentUserId) ? styles.clickableName : null
+              ]}>{userName}</Text>
+              {isPriorityUser && (
+                <View style={[
+                  styles.priorityBadge,
+                  isAdmin ? styles.adminBadge : styles.pesoBadge
+                ]}>
+                  <Text style={styles.priorityBadgeText}>
+                    {isAdmin ? 'ADMIN' : 'PESO'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
+          </View>
+        </TouchableOpacity>
         {currentUserId === post.user?.user_id && (
           <TouchableOpacity
             onPress={() => setShowActions(true)}
@@ -574,5 +615,35 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: 400,
     height: 400,
+  },
+  userContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  clickableName: {
+    color: '#1e3a8a',
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  priorityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  adminBadge: {
+    backgroundColor: '#dc2626', // Red for admin
+  },
+  pesoBadge: {
+    backgroundColor: '#059669', // Green for peso
+  },
+  priorityBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });

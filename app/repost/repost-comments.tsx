@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { API_BASE_URL, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment, getRepostDetail, getUserInfo, updateRepost, deleteRepost, getPostLikes } from '../../services/api';
+import { API_BASE_URL, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment, getRepostDetail, getUserInfo, updateRepost, deleteRepost, getPostLikes, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -13,6 +13,19 @@ dayjs.extend(relativeTime);
 type CommentItem = {
   comment_id: number;
   comment_content: string;
+  date_created?: string;
+  replies_count?: number;
+  user: {
+    user_id: number;
+    f_name?: string;
+    l_name?: string;
+    profile_pic?: string;
+  };
+};
+
+type ReplyItem = {
+  reply_id: number;
+  reply_content: string;
   date_created?: string;
   user: {
     user_id: number;
@@ -45,11 +58,40 @@ export default function RepostCommentsScreen() {
   const [highlightedCommentId, setHighlightedCommentId] = useState<number | null>(null);
   const [originalImages, setOriginalImages] = useState<any[]>([]);
 
+  // Reply state management
+  const [commentReplies, setCommentReplies] = useState<{ [commentId: number]: ReplyItem[] }>({});
+  const [showReplies, setShowReplies] = useState<{ [commentId: number]: boolean }>({});
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [submittingReply, setSubmittingReply] = useState(false);
+  const [editingReplyId, setEditingReplyId] = useState<number | null>(null);
+  const [editReplyText, setEditReplyText] = useState('');
+
   const [now, setNow] = useState(dayjs());
   useEffect(() => {
     const t = setInterval(() => setNow(dayjs()), 60000);
     return () => clearInterval(t);
   }, []);
+
+  // Load replies for comments that have replies when comments change
+  useEffect(() => {
+    if (comments.length > 0) {
+      console.log('Comments loaded, checking for replies...');
+      comments.forEach(comment => {
+        console.log(`Comment ${comment.comment_id} has ${comment.replies_count || 0} replies`);
+        if ((comment.replies_count || 0) > 0) {
+          console.log(`Loading replies for comment ${comment.comment_id}`);
+          loadReplies(comment.comment_id);
+          // Automatically show replies when they exist
+          setShowReplies(prev => {
+            const newState = { ...prev, [comment.comment_id]: true };
+            console.log('Setting showReplies to:', newState);
+            return newState;
+          });
+        }
+      });
+    }
+  }, [comments]);
 
   const load = useCallback(async () => {
     if (!repostId) {
@@ -110,6 +152,7 @@ export default function RepostCommentsScreen() {
         // Sort by order
         const sortedImages = images.sort((a, b) => (a.order || 0) - (b.order || 0));
         console.log('Final sorted images array:', sortedImages);
+        console.log('Setting originalImages to:', sortedImages);
         setOriginalImages(sortedImages);
       } else {
         console.log('No original post data found');
@@ -169,9 +212,13 @@ export default function RepostCommentsScreen() {
   };
 
   const renderPostImage = (src?: string | null) => {
-    if (!src) return null;
+    if (!src) {
+      console.log('Repost Comments - renderPostImage - no src provided');
+      return null;
+    }
     const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
     const imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
+    console.log('Repost Comments - renderPostImage - src:', src, 'isAbs:', isAbs, 'imageUrl:', imageUrl);
     return { uri: imageUrl };
   };
 
@@ -258,11 +305,91 @@ export default function RepostCommentsScreen() {
     }
   }
 
-  const hideComposer = !!actionFor || editingId !== null;
+  // Reply functions
+  async function loadReplies(commentId: number) {
+    try {
+      console.log('=== LOADING REPLIES ===');
+      console.log('Loading replies for comment:', commentId);
+      const response = await getCommentReplies(commentId);
+      console.log('Replies response:', response);
+      console.log('Number of replies received:', response.replies?.length || 0);
+      console.log('Replies data:', response.replies);
+      
+      setCommentReplies(prev => {
+        const newReplies = { ...prev, [commentId]: response.replies || [] };
+        console.log('Updated commentReplies state:', newReplies);
+        console.log('Replies for comment', commentId, ':', newReplies[commentId]);
+        console.log('=== REPLIES LOADED ===');
+        return newReplies;
+      });
+    } catch (error) {
+      console.error('Error loading replies:', error);
+    }
+  }
+
+  async function handleReplySubmit(commentId: number) {
+    if (!replyText.trim() || submittingReply) return;
+    
+    setSubmittingReply(true);
+    try {
+      // Find the comment to get the user info for mention
+      const comment = comments.find(c => c.comment_id === commentId);
+      const mentionText = comment ? `@${comment.user?.f_name || 'User'} ` : '';
+      const replyWithMention = `${mentionText}${replyText.trim()}`;
+      
+      await createCommentReply(commentId, replyWithMention);
+      setReplyText('');
+      setReplyingTo(null);
+      // Show replies after submitting a new reply
+      setShowReplies(prev => ({ ...prev, [commentId]: true }));
+      await loadReplies(commentId);
+    } catch (error) {
+      console.error('Error submitting reply:', error);
+      Alert.alert('Error', 'Failed to post reply');
+    } finally {
+      setSubmittingReply(false);
+    }
+  }
+
+  async function handleReplyUpdate(commentId: number, replyId: number) {
+    if (!editReplyText.trim()) return;
+    
+    try {
+      await updateCommentReply(commentId, replyId, editReplyText.trim());
+      setEditingReplyId(null);
+      setEditReplyText('');
+      await loadReplies(commentId);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update reply');
+    }
+  }
+
+  async function handleReplyDelete(commentId: number, replyId: number) {
+    try {
+      await deleteCommentReply(commentId, replyId);
+      await loadReplies(commentId);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete reply');
+    }
+  }
+
+  function toggleReplies(commentId: number) {
+    setShowReplies(prev => ({
+      ...prev,
+      [commentId]: !prev[commentId]
+    }));
+    
+    // Load replies if not already loaded
+    if (!commentReplies[commentId]) {
+      loadReplies(commentId);
+    }
+  }
+
+  const hideComposer = !!actionFor || editingId !== null || replyingTo !== null;
   
   // Debug logging
   console.log('hideComposer:', hideComposer, 'actionFor:', !!actionFor, 'editingId:', editingId);
-  const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
+  const composerHeight = Math.min(Math.max(inputHeight || 44, 44), 120);
 
 
   const commentCount = comments.length;
@@ -341,6 +468,190 @@ export default function RepostCommentsScreen() {
                 highlightedCommentId === c.comment_id && styles.highlightedBubble
               ]}>
                 <Text style={styles.cBody}>{c.comment_content}</Text>
+              </View>
+            )}
+
+            {/* Reply section */}
+            {!isEditing && (
+              <View style={styles.replySection}>
+                {/* Reply button */}
+                <TouchableOpacity 
+                  style={styles.replyButton}
+                  onPress={() => setReplyingTo(replyingTo === c.comment_id ? null : c.comment_id)}
+                >
+                  <Text style={styles.replyButtonText}>
+                    {replyingTo === c.comment_id ? 'Cancel Reply' : 'Reply'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Show replies count and toggle */}
+                {(c.replies_count || 0) > 0 && (
+                  <TouchableOpacity 
+                    style={styles.repliesToggle}
+                    onPress={() => toggleReplies(c.comment_id)}
+                  >
+                    <Text style={styles.repliesToggleText}>
+                      {showReplies[c.comment_id] ? 'Hide' : 'View'} {c.replies_count || 0} {(c.replies_count || 0) === 1 ? 'reply' : 'replies'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Reply input */}
+                {replyingTo === c.comment_id && (
+                  <View style={styles.replyInputContainer}>
+                    <View style={styles.replyingToContainer}>
+                      <Text style={styles.replyingToText}>
+                        Replying to {c.user?.f_name || 'User'}
+                      </Text>
+                      <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                        <Ionicons name="close" size={16} color="#6b7280" />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.replyInputRow}>
+                      <TextInput
+                        style={styles.replyInput}
+                        value={replyText}
+                        onChangeText={setReplyText}
+                        placeholder={`Reply to ${c.user?.f_name || 'User'}...`}
+                        placeholderTextColor="#9ca3af"
+                        multiline
+                        returnKeyType="send"
+                        blurOnSubmit
+                        onSubmitEditing={() => handleReplySubmit(c.comment_id)}
+                      />
+                      <TouchableOpacity
+                        disabled={!replyText.trim() || submittingReply}
+                        onPress={() => handleReplySubmit(c.comment_id)}
+                        style={[
+                          styles.replySendButton,
+                          (!replyText.trim() || submittingReply) && { opacity: 0.5 }
+                        ]}
+                      >
+                        {submittingReply ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Ionicons name="send" size={18} color="#fff" />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* Replies list */}
+                {(() => {
+                  const shouldShow = showReplies[c.comment_id];
+                  const hasReplies = commentReplies[c.comment_id];
+                  console.log(`=== REPLY DISPLAY CHECK ===`);
+                  console.log(`Comment ${c.comment_id} - shouldShow: ${shouldShow}`);
+                  console.log(`Comment ${c.comment_id} - hasReplies: ${!!hasReplies}`);
+                  console.log(`Comment ${c.comment_id} - repliesCount: ${hasReplies?.length || 0}`);
+                  console.log(`Comment ${c.comment_id} - showReplies state:`, showReplies);
+                  console.log(`Comment ${c.comment_id} - commentReplies state:`, commentReplies);
+                  console.log(`Comment ${c.comment_id} - Will display: ${shouldShow && hasReplies}`);
+                  console.log(`=== END REPLY DISPLAY CHECK ===`);
+                  return shouldShow && hasReplies;
+                })() && (
+                  <View style={styles.repliesContainer}>
+                    {commentReplies[c.comment_id].map((reply, replyIndex) => {
+                      const isMyReply = reply.user?.user_id === meId;
+                      const isEditingReply = editingReplyId === reply.reply_id;
+                      
+                      return (
+                        <View key={replyIndex} style={styles.replyItem}>
+                          <Image source={renderAvatar(reply.user?.profile_pic)} style={styles.replyAvatar} />
+                          <View style={styles.replyContent}>
+                            <TouchableOpacity 
+                              onPress={() => {
+                                if (reply.user?.user_id && reply.user.user_id !== meId) {
+                                  router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
+                                }
+                              }}
+                              disabled={!reply.user?.user_id || reply.user.user_id === meId}
+                            >
+                              <Text style={[
+                                styles.replyName,
+                                (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
+                              ]}>
+                                {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
+                              </Text>
+                            </TouchableOpacity>
+                            
+                            {isEditingReply ? (
+                              <KeyboardAvoidingView
+                                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                                style={styles.editReplyContainer}
+                              >
+                                <TextInput
+                                  style={styles.editReplyInput}
+                                  value={editReplyText}
+                                  onChangeText={setEditReplyText}
+                                  placeholder="Edit your reply..."
+                                  placeholderTextColor="#9ca3af"
+                                  multiline
+                                  autoFocus
+                                  returnKeyType="default"
+                                  blurOnSubmit={false}
+                                />
+                                <View style={styles.editReplyActions}>
+                                  <TouchableOpacity
+                                    style={styles.editReplyButton}
+                                    onPress={() => handleReplyUpdate(c.comment_id, reply.reply_id)}
+                                  >
+                                    <Text style={styles.editReplyButtonText}>Update</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={styles.cancelReplyButton}
+                                    onPress={() => setEditingReplyId(null)}
+                                  >
+                                    <Text style={styles.cancelReplyButtonText}>Cancel</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </KeyboardAvoidingView>
+                            ) : (
+                              <Text style={styles.replyText}>{reply.reply_content}</Text>
+                            )}
+                            
+                            <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
+                            
+                            {/* Reply Actions */}
+                            {isMyReply && !isEditingReply && (
+                              <View style={styles.replyActions}>
+                                <TouchableOpacity
+                                  style={styles.replyActionButton}
+                                  onPress={() => {
+                                    setEditingReplyId(reply.reply_id);
+                                    setEditReplyText(reply.reply_content);
+                                  }}
+                                >
+                                  <Text style={styles.replyActionText}>Edit</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.replyActionButton}
+                                  onPress={() => {
+                                    Alert.alert(
+                                      'Delete Reply',
+                                      'Are you sure you want to delete this reply?',
+                                      [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: () => handleReplyDelete(c.comment_id, reply.reply_id)
+                                        }
+                                      ]
+                                    );
+                                  }}
+                                >
+                                  <Text style={[styles.replyActionText, styles.replyDeleteText]}>Delete</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
             )}
           </View>
@@ -545,138 +856,25 @@ export default function RepostCommentsScreen() {
                   )}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {meId === repost.original?.user?.user_id && (
-                    <TouchableOpacity 
-                      onPress={() => {
-                        Alert.alert('Original Post Options', 'What would you like to do?', [
-                          { 
-                            text: 'Edit Post', 
-                            onPress: () => {
-                              // Navigate to edit post screen
-                              router.push(`/posts/detail?postId=${repost.original.post_id}`);
-                            }
-                          },
-                          { 
-                            text: 'Delete Post', 
-                            style: 'destructive',
-                            onPress: () => {
-                              Alert.alert(
-                                'Delete Post',
-                                'Are you sure you want to delete this post? This action cannot be undone.',
-                                [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  { 
-                                    text: 'Delete', 
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      try {
-                                        // Call delete post API
-                                        // await deletePost(repost.original.post_id);
-                                        Alert.alert('Success', 'Post deleted successfully!');
-                                        router.back();
-                                      } catch (error) {
-                                        console.error('Error deleting post:', error);
-                                        Alert.alert('Error', 'Failed to delete post. Please try again.');
-                                      }
-                                    }
-                                  }
-                                ]
-                              );
-                            }
-                          },
-                          { text: 'Cancel', style: 'cancel' }
-                        ]);
-                      }}
-                      style={{ padding: 4 }}
-                    >
-                      <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
-                    </TouchableOpacity>
-                  )}
                   <Ionicons name="chevron-forward" size={16} color="#6b7280" />
                 </View>
               </View>
-              {repost.original?.post_content && repost.original.post_content.trim() ? (
-                <Text style={styles.postContent}>{repost.original.post_content}</Text>
+              {(repost.original?.content && repost.original.content.trim()) || (repost.original?.post_content && repost.original.post_content.trim()) ? (
+                <Text style={styles.postContent}>{repost.original.content || repost.original.post_content}</Text>
               ) : (
                 <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
                   Original post content unavailable
                 </Text>
               )}
-              {/* Original Post Images */}
-              {(() => {
-                const images: any[] = [];
-                const orig = repost.original || {};
-                
-                // Check for single image
-                if (orig.post_image) {
-                  images.push({ image_url: orig.post_image });
-                }
-                
-                // Check for multiple images array
-                if (Array.isArray(orig.post_images) && orig.post_images.length > 0) {
-                  images.push(...orig.post_images);
-                }
-                
-                if (!images.length) {
-                  return null; // Don't show debug message, just return null
-                }
-                
-                if (images.length === 1) {
-                  const uri = images[0].image_url;
-                  const imageSource = renderPostImage(uri);
-                  if (!imageSource) return null;
-                  
-                  return (
-                    <TouchableOpacity 
-                      onPress={() => {
-                        setSelectedImageIndex(0);
-                        setImageViewerVisible(true);
-                      }}
-                    >
-                      <Image
-                        source={imageSource}
-                        style={styles.postImage}
-                        resizeMode="cover"
-                        onError={(error) => console.log('Image load error:', error)}
-                        onLoad={() => console.log('Image loaded successfully')}
-                      />
-                    </TouchableOpacity>
-                  );
-                }
-                
-                console.log('Rendering multiple images');
-                return (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesScrollContainer}>
-                    {images.map((img, idx) => {
-                      console.log(`Rendering image ${idx}:`, img.image_url);
-                      const imageSource = renderPostImage(img.image_url);
-                      if (!imageSource) return null;
-                      
-                      return (
-                        <TouchableOpacity 
-                          key={idx}
-                          onPress={() => {
-                            setSelectedImageIndex(idx);
-                            setImageViewerVisible(true);
-                          }}
-                        >
-                          <Image 
-                            source={imageSource} 
-                            style={[styles.postImage, { width: 220, marginRight: 8 }]} 
-                            resizeMode="cover"
-                            onError={(error) => console.log(`Image ${idx} load error:`, error)}
-                            onLoad={() => console.log(`Image ${idx} loaded successfully`)}
-                          />
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                );
-              })()}
               
               {/* Original Post Image */}
               {repost.original && (
                 <View style={styles.originalPostImageContainer}>
+                  {(() => {
+                    console.log('Rendering images - originalImages.length:', originalImages.length);
+                    console.log('Rendering images - originalImages:', originalImages);
+                    return null;
+                  })()}
                   {originalImages.length > 0 ? (
                     originalImages.length === 1 ? (
                       <TouchableOpacity 
@@ -751,16 +949,17 @@ export default function RepostCommentsScreen() {
           >
             <View style={styles.composerInputRow}>
                     <TextInput
-                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
+                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }, (replyingTo || editingReplyId) ? styles.disabledInput : null]}
                 value={commentText}
                 onChangeText={setCommentText}
-                placeholder="Write a comment…"
+                placeholder={replyingTo ? "Replying to comment..." : "Write a comment…"}
                 placeholderTextColor="#9ca3af"
                       multiline
                 onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
                 returnKeyType="send"
                 blurOnSubmit
                 onSubmitEditing={handleSend}
+                editable={!replyingTo && !editingReplyId}
                     />
                       <TouchableOpacity
                 disabled={!canSend}
@@ -1059,6 +1258,11 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     color: '#111827',
   },
+  disabledInput: {
+    backgroundColor: '#f3f4f6',
+    color: '#9ca3af',
+    borderColor: '#d1d5db',
+  },
   sendBtn: {
     backgroundColor: '#1e3a8a',
     paddingHorizontal: 14,
@@ -1205,5 +1409,246 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
     fontStyle: 'italic',
+  },
+  
+  // Reply styles
+  replySection: {
+    marginTop: 8,
+    marginLeft: 40,
+  },
+  replyButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#f3f4f6',
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  replyButtonText: {
+    fontSize: 12,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  repliesToggle: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    marginTop: 6,
+  },
+  repliesToggleText: {
+    color: '#1d4ed8',
+    fontWeight: '600',
+  },
+  replySendButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  replyInputContainer: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  replyInput: {
+    backgroundColor: '#fff',
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 14,
+    minHeight: 40,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    flex: 1,
+  },
+  replyingToContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  replyingToText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  replyInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  replyActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  replyCancelButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    backgroundColor: '#f3f4f6',
+  },
+  replyCancelText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  replySubmitButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    backgroundColor: '#1e3a8a',
+  },
+  replySubmitButtonDisabled: {
+    opacity: 0.5,
+  },
+  replySubmitText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  repliesContainer: {
+    marginTop: 8,
+  },
+  replyItem: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  replyAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
+    backgroundColor: '#e5e7eb',
+  },
+  replyContent: {
+    flex: 1,
+  },
+  replyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  replyName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#111827',
+    marginRight: 8,
+  },
+  replyTime: {
+    fontSize: 10,
+    color: '#6b7280',
+  },
+  replyBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    padding: 8,
+    maxWidth: '85%',
+  },
+  replyText: {
+    fontSize: 13,
+    color: '#111827',
+    lineHeight: 18,
+  },
+  replyEditContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  replyEditInput: {
+    fontSize: 13,
+    minHeight: 40,
+    maxHeight: 100,
+    textAlignVertical: 'top',
+  },
+  replyEditActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  replyEditSave: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#1e3a8a',
+  },
+  replyEditSaveText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  replyEditCancel: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#f3f4f6',
+  },
+  replyEditCancelText: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  replyActionButton: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 3,
+    backgroundColor: '#e5e7eb',
+  },
+  replyActionText: {
+    fontSize: 10,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  replyDeleteText: {
+    color: '#dc2626',
+  },
+  editReplyContainer: {
+    marginTop: 8,
+  },
+  editReplyInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 13,
+    minHeight: 40,
+    maxHeight: 100,
+    textAlignVertical: 'top',
+  },
+  editReplyActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 8,
+  },
+  editReplyButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#1e3a8a',
+  },
+  editReplyButtonText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  cancelReplyButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#f3f4f6',
+  },
+  cancelReplyButtonText: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
   },
 });

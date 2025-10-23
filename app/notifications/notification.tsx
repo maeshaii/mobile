@@ -34,6 +34,8 @@ interface NotificationItem {
   user_id?: number;
   repost_id?: number;
   donation_id?: number;
+  isAdminNotification?: boolean;
+  isPesoNotification?: boolean;
 }
 
 const NotificationScreen = () => {
@@ -129,12 +131,60 @@ const NotificationScreen = () => {
             }
           }
 
+          // Determine notification source for better naming
+          const rawType = n.type || n.notification_type || n.action_type || '';
+          const rawName = n.name || n.title || '';
+          const rawMessage = n.content || n.message || '';
+          
+          // Check if it's from admin/CCICT user
+          const isAdminNotification = 
+            rawType.toLowerCase() === 'ccict' ||
+            rawName.toLowerCase().includes('admin') ||
+            rawName.toLowerCase().includes('ccict') ||
+            rawMessage.toLowerCase().includes('admin') ||
+            rawMessage.toLowerCase().includes('ccict') ||
+            // Check if the notification is FROM a CCICT user (not about CCICT content)
+            (n.f_name && (n.f_name.toLowerCase().includes('admin') || n.f_name.toLowerCase().includes('ccict'))) ||
+            (n.l_name && (n.l_name.toLowerCase().includes('admin') || n.l_name.toLowerCase().includes('ccict')));
+
+          // Check if it's from PESO user
+          const isPesoNotification = 
+            rawType.toLowerCase() === 'peso' ||
+            rawName.toLowerCase().includes('peso') ||
+            rawMessage.toLowerCase().includes('peso') ||
+            rawMessage.toLowerCase().includes('employment') ||
+            rawMessage.toLowerCase().includes('job') ||
+            // Check if the notification is FROM a PESO user
+            (n.f_name && n.f_name.toLowerCase().includes('peso')) ||
+            (n.l_name && n.l_name.toLowerCase().includes('peso'));
+
+          // Debug logging
+          console.log('Notification detection:', {
+            rawType,
+            rawName,
+            rawMessage,
+            isAdminNotification,
+            isPesoNotification
+          });
+
+          // Set appropriate name based on source
+          let displayName = 'Notification';
+          if (n.f_name || n.first_name) {
+            displayName = `${n.f_name || n.first_name || ''} ${n.l_name || n.last_name || ''}`.trim();
+          } else if (isAdminNotification) {
+            displayName = 'CCICT';
+          } else if (isPesoNotification) {
+            displayName = 'PESO';
+          } else {
+            displayName = rawName || 'User';
+          }
+
           return {
             id: n.id || index,
-            name: n.type || n.title || n.name || n.notification_type || 'Notification',
+            name: displayName,
             message: shortMessage,
             date: n.date || n.created_at || new Date().toLocaleDateString(),
-            notif_type: n.type || n.notification_type || n.action_type,
+            notif_type: rawType,
             subject: n.subject,
             post_id: postId,
             forum_id: forumId,
@@ -145,6 +195,9 @@ const NotificationScreen = () => {
             profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic,
             first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
             last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
+            // Store the detected source for avatar rendering
+            isAdminNotification,
+            isPesoNotification,
           };
         } catch (transformError) {
           console.warn('Error transforming notification:', transformError);
@@ -213,17 +266,17 @@ const NotificationScreen = () => {
       }
     }
   
-    // When user likes my post/repost → go to that post's comments
+    // When user likes my post/repost → go to that post's detail page
     if (type === 'like' || name?.includes('like') || message?.includes('like')) {
       if (item.post_id) {
         router.push({
-          pathname: '/posts/comments',
+          pathname: '/posts/detail',
           params: { postId: item.post_id },
         });
         return;
       } else if (item.forum_id) {
         router.push({
-          pathname: '/posts/comments',
+          pathname: '/posts/detail',
           params: { 
             postId: item.forum_id,
             isForumPost: 'true',
@@ -316,6 +369,34 @@ const NotificationScreen = () => {
       router.push('/forms/forms');
       return;
     }
+
+    // Handle CCICT/admin post notifications
+    if (
+      (type === 'ccict' || name?.toLowerCase().includes('admin') || name?.toLowerCase().includes('ccict')) &&
+      (message?.toLowerCase().includes('post') || message?.toLowerCase().includes('announcement'))
+    ) {
+      if (item.post_id) {
+        router.push({
+          pathname: '/posts/detail',
+          params: { postId: item.post_id.toString() },
+        });
+        return;
+      }
+    }
+
+    // Handle PESO post notifications
+    if (
+      (type === 'peso' || name?.toLowerCase().includes('peso')) &&
+      (message?.toLowerCase().includes('post') || message?.toLowerCase().includes('job') || message?.toLowerCase().includes('employment'))
+    ) {
+      if (item.post_id) {
+        router.push({
+          pathname: '/posts/detail',
+          params: { postId: item.post_id.toString() },
+        });
+        return;
+      }
+    }
   
     // Fallback: Show debug info and alert
     console.log('Unhandled notification type:', { type, name, item });
@@ -367,15 +448,92 @@ const NotificationScreen = () => {
     setSelectedIds(allIds);
   };
 
+  const formatNotificationMessage = (item: NotificationItem) => {
+    const message = item.message || '';
+    const name = item.name || '';
+    const type = item.notif_type?.toLowerCase() || '';
+    
+    // Use the pre-detected notification source
+    const isAdminNotification = item.isAdminNotification || false;
+    const isPesoNotification = item.isPesoNotification || false;
+
+    // Handle specific notification types
+    if (type === 'comment' || name.toLowerCase() === 'comment') {
+      return `💬 ${name} commented on your post`;
+    }
+
+    if (type === 'like' || name.toLowerCase() === 'like') {
+      return `❤️ ${name} liked your post`;
+    }
+
+    if (type === 'admin_peso_post' || name.toLowerCase() === 'admin_peso_post') {
+      return `📝 New post from ${name}`;
+    }
+
+    // Format admin/CCICT notifications
+    if (isAdminNotification) {
+      if (message.toLowerCase().includes('tracker')) {
+        return '📋 New tracker update from CCICT';
+      }
+      if (message.toLowerCase().includes('announcement')) {
+        return '📢 New announcement from CCICT';
+      }
+      if (message.toLowerCase().includes('post')) {
+        return '📝 New post from CCICT';
+      }
+      return '📢 New notification from CCICT';
+    }
+
+    // Format PESO notifications
+    if (isPesoNotification) {
+      if (message.toLowerCase().includes('job')) {
+        return '💼 New job opportunity from PESO';
+      }
+      if (message.toLowerCase().includes('employment')) {
+        return '💼 New employment update from PESO';
+      }
+      if (message.toLowerCase().includes('post')) {
+        return '📝 New post from PESO';
+      }
+      return '💼 New notification from PESO';
+    }
+
+    // Format user notifications
+    if (type === 'follow' || message.toLowerCase().includes('follow')) {
+      return `👤 ${name} started following you`;
+    }
+    if (type === 'repost' || message.toLowerCase().includes('repost')) {
+      return `🔄 ${name} shared your post`;
+    }
+    if (type === 'donation' || message.toLowerCase().includes('donation')) {
+      return `💰 ${name} interacted with your donation post`;
+    }
+
+    // Default formatting
+    return message.length > 80 ? message.substring(0, 80) + '...' : message;
+  };
+
   const renderAvatar = (item: NotificationItem) => {
-    // Special case: CCICT/system notifications
-    if (
-      item.notif_type?.toLowerCase() === 'ccict' ||
-      (item.subject && item.subject.toLowerCase().includes('tracker'))
-    ) {
+    // Use the pre-detected notification source
+    const isAdminNotification = item.isAdminNotification || false;
+    const isPesoNotification = item.isPesoNotification || false;
+
+    // Admin/CCICT notifications - show CCICT logo
+    if (isAdminNotification && !isPesoNotification) {
       return (
         <Image
           source={require('../../assets/images/ccict_logo.jpg')}
+          style={styles.avatar}
+          resizeMode="cover"
+        />
+      );
+    }
+    
+    // PESO notifications - show PESO logo
+    if (isPesoNotification) {
+      return (
+        <Image
+          source={require('../../assets/images/peso_logo.jpg')}
           style={styles.avatar}
           resizeMode="cover"
         />
@@ -421,11 +579,8 @@ const NotificationScreen = () => {
           )}
           {renderAvatar(item)}
           <View style={styles.messageBox}>
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.message}>{item.message}</Text>
-          </View>
-          <View style={styles.notificationActions}>
-            <Text style={styles.date}>{item.date}</Text>
+            <Text style={styles.name}>{formatNotificationMessage(item)}</Text>
+            <Text style={styles.message}>{item.date}</Text>
           </View>
         </TouchableOpacity>
       </Swipeable>

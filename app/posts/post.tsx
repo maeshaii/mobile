@@ -1,5 +1,5 @@
 import { FontAwesome } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -46,32 +46,57 @@ export default function PostScreen() {
 
   const pickImage = async () => {
     try {
+      console.log('Starting image picker...');
+      
+      // Request permissions first
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('Permission result:', permissionResult);
+      
+      if (permissionResult.status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library to attach images.');
+        return;
+      }
+      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
+        allowsEditing: false, // Disable editing to allow multiple selection
+        quality: 0.5, // Reduced quality to reduce file size
         allowsMultipleSelection: true, // Enable multiple image selection
       });
 
+      console.log('Image picker result:', result);
+      console.log('Canceled:', result.canceled);
+      console.log('Assets:', result.assets);
+
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        console.log(`Selected ${result.assets.length} images`);
         const maxImages = 15;
         const newImages = result.assets.slice(0, maxImages - selectedImages.length);
+        console.log(`Adding ${newImages.length} new images (max: ${maxImages}, current: ${selectedImages.length})`);
         
         // Convert to base64 for each image
         const base64Images: string[] = [];
         for (const asset of newImages) {
           try {
+            console.log('Converting image to base64:', asset.uri);
             const base64 = await FileSystem.readAsStringAsync(asset.uri, {
               encoding: 'base64',
             });
             base64Images.push(`data:image/jpeg;base64,${base64}`);
+            console.log('Successfully converted image to base64');
           } catch (error) {
             console.error('Error converting image to base64:', error);
           }
         }
         
-        setSelectedImages(prev => [...prev, ...base64Images]);
+        console.log(`Successfully converted ${base64Images.length} images to base64`);
+        setSelectedImages(prev => {
+          const newList = [...prev, ...base64Images];
+          console.log(`Total images now: ${newList.length}`);
+          return newList;
+        });
+      } else {
+        console.log('No images selected or picker was canceled');
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -93,6 +118,9 @@ export default function PostScreen() {
 
     try {
       setSubmitting(true);
+      console.log('Starting post submission...');
+      console.log('Post type:', postType);
+      console.log('Selected images count:', selectedImages.length);
       
       // Handle images - use multiple images if available, fallback to single image
       let postImage = '';
@@ -126,7 +154,7 @@ export default function PostScreen() {
         const forumData = {
           title: '', // Forum posts don't require title
           content: postContent.trim(),
-          image: postImages.length > 0 ? postImages[0] : postImage // Use first image if multiple, fallback to single
+          images: postImages.length > 0 ? postImages : (postImage ? [postImage] : undefined), // Use multiple images
         };
         console.log('Submitting forum post data:', forumData);
         await createForumPost(forumData);
@@ -144,12 +172,26 @@ export default function PostScreen() {
         await createPost(postData);
       }
       
+      console.log('Post created successfully!');
       Alert.alert('Success', 'Post created successfully!', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error) {
       console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post. Please try again.');
+      
+      // Provide more specific error messages
+      let errorMessage = 'Failed to create post. Please try again.';
+      if (error instanceof Error) {
+        if (error.message.includes('timeout')) {
+          errorMessage = 'The request timed out. This might be due to large images. Please try with fewer or smaller images.';
+        } else if (error.message.includes('Network Error')) {
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+        } else if (error.message.includes('413')) {
+          errorMessage = 'Images are too large. Please try with smaller images.';
+        }
+      }
+      
+      Alert.alert('Error', errorMessage);
     } finally {
       setSubmitting(false);
     }
@@ -222,7 +264,13 @@ export default function PostScreen() {
 
         {/* Add Image Section */}
         <View style={styles.addImageContainer}>
-          <TouchableOpacity style={styles.addImageRow} onPress={pickImage}>
+          <TouchableOpacity 
+            style={styles.addImageRow} 
+            onPress={() => {
+              console.log('Image button pressed!');
+              pickImage();
+            }}
+          >
             <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
             <Text style={styles.addImageText}>
               {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Image(s)'}

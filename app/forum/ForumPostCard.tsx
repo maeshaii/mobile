@@ -44,6 +44,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowButton, setShowFollowButton] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
 
@@ -99,6 +100,13 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   useEffect(() => {
     setCommentCount(post.comments_count || 0);
   }, [post.comments_count]);
+
+  // Sync like state and repost count when post data changes
+  useEffect(() => {
+    setIsLiked(post.is_liked || false);
+    setLikeCount(post.likes_count || 0);
+    setRepostCount(post.reposts_count || 0);
+  }, [post.is_liked, post.likes_count, post.reposts_count]);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -244,7 +252,6 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
     }
   };
 
-
   return (
     <>
       <View style={styles.card}>
@@ -302,7 +309,10 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
           <View style={styles.imagesContainer}>
             {images.length === 1 ? (
               <TouchableOpacity 
-                onPress={() => setImageViewerVisible(true)}
+                onPress={() => {
+                  setCurrentImageIndex(0);
+                  setImageViewerVisible(true);
+                }}
               >
                 <Image source={{ uri: imageUrl }} style={styles.postImage} resizeMode="cover" />
               </TouchableOpacity>
@@ -311,7 +321,10 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
                 {images.map((image, index) => (
                   <TouchableOpacity 
                     key={index}
-                    onPress={() => setImageViewerVisible(true)}
+                    onPress={() => {
+                      setCurrentImageIndex(index);
+                      setImageViewerVisible(true);
+                    }}
                   >
                     <Image 
                       source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
@@ -421,7 +434,6 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
         </View>
       </Modal>
 
-
       {/* Image Viewer Modal */}
       <Modal visible={imageViewerVisible} transparent animationType="fade">
         <View style={styles.imageViewerOverlay}>
@@ -431,13 +443,51 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
           >
             <Text style={styles.imageViewerCloseText}>✕</Text>
           </TouchableOpacity>
+          
+          {/* Image counter for multiple images */}
+          {images.length > 1 && (
+            <View style={styles.imageCounter}>
+              <Text style={styles.imageCounterText}>
+                {currentImageIndex + 1} / {images.length}
+              </Text>
+            </View>
+          )}
+          
           <View style={styles.imageViewerContainer}>
             <Image
-              source={{ uri: imageUrl }}
+              source={{ 
+                uri: images.length > 0 
+                  ? (String(images[currentImageIndex].image_url).startsWith('http') 
+                      ? images[currentImageIndex].image_url 
+                      : `${API_BASE_URL}${images[currentImageIndex].image_url}`)
+                  : imageUrl
+              }}
               style={styles.imageViewerImage}
               resizeMode="contain"
             />
           </View>
+          
+          {/* Navigation arrows for multiple images */}
+          {images.length > 1 && (
+            <>
+              {currentImageIndex > 0 && (
+                <TouchableOpacity 
+                  style={[styles.imageNavButton, styles.imageNavLeft]}
+                  onPress={() => setCurrentImageIndex(currentImageIndex - 1)}
+                >
+                  <FontAwesome name="chevron-left" size={24} color="#fff" />
+                </TouchableOpacity>
+              )}
+              {currentImageIndex < images.length - 1 && (
+                <TouchableOpacity 
+                  style={[styles.imageNavButton, styles.imageNavRight]}
+                  onPress={() => setCurrentImageIndex(currentImageIndex + 1)}
+                >
+                  <FontAwesome name="chevron-right" size={24} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
       </Modal>
     </>
@@ -614,5 +664,39 @@ const styles = StyleSheet.create({
   },
   imagesScroll: {
     maxHeight: 200,
+  },
+  // Image Viewer Styles
+  imageCounter: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    zIndex: 2,
+  },
+  imageCounterText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  imageNavButton: {
+    position: 'absolute',
+    top: '50%',
+    transform: [{ translateY: -20 }],
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 25,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  imageNavLeft: {
+    left: 20,
+  },
+  imageNavRight: {
+    right: 20,
   },
 });
