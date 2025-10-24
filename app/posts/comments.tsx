@@ -722,35 +722,47 @@ export default function PostCommentsScreen() {
                           />
                         </TouchableOpacity>
                       ) : (
-                        <FlatList
-                          horizontal
-                          data={images}
-                          keyExtractor={(item, index) => `image-${item.image_id || index}`}
-                          renderItem={({ item, index }) => (
+                        <View style={[
+                          styles.imagesGrid,
+                          images.length === 2 && styles.twoImagesGrid,
+                          images.length === 3 && styles.threeImagesGrid,
+                          images.length === 4 && styles.fourImagesGrid,
+                          images.length >= 5 && styles.fivePlusImagesGrid
+                        ]}>
+                          {images.slice(0, 6).map((image, index) => (
                             <TouchableOpacity 
+                              key={index}
                               onPress={() => {
                                 setSelectedImageIndex(index);
                                 setImageViewerVisible(true);
                               }}
-                              style={styles.imageWrapper}
+                              style={[
+                                styles.gridImageContainer,
+                                images.length === 3 && index === 0 && styles.threeImagesFirst,
+                                images.length === 3 && index > 0 && styles.threeImagesRest
+                              ]}
                             >
                               <Image
-                                source={renderAvatar(item.image_url)}
-                                style={[styles.postImage, { width: 220, marginRight: 8 }]}
+                                source={renderAvatar(image.image_url)}
+                                style={styles.gridImage}
                                 resizeMode="cover"
                                 onError={(error) => {
                                   console.log('Comments - Image load error:', error.nativeEvent.error);
-                                  console.log('Comments - Failed image URL:', item.image_url);
+                                  console.log('Comments - Failed image URL:', image.image_url);
                                 }}
                                 onLoad={() => {
-                                  console.log('Comments - Image loaded successfully:', item.image_url);
+                                  console.log('Comments - Image loaded successfully:', image.image_url);
                                 }}
                               />
+                              {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                              {index === 5 && images.length > 6 && (
+                                <View style={styles.moreImagesOverlay}>
+                                  <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                                </View>
+                              )}
                             </TouchableOpacity>
-                          )}
-                          showsHorizontalScrollIndicator={false}
-                          contentContainerStyle={styles.imagesScrollContainer}
-                        />
+                          ))}
+                        </View>
                       )}
                     </View>
                   );
@@ -1451,5 +1463,56 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: '100%',
     height: '100%',
+  },
+  
+  // Grid Layout Styles
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
+  twoImagesGrid: {
+    height: 200,
+  },
+  threeImagesGrid: {
+    height: 200,
+  },
+  fourImagesGrid: {
+    height: 200,
+  },
+  fivePlusImagesGrid: {
+    height: 200,
+  },
+  gridImageContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  threeImagesFirst: {
+    width: '50%',
+    height: '100%',
+  },
+  threeImagesRest: {
+    width: '50%',
+    height: '50%',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 100,
+  },
+  moreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreImagesText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
 });

@@ -45,9 +45,9 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
-const ngrokUrl = 'https://saul-relevant-letha.ngrok-free.dev'; // This will be replaced by ngrok script
+const ngrokUrl = 'https://unsilenced-liz-heedless.ngrok-free.dev'; // This will be replaced by ngrok script
 // Use ngrok for production, localhost for development
-export const API_BASE_URL = normalizeBaseUrl('https://son-unregardful-della.ngrok-free.dev');
+export const API_BASE_URL = normalizeBaseUrl(' https://unsilenced-liz-heedless.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -581,6 +581,23 @@ export const getFeed = async () => {
     const donationsResponse = await api.get('/api/donations/');
     const donations = donationsResponse.data?.donations || [];
     
+    // Convert donation posts to feed format
+    const donationPosts = donations.map((donation: any) => ({
+      post_id: donation.donation_id,
+      post_title: donation.title,
+      post_content: donation.description,
+      post_image: donation.images?.[0]?.image_url || null,
+      post_images: donation.images || [],
+      type: 'donation',
+      created_at: donation.created_at,
+      likes_count: donation.likes_count || 0,
+      comments_count: donation.comments_count || 0,
+      reposts_count: donation.reposts_count || 0,
+      is_liked: donation.is_liked || false,
+      user: donation.user,
+      item_type: 'donation_post'
+    }));
+    
     // Extract reposts from donations
     const donationReposts: any[] = [];
     donations.forEach((donation: any) => {
@@ -608,6 +625,7 @@ export const getFeed = async () => {
     // Combine all feed items
     const allItems = [
       ...posts.map((post: any) => ({ ...post, item_type: post.item_type || 'post' })),
+      ...donationPosts,
       ...donationReposts
     ];
     

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getUserInfo, logoutUser, getPosts } from '../services/api';
+import { getUserInfo, logoutUser, getFeed } from '../services/api';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
   repostPost, deleteRepost, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus
@@ -41,7 +41,7 @@ export default function DashboardScreen() {
       setLoading(true);
       const [userInfo, postsData] = await Promise.all([
         getUserInfo(),
-        getPosts()
+        getFeed()
       ]);
       
       if (userInfo) {
@@ -320,9 +320,16 @@ export default function DashboardScreen() {
                   style={styles.postAuthorPic}
                 />
                 <View style={styles.postAuthorInfo}>
-                  <Text style={styles.postAuthor}>
-                    {post.user?.f_name} {post.user?.l_name}
-                  </Text>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.postAuthor}>
+                      {post.user?.f_name} {post.user?.l_name}
+                    </Text>
+                    {post.item_type === 'donation_post' && (
+                      <View style={styles.donationBadge}>
+                        <Text style={styles.donationBadgeText}>DONATION</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.postDate}>
                     {new Date(post.created_at).toLocaleDateString()}
                   </Text>
@@ -360,10 +367,22 @@ export default function DashboardScreen() {
                   onPress={async () => {
                     try {
                       if (post.is_liked) {
-                        await unlikePost(post.post_id);
+                        if (post.item_type === 'donation_post') {
+                          // Handle donation post unlike
+                          const { unlikeDonationPost } = await import('../services/api');
+                          await unlikeDonationPost(post.post_id);
+                        } else {
+                          await unlikePost(post.post_id);
+                        }
                         setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p));
                       } else {
-                        await likePost(post.post_id);
+                        if (post.item_type === 'donation_post') {
+                          // Handle donation post like
+                          const { likeDonationPost } = await import('../services/api');
+                          await likeDonationPost(post.post_id);
+                        } else {
+                          await likePost(post.post_id);
+                        }
                         setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p));
                       }
                     } catch (e) {
@@ -377,7 +396,7 @@ export default function DashboardScreen() {
 
                 <TouchableOpacity 
                   style={styles.actionBtn}
-                  onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}
+                  onPress={() => router.push(`/posts/comments?postId=${post.post_id}${post.item_type === 'donation_post' ? '&isDonationPost=true' : ''}`)}
                 >
                   <FontAwesome name="comment-o" size={16} color="#888" />
                   <Text style={styles.actionText}>Comment</Text>
@@ -387,9 +406,16 @@ export default function DashboardScreen() {
                   style={styles.actionBtn}
                   onPress={async () => {
                     try {
-                      await repostPost(post.post_id);
-                      setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: (p.reposts_count||0)+1 } : p));
-                      Alert.alert('Reposted');
+                      if (post.item_type === 'donation_post') {
+                        // Handle donation post repost
+                        const { repostDonationPost } = await import('../services/api');
+                        await repostDonationPost(post.post_id);
+                        router.push(`/donation/donation-repost?postId=${post.post_id}`);
+                      } else {
+                        await repostPost(post.post_id);
+                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: (p.reposts_count||0)+1 } : p));
+                        Alert.alert('Reposted');
+                      }
                     } catch (e) {
                       Alert.alert('Error', 'Failed to repost');
                     }
@@ -729,6 +755,22 @@ const styles = StyleSheet.create({
   },
   postAuthorInfo: {
     flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  donationBadge: {
+    backgroundColor: '#059669', // Green color for donation
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  donationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   postDate: {
     fontSize: 12,

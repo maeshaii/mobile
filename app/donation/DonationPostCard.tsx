@@ -182,7 +182,12 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
           style={styles.avatar}
         />
         <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{userName}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name}>{userName}</Text>
+            <View style={styles.donationBadge}>
+              <Text style={styles.donationBadgeText}>DONATION</Text>
+            </View>
+          </View>
           <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
         </View>
         {currentUserId === post.user.user_id && (
@@ -644,6 +649,24 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: 400,
     height: 400,
+  },
+  
+  // Donation Badge Styles
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  donationBadge: {
+    backgroundColor: '#059669', // Green color for donation
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  donationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
 

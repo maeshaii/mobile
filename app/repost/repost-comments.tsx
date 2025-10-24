@@ -73,6 +73,45 @@ export default function RepostCommentsScreen() {
     return () => clearInterval(t);
   }, []);
 
+  // Helper function to extract images from repost data
+  const extractImagesFromRepost = (repostData: any) => {
+    if (!repostData?.original) return [];
+    
+    const images = [];
+    
+    // Handle different repost types
+    if (repostData.original.type === 'post') {
+      // Add main post image if exists (backward compatibility)
+      if (repostData.original.post_image && repostData.original.post_image.trim() !== '') {
+        images.push({
+          image_id: 0,
+          image_url: repostData.original.post_image,
+          order: 0
+        });
+      }
+      
+      // Add post_images array if exists (multiple images)
+      if (repostData.original.post_images && Array.isArray(repostData.original.post_images) && repostData.original.post_images.length > 0) {
+        images.push(...repostData.original.post_images);
+      }
+    } else if (repostData.original.type === 'forum') {
+      // Handle forum images
+      if (repostData.original.images && Array.isArray(repostData.original.images) && repostData.original.images.length > 0) {
+        images.push(...repostData.original.images);
+      }
+    } else if (repostData.original.type === 'donation') {
+      // Handle donation images
+      if (repostData.original.images && Array.isArray(repostData.original.images) && repostData.original.images.length > 0) {
+        images.push(...repostData.original.images);
+      }
+    }
+    
+    // Sort by order and filter out invalid images
+    return images
+      .filter(img => img && img.image_url && img.image_url.trim() !== '')
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  };
+
   // Load replies for comments that have replies when comments change
   useEffect(() => {
     if (comments.length > 0) {
@@ -125,39 +164,10 @@ export default function RepostCommentsScreen() {
       console.log('Setting comments:', commentsArray.length);
       setComments(commentsArray);
       
-      // Extract original post images using the same logic as RepostCard
-      if (repostData?.original) {
-        console.log('Extracting images from original post...');
-        console.log('post_image:', repostData.original.post_image);
-        console.log('post_images:', repostData.original.post_images);
-        
-        const images = [];
-        
-        // Add main post image if exists (backward compatibility)
-        if (repostData.original.post_image) {
-          console.log('Adding single post_image:', repostData.original.post_image);
-          images.push({
-            image_id: 0,
-            image_url: repostData.original.post_image,
-            order: 0
-          });
-        }
-        
-        // Add post_images array if exists (multiple images)
-        if (repostData.original.post_images && Array.isArray(repostData.original.post_images)) {
-          console.log('Adding post_images array:', repostData.original.post_images);
-          images.push(...repostData.original.post_images);
-        }
-        
-        // Sort by order
-        const sortedImages = images.sort((a, b) => (a.order || 0) - (b.order || 0));
-        console.log('Final sorted images array:', sortedImages);
-        console.log('Setting originalImages to:', sortedImages);
-        setOriginalImages(sortedImages);
-      } else {
-        console.log('No original post data found');
-        setOriginalImages([]);
-      }
+      // Extract original post images using helper function
+      const extractedImages = extractImagesFromRepost(repostData);
+      console.log('Extracted images:', extractedImages);
+      setOriginalImages(extractedImages);
       
       // Highlight specific comment if provided
       if (highlightCommentId && commentsArray.length > 0) {
@@ -873,48 +883,78 @@ export default function RepostCommentsScreen() {
                   {(() => {
                     console.log('Rendering images - originalImages.length:', originalImages.length);
                     console.log('Rendering images - originalImages:', originalImages);
+                    console.log('Rendering images - repost.original:', repost.original);
+                    console.log('Rendering images - repost.original.post_image:', repost.original.post_image);
+                    console.log('Rendering images - repost.original.post_images:', repost.original.post_images);
                     return null;
                   })()}
-                  {originalImages.length > 0 ? (
-                    originalImages.length === 1 ? (
-                      <TouchableOpacity 
-                        onPress={() => {
-                          setSelectedImageIndex(0);
-                          setImageViewerVisible(true);
-                        }}
-                        style={styles.originalPostImageWrapper}
-                      >
-                        <Image 
-                          source={{ uri: String(originalImages[0].image_url).startsWith('http') ? originalImages[0].image_url : `${API_BASE_URL}${originalImages[0].image_url}` }} 
-                          style={styles.originalPostImage} 
-                          resizeMode="cover" 
-                        />
-                      </TouchableOpacity>
-                    ) : (
-                      <ScrollView 
-                        horizontal 
-                        style={styles.originalPostImagesScroll} 
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.originalPostImagesContent}
-                      >
-                        {originalImages.map((image, index) => (
-                          <TouchableOpacity 
-                            key={index}
-                            onPress={() => {
-                              setSelectedImageIndex(index);
-                              setImageViewerVisible(true);
-                            }}
-                            style={styles.originalPostImageWrapper}
-                          >
-                            <Image 
-                              source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
-                              style={styles.originalPostImage} 
-                              resizeMode="cover" 
-                            />
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    )
+                  {(() => {
+                    // Use originalImages state, with fallback to direct extraction if empty
+                    const imagesToRender = originalImages.length > 0 
+                      ? originalImages 
+                      : extractImagesFromRepost(repost);
+                    
+                    console.log('Rendering images - imagesToRender.length:', imagesToRender.length);
+                    console.log('Rendering images - imagesToRender:', imagesToRender);
+                    
+                    return imagesToRender;
+                  })().length > 0 ? (
+                    (() => {
+                      const imagesToRender = originalImages.length > 0 
+                        ? originalImages 
+                        : extractImagesFromRepost(repost);
+                      
+                      return imagesToRender.length === 1 ? (
+                        <TouchableOpacity 
+                          onPress={() => {
+                            setSelectedImageIndex(0);
+                            setImageViewerVisible(true);
+                          }}
+                          style={styles.originalPostImageWrapper}
+                        >
+                          <Image 
+                            source={{ uri: String(imagesToRender[0].image_url).startsWith('http') ? imagesToRender[0].image_url : `${API_BASE_URL}${imagesToRender[0].image_url}` }} 
+                            style={styles.originalPostImage} 
+                            resizeMode="cover" 
+                          />
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={[
+                          styles.originalPostImagesGrid,
+                          imagesToRender.length === 2 && styles.originalTwoImagesGrid,
+                          imagesToRender.length === 3 && styles.originalThreeImagesGrid,
+                          imagesToRender.length === 4 && styles.originalFourImagesGrid,
+                          imagesToRender.length >= 5 && styles.originalFivePlusImagesGrid
+                        ]}>
+                          {imagesToRender.slice(0, 6).map((image, index) => (
+                            <TouchableOpacity 
+                              key={index}
+                              onPress={() => {
+                                setSelectedImageIndex(index);
+                                setImageViewerVisible(true);
+                              }}
+                              style={[
+                                styles.originalGridImageContainer,
+                                imagesToRender.length === 3 && index === 0 && styles.originalThreeImagesFirst,
+                                imagesToRender.length === 3 && index > 0 && styles.originalThreeImagesRest
+                              ]}
+                            >
+                              <Image 
+                                source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                                style={styles.originalGridImage} 
+                                resizeMode="cover" 
+                              />
+                              {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                              {index === 5 && imagesToRender.length > 6 && (
+                                <View style={styles.originalMoreImagesOverlay}>
+                                  <Text style={styles.originalMoreImagesText}>+{imagesToRender.length - 6}</Text>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      );
+                    })()
                   ) : (
                     <View style={styles.noImageContainer}>
                       <Text style={styles.noImageText}>No image attached</Text>
@@ -1650,5 +1690,56 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6b7280',
     fontWeight: '500',
+  },
+  
+  // Original Post Grid Layout Styles
+  originalPostImagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
+  originalTwoImagesGrid: {
+    height: 200,
+  },
+  originalThreeImagesGrid: {
+    height: 200,
+  },
+  originalFourImagesGrid: {
+    height: 200,
+  },
+  originalFivePlusImagesGrid: {
+    height: 200,
+  },
+  originalGridImageContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  originalThreeImagesFirst: {
+    width: '50%',
+    height: '100%',
+  },
+  originalThreeImagesRest: {
+    width: '50%',
+    height: '50%',
+  },
+  originalGridImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 100,
+  },
+  originalMoreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  originalMoreImagesText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
 });

@@ -550,19 +550,36 @@ export default function PostDetailScreen() {
               );
             }
             return (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
-                {images.map((img, idx) => (
+              <View style={[
+                styles.imagesGrid,
+                images.length === 2 && styles.twoImagesGrid,
+                images.length === 3 && styles.threeImagesGrid,
+                images.length === 4 && styles.fourImagesGrid,
+                images.length >= 5 && styles.fivePlusImagesGrid
+              ]}>
+                {images.slice(0, 6).map((img, idx) => (
                   <TouchableOpacity 
                     key={idx}
                     onPress={() => {
                       setSelectedImageIndex(idx);
                       setImageViewerVisible(true);
                     }}
+                    style={[
+                      styles.gridImageContainer,
+                      images.length === 3 && idx === 0 && styles.threeImagesFirst,
+                      images.length === 3 && idx > 0 && styles.threeImagesRest
+                    ]}
                   >
-                    <Image source={renderImage(img.image_url)!} style={[styles.postImage, { width: 220, marginRight: 8 }]} resizeMode="cover" />
+                    <Image source={renderImage(img.image_url)!} style={styles.gridImage} resizeMode="cover" />
+                    {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                    {idx === 5 && images.length > 6 && (
+                      <View style={styles.moreImagesOverlay}>
+                        <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
             );
           })()}
         </View>
@@ -1820,6 +1837,58 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
+  },
+  
+  // Grid Layout Styles
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+    marginTop: 12,
+  },
+  twoImagesGrid: {
+    height: 200,
+  },
+  threeImagesGrid: {
+    height: 200,
+  },
+  fourImagesGrid: {
+    height: 200,
+  },
+  fivePlusImagesGrid: {
+    height: 200,
+  },
+  gridImageContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  threeImagesFirst: {
+    width: '50%',
+    height: '100%',
+  },
+  threeImagesRest: {
+    width: '50%',
+    height: '50%',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 100,
+  },
+  moreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreImagesText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
 });
 

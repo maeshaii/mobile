@@ -106,7 +106,6 @@ export default function OJTDonationPage() {
       }
 
       const response = await createDonationPost({
-        title: postTitle.trim(),
         content: postContent.trim(),
         image: imageBase64,
         mentioned_users: mentionedUsers.map(u => u.user_id)
