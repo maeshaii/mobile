@@ -45,6 +45,8 @@ import {
   deleteCommentReply,
 } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import MentionInput from '../../components/MentionInput';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 dayjs.extend(relativeTime);
 
@@ -436,7 +438,11 @@ export default function PostCommentsScreen() {
                 styles.bubble,
                 highlightedCommentId === c.comment_id && styles.highlightedBubble
               ]}>
-                <Text style={styles.cBody}>{c.comment_content}</Text>
+                <Text style={styles.cBody}>
+                  {renderTextWithMentions(c.comment_content, [], (userId) => {
+                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                  })}
+                </Text>
               </View>
             )}
 
@@ -477,16 +483,13 @@ export default function PostCommentsScreen() {
                       </TouchableOpacity>
                     </View>
                     <View style={styles.replyInputRow}>
-                      <TextInput
-                        style={styles.replyInput}
+                      <MentionInput
                         value={replyText}
-                        onChangeText={setReplyText}
+                        onChange={setReplyText}
                         placeholder={`Reply to ${c.user?.f_name || 'User'}...`}
-                        placeholderTextColor="#9ca3af"
+                        style={styles.replyInput}
                         multiline
-                        returnKeyType="send"
-                        blurOnSubmit
-                        onSubmitEditing={() => handleReplySubmit(c.comment_id)}
+                        maxLength={500}
                       />
                       <TouchableOpacity
                         disabled={!replyText.trim() || submittingReply}
@@ -570,7 +573,11 @@ export default function PostCommentsScreen() {
                                 </View>
                               </KeyboardAvoidingView>
                             ) : (
-                              <Text style={styles.replyText}>{reply.reply_content}</Text>
+                              <Text style={styles.replyText}>
+                                {renderTextWithMentions(reply.reply_content, [], (userId) => {
+                                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                })}
+                              </Text>
                             )}
                             
                             <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
@@ -789,17 +796,13 @@ export default function PostCommentsScreen() {
             ]}
           >
             <View style={styles.composerInputRow}>
-              <TextInput
-                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
+              <MentionInput
                 value={commentText}
-                onChangeText={setCommentText}
+                onChange={setCommentText}
                 placeholder="Write a comment…"
-                placeholderTextColor="#9ca3af"
+                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
                 multiline
-                onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
-                returnKeyType="send"
-                blurOnSubmit
-                onSubmitEditing={handleSend}
+                maxLength={500}
               />
               <TouchableOpacity
                 disabled={!canSend}

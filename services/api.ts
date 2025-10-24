@@ -1104,6 +1104,8 @@ export const createDonationPost = async (payload: { description: string; images?
       
       // Add each image as a file
       payload.images.forEach((imageData, index) => {
+        console.log('Processing image:', imageData, 'Type:', typeof imageData);
+        
         if (imageData.startsWith('data:image/')) {
           // Handle base64 data
           const blob = {
@@ -1112,8 +1114,17 @@ export const createDonationPost = async (payload: { description: string; images?
             name: `image_${index}.jpg`
           } as any;
           formData.append(`images`, blob);
-        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
-          // Handle file URIs directly
+        } else if (imageData.startsWith('file://') || imageData.startsWith('content://') || imageData.startsWith('ph://')) {
+          // Handle file URIs directly (including photo library URIs)
+          const blob = {
+            uri: imageData,
+            type: 'image/jpeg',
+            name: `image_${index}.jpg`
+          } as any;
+          formData.append(`images`, blob);
+        } else {
+          // Handle any other URI format
+          console.log('Unknown image format, treating as file URI:', imageData);
           const blob = {
             uri: imageData,
             type: 'image/jpeg',

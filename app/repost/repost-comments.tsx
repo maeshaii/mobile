@@ -5,6 +5,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { API_BASE_URL, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment, getRepostDetail, getUserInfo, updateRepost, deleteRepost, getPostLikes, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import MentionInput from '../../components/MentionInput';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
@@ -75,41 +77,58 @@ export default function RepostCommentsScreen() {
 
   // Helper function to extract images from repost data
   const extractImagesFromRepost = (repostData: any) => {
-    if (!repostData?.original) return [];
+    if (!repostData?.original) {
+      console.log('extractImagesFromRepost - no original data');
+      return [];
+    }
+    
+    console.log('extractImagesFromRepost - original data:', repostData.original);
+    console.log('extractImagesFromRepost - original type:', repostData.original.type);
     
     const images = [];
     
-    // Handle different repost types
-    if (repostData.original.type === 'post') {
-      // Add main post image if exists (backward compatibility)
-      if (repostData.original.post_image && repostData.original.post_image.trim() !== '') {
-        images.push({
-          image_id: 0,
-          image_url: repostData.original.post_image,
-          order: 0
-        });
-      }
-      
-      // Add post_images array if exists (multiple images)
-      if (repostData.original.post_images && Array.isArray(repostData.original.post_images) && repostData.original.post_images.length > 0) {
-        images.push(...repostData.original.post_images);
-      }
-    } else if (repostData.original.type === 'forum') {
-      // Handle forum images
-      if (repostData.original.images && Array.isArray(repostData.original.images) && repostData.original.images.length > 0) {
-        images.push(...repostData.original.images);
-      }
-    } else if (repostData.original.type === 'donation') {
-      // Handle donation images
-      if (repostData.original.images && Array.isArray(repostData.original.images) && repostData.original.images.length > 0) {
-        images.push(...repostData.original.images);
-      }
+    // Try all possible image sources regardless of type
+    // 1. Check for main post_image (backward compatibility)
+    if (repostData.original.post_image && repostData.original.post_image.trim() !== '') {
+      console.log('extractImagesFromRepost - found post_image:', repostData.original.post_image);
+      images.push({
+        image_id: 0,
+        image_url: repostData.original.post_image,
+        order: 0
+      });
     }
     
+    // 2. Check for post_images array (multiple images)
+    if (repostData.original.post_images && Array.isArray(repostData.original.post_images) && repostData.original.post_images.length > 0) {
+      console.log('extractImagesFromRepost - found post_images:', repostData.original.post_images);
+      images.push(...repostData.original.post_images);
+    }
+    
+    // 3. Check for images array (forum/donation posts)
+    if (repostData.original.images && Array.isArray(repostData.original.images) && repostData.original.images.length > 0) {
+      console.log('extractImagesFromRepost - found images:', repostData.original.images);
+      images.push(...repostData.original.images);
+    }
+    
+    // 4. Check for any other image fields that might exist
+    if (repostData.original.image && repostData.original.image.trim() !== '') {
+      console.log('extractImagesFromRepost - found image:', repostData.original.image);
+      images.push({
+        image_id: 0,
+        image_url: repostData.original.image,
+        order: 0
+      });
+    }
+    
+    console.log('extractImagesFromRepost - all found images before filtering:', images);
+    
     // Sort by order and filter out invalid images
-    return images
+    const filteredImages = images
       .filter(img => img && img.image_url && img.image_url.trim() !== '')
       .sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    console.log('extractImagesFromRepost - filtered images:', filteredImages);
+    return filteredImages;
   };
 
   // Load replies for comments that have replies when comments change
@@ -477,7 +496,11 @@ export default function RepostCommentsScreen() {
                 styles.bubble,
                 highlightedCommentId === c.comment_id && styles.highlightedBubble
               ]}>
-                <Text style={styles.cBody}>{c.comment_content}</Text>
+                <Text style={styles.cBody}>
+                  {renderTextWithMentions(c.comment_content, [], (userId) => {
+                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                  })}
+                </Text>
               </View>
             )}
 
@@ -518,16 +541,13 @@ export default function RepostCommentsScreen() {
                       </TouchableOpacity>
                     </View>
                     <View style={styles.replyInputRow}>
-                      <TextInput
-                        style={styles.replyInput}
+                      <MentionInput
                         value={replyText}
-                        onChangeText={setReplyText}
+                        onChange={setReplyText}
                         placeholder={`Reply to ${c.user?.f_name || 'User'}...`}
-                        placeholderTextColor="#9ca3af"
+                        style={styles.replyInput}
                         multiline
-                        returnKeyType="send"
-                        blurOnSubmit
-                        onSubmitEditing={() => handleReplySubmit(c.comment_id)}
+                        maxLength={500}
                       />
                       <TouchableOpacity
                         disabled={!replyText.trim() || submittingReply}
@@ -618,7 +638,11 @@ export default function RepostCommentsScreen() {
                                 </View>
                               </KeyboardAvoidingView>
                             ) : (
-                              <Text style={styles.replyText}>{reply.reply_content}</Text>
+                              <Text style={styles.replyText}>
+                                {renderTextWithMentions(reply.reply_content, [], (userId) => {
+                                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                })}
+                              </Text>
                             )}
                             
                             <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
@@ -886,6 +910,7 @@ export default function RepostCommentsScreen() {
                     console.log('Rendering images - repost.original:', repost.original);
                     console.log('Rendering images - repost.original.post_image:', repost.original.post_image);
                     console.log('Rendering images - repost.original.post_images:', repost.original.post_images);
+                    console.log('Rendering images - repost.original.images:', repost.original.images);
                     return null;
                   })()}
                   {(() => {
@@ -896,6 +921,7 @@ export default function RepostCommentsScreen() {
                     
                     console.log('Rendering images - imagesToRender.length:', imagesToRender.length);
                     console.log('Rendering images - imagesToRender:', imagesToRender);
+                    console.log('Rendering images - Will show images?', imagesToRender.length > 0);
                     
                     return imagesToRender;
                   })().length > 0 ? (
@@ -988,18 +1014,14 @@ export default function RepostCommentsScreen() {
             ]}
           >
             <View style={styles.composerInputRow}>
-                    <TextInput
-                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }, (replyingTo || editingReplyId) ? styles.disabledInput : null]}
+                    <MentionInput
                 value={commentText}
-                onChangeText={setCommentText}
+                onChange={setCommentText}
                 placeholder={replyingTo ? "Replying to comment..." : "Write a comment…"}
-                placeholderTextColor="#9ca3af"
-                      multiline
-                onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
-                returnKeyType="send"
-                blurOnSubmit
-                onSubmitEditing={handleSend}
-                editable={!replyingTo && !editingReplyId}
+                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }, (replyingTo || editingReplyId) ? styles.disabledInput : null]}
+                multiline
+                maxLength={500}
+                disabled={!!replyingTo || !!editingReplyId}
                     />
                       <TouchableOpacity
                 disabled={!canSend}
