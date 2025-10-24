@@ -323,6 +323,8 @@ const HomeScreen = () => {
     try {
       setLoading(true);
       const userInfo = await getUserInfo();
+      console.log('🔍 HOME DEBUG: User info loaded:', userInfo);
+      
       if (userInfo) {
         setUser(userInfo);
         setEditData({
@@ -332,11 +334,47 @@ const HomeScreen = () => {
           profile_pic: userInfo.profile_pic || '',
         });
       } else {
-        router.replace('/login/login');
+        console.log('🔍 HOME DEBUG: No user info, checking localStorage...');
+        // Check localStorage as fallback for OJT users
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const localUser = JSON.parse(userStr);
+          console.log('🔍 HOME DEBUG: Found user in localStorage:', localUser);
+          setUser(localUser);
+          setEditData({
+            name: localUser.name || '',
+            course: localUser.course || '',
+            year_graduated: localUser.year_graduated ? String(localUser.year_graduated) : '',
+            profile_pic: localUser.profile_pic || '',
+          });
+        } else {
+          console.log('🔍 HOME DEBUG: No user found, redirecting to login');
+          router.replace('/login/login');
+        }
       }
     } catch (err) {
-      setError('Failed to load user information');
-      console.error('Error loading user info:', err);
+      console.error('🔍 HOME DEBUG: Error loading user info:', err);
+      // Try localStorage as fallback for OJT users
+      try {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const localUser = JSON.parse(userStr);
+          console.log('🔍 HOME DEBUG: Using localStorage fallback:', localUser);
+          setUser(localUser);
+          setEditData({
+            name: localUser.name || '',
+            course: localUser.course || '',
+            year_graduated: localUser.year_graduated ? String(localUser.year_graduated) : '',
+            profile_pic: localUser.profile_pic || '',
+          });
+        } else {
+          setError('Failed to load user information');
+          console.error('Error loading user info:', err);
+        }
+      } catch (localErr) {
+        setError('Failed to load user information');
+        console.error('Error loading user info:', err);
+      }
     } finally {
       setLoading(false);
     }

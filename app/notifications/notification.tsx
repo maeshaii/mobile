@@ -384,9 +384,9 @@ const NotificationScreen = () => {
       }
     }
 
-    // Handle PESO post notifications
+    // Handle PESO post notifications (including admin_peso_post type)
     if (
-      (type === 'peso' || name?.toLowerCase().includes('peso')) &&
+      (type === 'peso' || type === 'admin_peso_post' || name?.toLowerCase().includes('peso')) &&
       (message?.toLowerCase().includes('post') || message?.toLowerCase().includes('job') || message?.toLowerCase().includes('employment'))
     ) {
       if (item.post_id) {

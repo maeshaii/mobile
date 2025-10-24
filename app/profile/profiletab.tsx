@@ -12,7 +12,7 @@ const cciLogo = require('../../assets/images/ccict_logo.jpg');
 const pesoLogo = require('../../assets/images/peso_logo.jpg');
 const forumLogo = require('../../assets/images/wny_logo.jpg');
 
-const menuItems = [
+const allMenuItems = [
   { label: 'CCICT', icon: cciLogo },
   { label: 'Peso', icon: pesoLogo },
   { label: 'CCICT Forum', icon: forumLogo },
@@ -27,19 +27,44 @@ interface UserProfile {
   profile_pic?: string;
   f_name?: string;
   l_name?: string;
+  account_type?: {
+    ojt?: boolean;
+    admin?: boolean;
+    peso?: boolean;
+    user?: boolean;
+    coordinator?: boolean;
+  };
+  role?: string;
+  user_type?: string;
 }
 
 export default function ProfileTab() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [menuItems, setMenuItems] = useState(allMenuItems);
 
   const fetchUser = useCallback(async () => {
     try {
       const userInfo = await getUserInfo();
       setUser(userInfo);
+      
+      // Filter menu items based on user type
+      const isOJT = userInfo?.account_type?.ojt || userInfo?.role === 'ojt' || userInfo?.user_type === 'ojt';
+      
+      if (isOJT) {
+        // Hide CCICT Forum and Donation for OJT users
+        const filteredItems = allMenuItems.filter(item => 
+          item.label !== 'CCICT Forum' && item.label !== 'Donation'
+        );
+        setMenuItems(filteredItems);
+      } else {
+        // Show all items for non-OJT users
+        setMenuItems(allMenuItems);
+      }
     } catch (e) {
       console.error('ProfileTab - Error fetching user info:', e);
       setUser(null);
+      setMenuItems(allMenuItems);
     }
   }, []);
 
