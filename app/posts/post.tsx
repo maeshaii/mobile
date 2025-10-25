@@ -74,24 +74,21 @@ export default function PostScreen() {
         const newImages = result.assets.slice(0, maxImages - selectedImages.length);
         console.log(`Adding ${newImages.length} new images (max: ${maxImages}, current: ${selectedImages.length})`);
         
-        // Convert to base64 for each image
-        const base64Images: string[] = [];
+        // Store the original file URIs instead of converting to base64
+        const imageUris: string[] = [];
         for (const asset of newImages) {
           try {
-            console.log('Converting image to base64:', asset.uri);
-            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-              encoding: 'base64',
-            });
-            base64Images.push(`data:image/jpeg;base64,${base64}`);
-            console.log('Successfully converted image to base64');
+            console.log('Storing image URI:', asset.uri);
+            imageUris.push(asset.uri);
+            console.log('Successfully stored image URI');
           } catch (error) {
-            console.error('Error converting image to base64:', error);
+            console.error('Error storing image URI:', error);
           }
         }
         
-        console.log(`Successfully converted ${base64Images.length} images to base64`);
+        console.log(`Successfully stored ${imageUris.length} image URIs`);
         setSelectedImages(prev => {
-          const newList = [...prev, ...base64Images];
+          const newList = [...prev, ...imageUris];
           console.log(`Total images now: ${newList.length}`);
           return newList;
         });
@@ -122,13 +119,35 @@ export default function PostScreen() {
       console.log('Post type:', postType);
       console.log('Selected images count:', selectedImages.length);
       
+      // Show progress for image uploads
+      if (selectedImages.length > 0 || selectedImage) {
+        Alert.alert('Uploading', 'Processing images and uploading post...', [], { cancelable: false });
+      }
+      
       // Handle images - use multiple images if available, fallback to single image
       let postImage = '';
       let postImages: string[] = [];
       
       if (selectedImages.length > 0) {
-        // Use multiple images
-        postImages = selectedImages;
+        // Use multiple images - convert to base64
+        try {
+          const base64Images = [];
+          for (const imageUri of selectedImages) {
+            if (imageUri.startsWith('file://')) {
+              const base64 = await FileSystem.readAsStringAsync(imageUri, {
+                encoding: 'base64',
+              });
+              base64Images.push(`data:image/jpeg;base64,${base64}`);
+            } else {
+              base64Images.push(imageUri);
+            }
+          }
+          postImages = base64Images;
+        } catch (error) {
+          console.error('Error converting multiple images to base64:', error);
+          Alert.alert('Error', 'Failed to process images. Please try again.');
+          return;
+        }
       } else if (selectedImage) {
         // Fallback to single image for backward compatibility
         if (selectedImage.startsWith('file://')) {
@@ -181,17 +200,31 @@ export default function PostScreen() {
       
       // Provide more specific error messages
       let errorMessage = 'Failed to create post. Please try again.';
+      let errorTitle = 'Error';
+      
       if (error instanceof Error) {
-        if (error.message.includes('timeout')) {
-          errorMessage = 'The request timed out. This might be due to large images. Please try with fewer or smaller images.';
-        } else if (error.message.includes('Network Error')) {
+        if (error.message.includes('timeout') || error.message.includes('ECONNABORTED')) {
+          errorTitle = 'Upload Timeout';
+          errorMessage = 'The upload timed out. This might be due to large images or slow connection. Please try with fewer or smaller images.';
+        } else if (error.message.includes('Network Error') || error.message.includes('ERR_NETWORK')) {
+          errorTitle = 'Network Error';
           errorMessage = 'Network error. Please check your internet connection and try again.';
-        } else if (error.message.includes('413')) {
-          errorMessage = 'Images are too large. Please try with smaller images.';
+        } else if (error.message.includes('413') || error.message.includes('too large')) {
+          errorTitle = 'File Too Large';
+          errorMessage = 'Images are too large. Please try with smaller images or fewer images.';
+        } else if (error.message.includes('Invalid image format')) {
+          errorTitle = 'Invalid Image';
+          errorMessage = 'One or more images are in an unsupported format. Please try with different images.';
+        } else if (error.message.includes('Upload timeout')) {
+          errorTitle = 'Upload Timeout';
+          errorMessage = error.message;
         }
       }
       
-      Alert.alert('Error', errorMessage);
+      Alert.alert(errorTitle, errorMessage, [
+        { text: 'OK', style: 'default' },
+        { text: 'Try Again', onPress: () => handleSubmit() }
+      ]);
     } finally {
       setSubmitting(false);
     }
@@ -578,3 +611,5 @@ topBarButtonRight: {
   },
 
 });
+
+

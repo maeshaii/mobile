@@ -2,9 +2,34 @@ import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } fro
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
 
 // Platform-specific storage utility
 const isWeb = Platform.OS === 'web';
+
+/** Image compression helper */
+const compressImage = async (imageUri: string, quality: number = 0.8): Promise<string> => {
+  try {
+    if (isWeb) {
+      // For web, return original URI (compression handled by browser)
+      return imageUri;
+    }
+    
+    const result = await ImageManipulator.manipulateAsync(
+      imageUri,
+      [{ resize: { width: 1920, height: 1920 } }], // Max dimensions
+      { 
+        compress: quality,
+        format: ImageManipulator.SaveFormat.JPEG,
+      }
+    );
+    return result.uri;
+  } catch (error) {
+    console.warn('Image compression failed, using original:', error);
+    return imageUri;
+  }
+};
 
 const Storage = {
   setItem: async (key: string, value: string) => {
@@ -45,9 +70,9 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
-const ngrokUrl = 'https://unsilenced-liz-heedless.ngrok-free.dev'; // This will be replaced by ngrok script
+const ngrokUrl = 'https://sweaty-salma-catoptrical.ngrok-free.dev'; // This will be replaced by ngrok script
 // Use ngrok for production, localhost for development
-export const API_BASE_URL = normalizeBaseUrl(' https://unsilenced-liz-heedless.ngrok-free.dev');
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -58,7 +83,7 @@ console.log('Localhost URL:', localhostUrl);
 /** Axios instance */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000, // Increased to 60 seconds for image uploads
+  timeout: 120000, // Increased to 120 seconds for image uploads
   headers: { 
     Accept: 'application/json',
     'ngrok-skip-browser-warning': 'true'  // Required for ngrok free accounts
@@ -672,48 +697,25 @@ export const createPost = async (postData: {
   try {
     console.log('Mobile createPost sending:', postData);
     
-    // If we have images, upload them using FormData
-    if (postData.post_images && postData.post_images.length > 0) {
-      const formData = new FormData();
-      formData.append('post_content', postData.post_content);
-      if (postData.type) formData.append('type', postData.type);
-      if (postData.post_title) formData.append('post_title', postData.post_title);
-      if (postData.post_cat_id) formData.append('post_cat_id', postData.post_cat_id.toString());
-      
-      // Add each image as a file
-      postData.post_images.forEach((imageData, index) => {
-        if (imageData.startsWith('data:image/')) {
-          // Handle base64 data
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
-          // Handle file URIs directly
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        }
-      });
-      
-      const response = await api.post('/api/posts/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      console.log('Mobile createPost response:', response.data);
-      return response.data;
-    } else {
-      // No images, send as JSON
-      const response = await api.post('/api/posts/', postData);
-      console.log('Mobile createPost response:', response.data);
-      return response.data;
-    }
+    // Send as JSON (images should already be base64 from mobile app)
+    console.log('Sending JSON request with', postData.post_images?.length || 0, 'images');
+    const response = await api.post('/api/posts/', postData);
+    console.log('Mobile createPost response:', response.data);
+    return response.data;
   } catch (error) {
     console.error('Mobile createPost error:', error);
+    
+    // Provide more specific error messages
+    if (error instanceof AxiosError) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Upload timeout - images may be too large. Please try with smaller images.');
+      } else if (error.response?.status === 413) {
+        throw new Error('Images are too large. Please try with smaller images.');
+      } else if (error.response?.status === 400) {
+        throw new Error('Invalid image format. Please try with different images.');
+      }
+    }
+    
     throw error;
   }
 };
@@ -995,50 +997,83 @@ export const createForumPost = async (payload: { title?: string; content: string
   try {
     console.log('Mobile createForumPost sending:', payload);
     
-    // If we have images, upload them using FormData
+    // Convert file URIs to base64 and send as JSON (same as web frontend)
     if (payload.images && payload.images.length > 0) {
-      const formData = new FormData();
-      formData.append('post_content', payload.content);
-      if (payload.title) formData.append('post_title', payload.title);
+      console.log('Converting forum images to base64 for JSON request:', payload.images.length);
       
-      // Add each image as a file
-      payload.images.forEach((imageData, index) => {
+      const processedImages: string[] = [];
+      
+      for (let index = 0; index < payload.images.length; index++) {
+        const imageData = payload.images[index];
+        
         if (imageData.startsWith('data:image/')) {
-          // Handle base64 data
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
-          // Handle file URIs directly
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
+          // Already base64, use as is
+          processedImages.push(imageData);
+        } else {
+          // Convert file URI to base64
+          try {
+            let processedImageUri = imageData;
+            
+            // Compress image if it's a file URI (not base64)
+            if (!imageData.startsWith('data:image/')) {
+              try {
+                processedImageUri = await compressImage(imageData, 0.8);
+                console.log(`Compressed forum image ${index + 1}/${payload.images.length}`);
+              } catch (compressionError) {
+                console.warn(`Image compression failed for forum image ${index}, using original:`, compressionError);
+              }
+            }
+            
+            // Convert to base64
+            const base64 = await FileSystem.readAsStringAsync(processedImageUri, {
+              encoding: 'base64',
+            });
+            const base64Data = `data:image/jpeg;base64,${base64}`;
+            processedImages.push(base64Data);
+            console.log(`Converted forum image ${index + 1} to base64`);
+          } catch (error) {
+            console.error(`Error converting forum image ${index + 1} to base64:`, error);
+            // Skip this image and continue with others
+            continue;
+          }
         }
-      });
+      }
       
-      const response = await api.post('/api/forum/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      // Send as JSON with base64 images (same as web frontend)
+      const jsonData = {
+        content: payload.content,
+        title: payload.title,
+        images: processedImages
+      };
+      
+      console.log('Sending forum JSON request with', processedImages.length, 'base64 images');
+      const response = await api.post('/api/forum/', jsonData);
       console.log('Mobile createForumPost response:', response.data);
       return response.data;
     } else {
       // No images, send as JSON (backward compatibility)
       const response = await api.post('/api/forum/', { 
-        post_title: payload.title, 
-        post_content: payload.content, 
-        post_image: payload.image 
+        title: payload.title, 
+        content: payload.content, 
+        image: payload.image 
       });
       console.log('Mobile createForumPost response:', response.data);
       return response.data;
     }
   } catch (error) {
     console.error('Mobile createForumPost error:', error);
+    
+    // Provide more specific error messages
+    if (error instanceof AxiosError) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Upload timeout - images may be too large. Please try with smaller images.');
+      } else if (error.response?.status === 413) {
+        throw new Error('Images are too large. Please try with smaller images.');
+      } else if (error.response?.status === 400) {
+        throw new Error('Invalid image format. Please try with different images.');
+      }
+    }
+    
     throw error;
   }
 };
@@ -1097,46 +1132,57 @@ export const createDonationPost = async (payload: { description: string; images?
   try {
     console.log('Mobile createDonationPost sending:', payload);
     
-    // If we have images, upload them using FormData
+    // Convert file URIs to base64 and send as JSON (same as web frontend)
     if (payload.images && payload.images.length > 0) {
-      const formData = new FormData();
-      formData.append('description', payload.description);
+      console.log('Converting donation images to base64 for JSON request:', payload.images.length);
       
-      // Add each image as a file
-      payload.images.forEach((imageData, index) => {
-        console.log('Processing image:', imageData, 'Type:', typeof imageData);
+      const processedImages: string[] = [];
+      
+      for (let index = 0; index < payload.images.length; index++) {
+        const imageData = payload.images[index];
+        console.log('Processing donation image:', imageData, 'Type:', typeof imageData);
         
         if (imageData.startsWith('data:image/')) {
-          // Handle base64 data
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        } else if (imageData.startsWith('file://') || imageData.startsWith('content://') || imageData.startsWith('ph://')) {
-          // Handle file URIs directly (including photo library URIs)
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
+          // Already base64, use as is
+          processedImages.push(imageData);
         } else {
-          // Handle any other URI format
-          console.log('Unknown image format, treating as file URI:', imageData);
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
+          // Convert file URI to base64
+          try {
+            let processedImageUri = imageData;
+            
+            // Compress image if it's a file URI (not base64)
+            if (!imageData.startsWith('data:image/')) {
+              try {
+                processedImageUri = await compressImage(imageData, 0.8);
+                console.log(`Compressed donation image ${index + 1}/${payload.images.length}`);
+              } catch (compressionError) {
+                console.warn(`Image compression failed for donation image ${index}, using original:`, compressionError);
+              }
+            }
+            
+            // Convert to base64
+            const base64 = await FileSystem.readAsStringAsync(processedImageUri, {
+              encoding: 'base64',
+            });
+            const base64Data = `data:image/jpeg;base64,${base64}`;
+            processedImages.push(base64Data);
+            console.log(`Converted donation image ${index + 1} to base64`);
+          } catch (error) {
+            console.error(`Error converting donation image ${index + 1} to base64:`, error);
+            // Skip this image and continue with others
+            continue;
+          }
         }
-      });
+      }
       
-      const response = await api.post('/api/donations/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      // Send as JSON with base64 images (same as web frontend)
+      const jsonData = {
+        description: payload.description,
+        images: processedImages
+      };
+      
+      console.log('Sending donation JSON request with', processedImages.length, 'base64 images');
+      const response = await api.post('/api/donations/', jsonData);
       console.log('Mobile createDonationPost response:', response.data);
       return response.data;
     } else {
@@ -1147,6 +1193,18 @@ export const createDonationPost = async (payload: { description: string; images?
     }
   } catch (error) {
     console.error('Mobile createDonationPost error:', error);
+    
+    // Provide more specific error messages
+    if (error instanceof AxiosError) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Upload timeout - images may be too large. Please try with smaller images.');
+      } else if (error.response?.status === 413) {
+        throw new Error('Images are too large. Please try with smaller images.');
+      } else if (error.response?.status === 400) {
+        throw new Error('Invalid image format. Please try with different images.');
+      }
+    }
+    
     throw error;
   }
 };

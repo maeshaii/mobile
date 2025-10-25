@@ -55,7 +55,7 @@ export const getImagesFromContent = (content: any): ContentImage[] => {
   const images: ContentImage[] = [];
   
   console.log('=== IMAGE UTILS DEBUG ===');
-  console.log('Content object:', content);
+  console.log('Content object:', JSON.stringify(content, null, 2));
   console.log('Content post_image:', content.post_image);
   console.log('Content post_images:', content.post_images);
   console.log('Content images:', content.images);

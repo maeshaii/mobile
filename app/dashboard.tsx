@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getUserInfo, logoutUser, getFeed } from '../services/api';
+import { getUserInfo, logoutUser, getFeed, API_BASE_URL } from '../services/api';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
   repostPost, deleteRepost, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus
 } from '../services/api';
 import UserAvatar from '../components/UserAvatar';
 import TrackerReminderModal from '../components/TrackerReminderModal';
+import { getImagesFromContent, getFirstImageUrl, hasImages } from '../utils/imageUtils';
 
 export default function DashboardScreen() {
   const [user, setUser] = useState<any>(null);
@@ -339,9 +340,58 @@ export default function DashboardScreen() {
                 <Text style={styles.postTitle}>{post.post_title}</Text>
               )}
               <Text style={styles.postContent}>{post.post_content}</Text>
-              {post.post_image && (
-                <Image source={{ uri: post.post_image }} style={styles.postImage} />
-              )}
+              
+              {/* Images - Facebook-style grid layout like web */}
+              {(() => {
+                const images = getImagesFromContent(post);
+                const imageUrl = getFirstImageUrl(post);
+                const hasPostImages = images.length > 0;
+                
+                if (!hasPostImages) return null;
+                
+                return (
+                  <View style={styles.imagesContainer}>
+                    {images.length === 1 ? (
+                      // Single image - full width
+                      <TouchableOpacity>
+                        <Image source={{ uri: imageUrl || '' }} style={styles.singleImage} resizeMode="contain" />
+                      </TouchableOpacity>
+                    ) : (
+                      // Multiple images - grid layout like web
+                      <View style={[
+                        styles.imagesGrid,
+                        images.length === 2 && styles.twoImagesGrid,
+                        images.length === 3 && styles.threeImagesGrid,
+                        images.length === 4 && styles.fourImagesGrid,
+                        images.length >= 5 && styles.fivePlusImagesGrid
+                      ]}>
+                        {images.slice(0, 6).map((image, index) => (
+                          <TouchableOpacity 
+                            key={index}
+                            style={[
+                              styles.gridImageContainer,
+                              images.length === 3 && index === 0 && styles.threeImagesFirst,
+                              images.length === 3 && index > 0 && styles.threeImagesRest
+                            ]}
+                          >
+                            <Image 
+                              source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                              style={styles.gridImage} 
+                              resizeMode="cover" 
+                            />
+                            {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                            {index === 5 && images.length > 6 && (
+                              <View style={styles.moreImagesOverlay}>
+                                <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
               <View style={styles.postFooter}>
                 <Text style={styles.postCategory}>
                   {post.category?.personal ? 'Personal' : 
@@ -980,5 +1030,65 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     fontWeight: '600',
+  },
+  // Image grid styles
+  imagesContainer: {
+    marginTop: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  singleImage: {
+    width: '100%',
+    height: 300,
+    borderRadius: 8,
+  },
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
+  twoImagesGrid: {
+    // Two images side by side
+  },
+  threeImagesGrid: {
+    // First image takes left half, other two take right half
+  },
+  fourImagesGrid: {
+    // 2x2 grid
+  },
+  fivePlusImagesGrid: {
+    // 2x3 grid with more indicator
+  },
+  gridImageContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  threeImagesFirst: {
+    width: '50%',
+    height: 150,
+  },
+  threeImagesRest: {
+    width: '25%',
+    height: 75,
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 100,
+  },
+  moreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreImagesText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 }); 
