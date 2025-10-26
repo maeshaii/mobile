@@ -294,27 +294,30 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
                 />
               </TouchableOpacity>
             ) : (
-              // Multiple images - grid layout like web
-              <View style={[
-                styles.imagesGrid,
-                images.length === 2 && styles.twoImagesGrid,
-                images.length === 3 && styles.threeImagesGrid,
-                images.length === 4 && styles.fourImagesGrid,
-                images.length >= 5 && styles.fivePlusImagesGrid
-              ]}>
-                {images.slice(0, 6).map((image, index) => (
-                  <TouchableOpacity 
-                    key={index}
-                    style={[
-                      styles.gridImageContainer,
-                      images.length === 3 && index === 0 && styles.threeImagesFirst,
-                      images.length === 3 && index > 0 && styles.threeImagesRest
-                    ]}
-                    onPress={() => {
-                      setSelectedImageIndex(index);
-                      setImageViewerVisible(true);
-                    }}
-                  >
+              // Multiple images - Facebook-style grid layout
+              <View style={styles.imagesGrid}>
+                {images.slice(0, 6).map((image, index) => {
+                  // Determine grid style based on image count and position
+                  let gridStyle = styles.gridImageContainer;
+                  if (images.length === 2) {
+                    gridStyle = styles.twoImagesGrid;
+                  } else if (images.length === 3) {
+                    gridStyle = index === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
+                  } else if (images.length === 4) {
+                    gridStyle = styles.fourImagesGrid;
+                  } else if (images.length >= 5) {
+                    gridStyle = styles.fivePlusImagesGrid;
+                  }
+                  
+                  return (
+                    <TouchableOpacity 
+                      key={index}
+                      style={[gridStyle, { marginBottom: 2 }]}
+                      onPress={() => {
+                        setSelectedImageIndex(index);
+                        setImageViewerVisible(true);
+                      }}
+                    >
                     <Image 
                       source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
                       style={styles.gridImage} 
@@ -327,7 +330,8 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
                       </View>
                     )}
                   </TouchableOpacity>
-                ))}
+                  );
+                })}
               </View>
             )}
           </View>
@@ -567,30 +571,51 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2,
+    justifyContent: 'space-between',
   },
+  // Facebook-style grid layouts
   twoImagesGrid: {
+    width: '49%',
     height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesGrid: {
-    height: 200,
+    // Container style - individual images have their own styles
   },
   fourImagesGrid: {
-    height: 200,
+    width: '49%',
+    height: 150,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   fivePlusImagesGrid: {
-    height: 200,
+    width: '49%',
+    height: 120,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImageContainer: {
     position: 'relative',
     overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesFirst: {
-    width: '50%',
-    height: '100%',
+    width: '49%',
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesRest: {
-    width: '50%',
-    height: '50%',
+    width: '49%',
+    height: 100,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImage: {
     width: '100%',

@@ -70,7 +70,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
-const ngrokUrl = 'https://sweaty-salma-catoptrical.ngrok-free.dev'; // This will be replaced by ngrok script
+const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev'; // This will be replaced by ngrok script
 // Use ngrok for production, localhost for development
 export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
 
@@ -83,7 +83,7 @@ console.log('Localhost URL:', localhostUrl);
 /** Axios instance */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000, // Increased to 120 seconds for image uploads
+  timeout: 180000, // Increased to 180 seconds for compressed image uploads
   headers: { 
     Accept: 'application/json',
     'ngrok-skip-browser-warning': 'true'  // Required for ngrok free accounts
@@ -601,6 +601,15 @@ export const getFeed = async () => {
     // Get posts (which includes regular reposts)
     const postsResponse = await api.get('/api/posts/');
     const posts = postsResponse.data?.posts || [];
+    
+    console.log('=== GETFEED DEBUG ===');
+    console.log('Posts response:', postsResponse.data);
+    console.log('Posts count:', posts.length);
+    if (posts.length > 0) {
+      console.log('First post:', JSON.stringify(posts[0], null, 2));
+      console.log('First post post_images:', posts[0].post_images);
+    }
+    console.log('=== END GETFEED DEBUG ===');
     
     // Get donation posts (which includes donation reposts)
     const donationsResponse = await api.get('/api/donations/');

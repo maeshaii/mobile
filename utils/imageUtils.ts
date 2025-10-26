@@ -96,7 +96,19 @@ export const getFirstImageUrl = (content: any): string | null => {
   if (images.length === 0) return null;
   
   const imageUrl = images[0].image_url;
-  return String(imageUrl).startsWith('http') ? imageUrl : `${API_BASE_URL}${imageUrl}`;
+  console.log('getFirstImageUrl - imageUrl:', imageUrl);
+  console.log('getFirstImageUrl - API_BASE_URL:', API_BASE_URL);
+  
+  // If the URL already starts with http, use it directly (backend provides full URLs)
+  if (String(imageUrl).startsWith('http')) {
+    console.log('getFirstImageUrl - using full URL from backend:', imageUrl);
+    return imageUrl;
+  }
+  
+  // Only prepend API_BASE_URL if it's a relative URL
+  const finalUrl = `${API_BASE_URL}${imageUrl}`;
+  console.log('getFirstImageUrl - constructed URL:', finalUrl);
+  return finalUrl;
 };
 
 /**
@@ -104,9 +116,14 @@ export const getFirstImageUrl = (content: any): string | null => {
  */
 export const getAllImageUrls = (content: any): string[] => {
   const images = getImagesFromContent(content);
-  return images.map(img => 
-    String(img.image_url).startsWith('http') ? img.image_url : `${API_BASE_URL}${img.image_url}`
-  );
+  return images.map(img => {
+    // If the URL already starts with http, use it directly (backend provides full URLs)
+    if (String(img.image_url).startsWith('http')) {
+      return img.image_url;
+    }
+    // Only prepend API_BASE_URL if it's a relative URL
+    return `${API_BASE_URL}${img.image_url}`;
+  });
 };
 
 /**

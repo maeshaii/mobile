@@ -343,50 +343,104 @@ export default function DashboardScreen() {
               
               {/* Images - Facebook-style grid layout like web */}
               {(() => {
-                const images = getImagesFromContent(post);
-                const imageUrl = getFirstImageUrl(post);
-                const hasPostImages = images.length > 0;
+                console.log('=== DASHBOARD IMAGE DEBUG ===');
+                console.log('Post data:', JSON.stringify(post, null, 2));
+                console.log('Post post_images:', post.post_images);
+                console.log('Post post_image:', post.post_image);
                 
-                if (!hasPostImages) return null;
+                const images: any[] = [];
+                
+                // Add main post image if exists (backward compatibility)
+                if (post.post_image) {
+                  console.log('Dashboard - Adding post_image:', post.post_image);
+                  images.push({
+                    image_id: 0,
+                    image_url: post.post_image,
+                    order: 0
+                  });
+                }
+                
+                // Add post_images array if exists (multiple images)
+                if (post.post_images && Array.isArray(post.post_images)) {
+                  console.log('Dashboard - Adding post_images:', post.post_images);
+                  images.push(...post.post_images);
+                }
+                
+                console.log('Dashboard - Images to display:', images);
+                console.log('Dashboard - Images length:', images.length);
+                console.log('=== END DASHBOARD IMAGE DEBUG ===');
+                
+                if (images.length === 0) return null;
                 
                 return (
                   <View style={styles.imagesContainer}>
                     {images.length === 1 ? (
                       // Single image - full width
                       <TouchableOpacity>
-                        <Image source={{ uri: imageUrl || '' }} style={styles.singleImage} resizeMode="contain" />
+                        <Image source={{ uri: images[0].image_url }} style={styles.singleImage} resizeMode="contain" />
                       </TouchableOpacity>
                     ) : (
-                      // Multiple images - grid layout like web
-                      <View style={[
-                        styles.imagesGrid,
-                        images.length === 2 && styles.twoImagesGrid,
-                        images.length === 3 && styles.threeImagesGrid,
-                        images.length === 4 && styles.fourImagesGrid,
-                        images.length >= 5 && styles.fivePlusImagesGrid
-                      ]}>
-                        {images.slice(0, 6).map((image, index) => (
-                          <TouchableOpacity 
-                            key={index}
-                            style={[
-                              styles.gridImageContainer,
-                              images.length === 3 && index === 0 && styles.threeImagesFirst,
-                              images.length === 3 && index > 0 && styles.threeImagesRest
-                            ]}
-                          >
-                            <Image 
-                              source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
-                              style={styles.gridImage} 
-                              resizeMode="cover" 
-                            />
-                            {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
-                            {index === 5 && images.length > 6 && (
-                              <View style={styles.moreImagesOverlay}>
-                                <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
-                              </View>
-                            )}
-                          </TouchableOpacity>
-                        ))}
+                      // Multiple images - Facebook-style grid layout
+                      <View style={styles.imagesContainer}>
+                        {images.length === 2 ? (
+                          // 2 images: side by side
+                          <View style={styles.twoImagesContainer}>
+                            {images.slice(0, 2).map((image, index) => {
+                              const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+                              return (
+                                <TouchableOpacity key={index} style={styles.twoImagesGrid}>
+                                  <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ) : images.length === 3 ? (
+                          // 3 images: one big on left, two half-sized on right
+                          <View style={styles.threeImagesContainer}>
+                            <TouchableOpacity style={styles.threeImagesFirst}>
+                              <Image source={{ uri: String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}` }} style={styles.gridImage} resizeMode="cover" />
+                            </TouchableOpacity>
+                            <View style={styles.threeImagesRight}>
+                              {images.slice(1, 3).map((image, index) => {
+                                const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+                                return (
+                                  <TouchableOpacity key={index + 1} style={styles.threeImagesRest}>
+                                    <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        ) : images.length === 4 ? (
+                          // 4 images: 2x2 grid
+                          <View style={styles.fourImagesContainer}>
+                            {images.slice(0, 4).map((image, index) => {
+                              const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+                              return (
+                                <TouchableOpacity key={index} style={styles.fourImagesGrid}>
+                                  <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ) : (
+                          // 5+ images: 2x3 grid with "+X more" overlay
+                          <View style={styles.fivePlusImagesContainer}>
+                            {images.slice(0, 6).map((image, index) => {
+                              const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+                              return (
+                                <TouchableOpacity key={index} style={styles.fivePlusImagesGrid}>
+                                  <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                                  {index === 5 && images.length > 6 && (
+                                    <View style={styles.moreImagesOverlay}>
+                                      <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                                    </View>
+                                  )}
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )}
                       </View>
                     )}
                   </View>
@@ -1042,39 +1096,74 @@ const styles = StyleSheet.create({
     height: 300,
     borderRadius: 8,
   },
-  imagesGrid: {
+  // Facebook-style grid layouts - explicit containers
+  twoImagesContainer: {
+    flexDirection: 'row',
+    gap: 2,
+    height: 200,
+  },
+  threeImagesContainer: {
+    flexDirection: 'row',
+    gap: 2,
+    height: 200,
+  },
+  threeImagesRight: {
+    flex: 1,
+    gap: 2,
+  },
+  fourImagesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2,
+    height: 252, // 2 rows of 150px each
   },
+  fivePlusImagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+    height: 364, 
+  },
+  
+  // Individual image styles
   twoImagesGrid: {
-    // Two images side by side
-  },
-  threeImagesGrid: {
-    // First image takes left half, other two take right half
-  },
-  fourImagesGrid: {
-    // 2x2 grid
-  },
-  fivePlusImagesGrid: {
-    // 2x3 grid with more indicator
-  },
-  gridImageContainer: {
+    flex: 1,
+    height: 200,
     position: 'relative',
     overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesFirst: {
-    width: '50%',
-    height: 150,
+    width: '49%',
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesRest: {
-    width: '25%',
-    height: 75,
+    width: '100%',
+    height: 99, // (200 - 2) / 2
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+  },
+  fourImagesGrid: {
+    width: '49%',
+    height: 125,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+  },
+  fivePlusImagesGrid: {
+    width: '49%',
+    height: 120,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImage: {
     width: '100%',
     height: '100%',
-    minHeight: 100,
+    borderRadius: 4,
   },
   moreImagesOverlay: {
     position: 'absolute',
@@ -1091,4 +1180,4 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-}); 
+});

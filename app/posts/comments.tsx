@@ -26,7 +26,6 @@ import {
   deleteComment,
   getPostComments,
   getPostDetail,
-  getPosts,
   getUserInfo,
   updateComment,
   commentOnForumPost,
@@ -167,22 +166,8 @@ export default function PostCommentsScreen() {
       }
       
       setPost(normalizedPost || null);
-      console.log('Comments - Post detail loaded:', postDetail);
-      console.log('Comments - Normalized post:', normalizedPost);
-      console.log('Comments - Post images:', postDetail?.post_images);
-      console.log('Comments - Post image:', postDetail?.post_image);
-      console.log('Comments - Post content:', postDetail?.post_content);
-      console.log('Comments - Post description:', postDetail?.description);
-      console.log('Comments - Post title:', postDetail?.post_title);
-      console.log('Comments - Is forum post:', isForumPost);
-      console.log('Comments - Is donation post:', isDonationPost);
-      console.log('Comments - Post user:', postDetail?.user);
-      console.log('Comments - Post user f_name:', postDetail?.user?.f_name);
-      console.log('Comments - Post user l_name:', postDetail?.user?.l_name);
 
       const data = isForumPost ? await getForumComments(postId) : isDonationPost ? await getDonationComments(postId) : await getPostComments(postId);
-      console.log('Comments - Comments data:', data);
-      console.log('Comments - Comments array:', data?.comments);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
       
       // Highlight specific comment if provided
@@ -280,15 +265,11 @@ export default function PostCommentsScreen() {
   // Reply functions
   async function loadReplies(commentId: number) {
     try {
-      console.log('Loading replies for comment:', commentId);
       const response = await getCommentReplies(commentId);
-      console.log('Replies response:', response);
-      console.log('Number of replies received:', response.replies?.length || 0);
-      setCommentReplies(prev => {
-        const newReplies = { ...prev, [commentId]: response.replies || [] };
-        console.log('Updated commentReplies state:', newReplies);
-        return newReplies;
-      });
+      setCommentReplies(prev => ({
+        ...prev,
+        [commentId]: response.replies || []
+      }));
     } catch (error) {
       console.error('Error loading replies:', error);
     }
@@ -510,12 +491,7 @@ export default function PostCommentsScreen() {
                 )}
 
                 {/* Replies list */}
-                {(() => {
-                  const shouldShow = showReplies[c.comment_id];
-                  const hasReplies = commentReplies[c.comment_id];
-                  console.log(`Comment ${c.comment_id} - shouldShow: ${shouldShow}, hasReplies: ${!!hasReplies}, repliesCount: ${hasReplies?.length || 0}`);
-                  return shouldShow && hasReplies;
-                })() && (
+                {showReplies[c.comment_id] && commentReplies[c.comment_id] && (
                   <View style={styles.repliesContainer}>
                     {commentReplies[c.comment_id].map((reply, replyIndex) => {
                       const isMyReply = reply.user?.user_id === meId;
@@ -688,7 +664,6 @@ export default function PostCommentsScreen() {
                   
                   // Add main post image if exists (backward compatibility)
                   if (post.post_image) {
-                    console.log('Comments - Adding post_image:', post.post_image);
                     images.push({
                       image_id: 0,
                       image_url: post.post_image,
@@ -698,13 +673,9 @@ export default function PostCommentsScreen() {
                   
                   // Add post_images array if exists (multiple images)
                   if (post.post_images && Array.isArray(post.post_images)) {
-                    console.log('Comments - Adding post_images:', post.post_images);
                     images.push(...post.post_images);
                   }
                   
-                  console.log('Comments - Images to display:', images);
-                  console.log('Comments - Images length:', images.length);
-                  console.log('Comments - Will render images:', images.length > 0);
                   return images.length > 0 && (
                     <View style={styles.imagesContainer}>
                       {images.length === 1 ? (
@@ -719,56 +690,92 @@ export default function PostCommentsScreen() {
                             source={renderAvatar(images[0].image_url)}
                             style={styles.postImage}
                             resizeMode="cover"
-                            onError={(error) => {
-                              console.log('Comments - Image load error:', error.nativeEvent.error);
-                              console.log('Comments - Failed image URL:', images[0].image_url);
-                            }}
-                            onLoad={() => {
-                              console.log('Comments - Image loaded successfully:', images[0].image_url);
-                            }}
+                            onError={() => {}}
                           />
                         </TouchableOpacity>
                       ) : (
-                        <View style={[
-                          styles.imagesGrid,
-                          images.length === 2 && styles.twoImagesGrid,
-                          images.length === 3 && styles.threeImagesGrid,
-                          images.length === 4 && styles.fourImagesGrid,
-                          images.length >= 5 && styles.fivePlusImagesGrid
-                        ]}>
-                          {images.slice(0, 6).map((image, index) => (
-                            <TouchableOpacity 
-                              key={index}
-                              onPress={() => {
-                                setSelectedImageIndex(index);
-                                setImageViewerVisible(true);
-                              }}
-                              style={[
-                                styles.gridImageContainer,
-                                images.length === 3 && index === 0 && styles.threeImagesFirst,
-                                images.length === 3 && index > 0 && styles.threeImagesRest
-                              ]}
-                            >
-                              <Image
-                                source={renderAvatar(image.image_url)}
-                                style={styles.gridImage}
-                                resizeMode="cover"
-                                onError={(error) => {
-                                  console.log('Comments - Image load error:', error.nativeEvent.error);
-                                  console.log('Comments - Failed image URL:', image.image_url);
+                        <View style={styles.imagesContainer}>
+                          {images.length === 2 ? (
+                            // 2 images: side by side
+                            <View style={styles.twoImagesContainer}>
+                              {images.slice(0, 2).map((image, index) => (
+                                <TouchableOpacity 
+                                  key={index} 
+                                  style={styles.twoImagesGrid}
+                                  onPress={() => {
+                                    setSelectedImageIndex(index);
+                                    setImageViewerVisible(true);
+                                  }}
+                                >
+                                  <Image source={renderAvatar(image.image_url)} style={styles.gridImage} resizeMode="cover" />
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          ) : images.length === 3 ? (
+                            // 3 images: one big on left, two half-sized on right
+                            <View style={styles.threeImagesContainer}>
+                              <TouchableOpacity 
+                                style={styles.threeImagesFirst}
+                                onPress={() => {
+                                  setSelectedImageIndex(0);
+                                  setImageViewerVisible(true);
                                 }}
-                                onLoad={() => {
-                                  console.log('Comments - Image loaded successfully:', image.image_url);
-                                }}
-                              />
-                              {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
-                              {index === 5 && images.length > 6 && (
-                                <View style={styles.moreImagesOverlay}>
-                                  <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
-                                </View>
-                              )}
-                            </TouchableOpacity>
-                          ))}
+                              >
+                                <Image source={renderAvatar(images[0].image_url)} style={styles.gridImage} resizeMode="cover" />
+                              </TouchableOpacity>
+                              <View style={styles.threeImagesRight}>
+                                {images.slice(1, 3).map((image, index) => (
+                                  <TouchableOpacity 
+                                    key={index + 1} 
+                                    style={styles.threeImagesRest}
+                                    onPress={() => {
+                                      setSelectedImageIndex(index + 1);
+                                      setImageViewerVisible(true);
+                                    }}
+                                  >
+                                    <Image source={renderAvatar(image.image_url)} style={styles.gridImage} resizeMode="cover" />
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            </View>
+                          ) : images.length === 4 ? (
+                            // 4 images: 2x2 grid
+                            <View style={styles.fourImagesContainer}>
+                              {images.slice(0, 4).map((image, index) => (
+                                <TouchableOpacity 
+                                  key={index} 
+                                  style={styles.fourImagesGrid}
+                                  onPress={() => {
+                                    setSelectedImageIndex(index);
+                                    setImageViewerVisible(true);
+                                  }}
+                                >
+                                  <Image source={renderAvatar(image.image_url)} style={styles.gridImage} resizeMode="cover" />
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          ) : (
+                            // 5+ images: 2x3 grid with "+X more" overlay
+                            <View style={styles.fivePlusImagesContainer}>
+                              {images.slice(0, 6).map((image, index) => (
+                                <TouchableOpacity 
+                                  key={index} 
+                                  style={styles.fivePlusImagesGrid}
+                                  onPress={() => {
+                                    setSelectedImageIndex(index);
+                                    setImageViewerVisible(true);
+                                  }}
+                                >
+                                  <Image source={renderAvatar(image.image_url)} style={styles.gridImage} resizeMode="cover" />
+                                  {index === 5 && images.length > 6 && (
+                                    <View style={styles.moreImagesOverlay}>
+                                      <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                                    </View>
+                                  )}
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          )}
                         </View>
                       )}
                     </View>
@@ -1069,11 +1076,6 @@ const styles = StyleSheet.create({
   composerInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   inputText: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
     textAlignVertical: 'top',
     color: '#111827',
   },
@@ -1207,8 +1209,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     minHeight: 40,
     maxHeight: 100,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
   },
   replyActions: {
     flexDirection: 'row',
@@ -1469,39 +1469,74 @@ const styles = StyleSheet.create({
   },
   
   // Grid Layout Styles
-  imagesGrid: {
+  // Facebook-style grid layouts - explicit containers
+  twoImagesContainer: {
+    flexDirection: 'row',
+    gap: 2,
+    height: 200,
+  },
+  threeImagesContainer: {
+    flexDirection: 'row',
+    gap: 2,
+    height: 200,
+  },
+  threeImagesRight: {
+    flex: 1,
+    gap: 2,
+  },
+  fourImagesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2,
+    height: 252, 
   },
+  fivePlusImagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+    height: 364, // 3 rows of 120px each
+  },
+  
+  // Individual image styles
   twoImagesGrid: {
+    flex: 1,
     height: 200,
-  },
-  threeImagesGrid: {
-    height: 200,
-  },
-  fourImagesGrid: {
-    height: 200,
-  },
-  fivePlusImagesGrid: {
-    height: 200,
-  },
-  gridImageContainer: {
     position: 'relative',
     overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesFirst: {
-    width: '50%',
-    height: '100%',
+    width: '49%',
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesRest: {
-    width: '50%',
-    height: '50%',
+    width: '100%',
+    height: 99, // (200 - 2) / 2
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+  },
+  fourImagesGrid: {
+    width: '49%',
+    height: 125,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+  },
+  fivePlusImagesGrid: {
+    width: '49%',
+    height: 120,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImage: {
     width: '100%',
     height: '100%',
-    minHeight: 100,
+    borderRadius: 4,
   },
   moreImagesOverlay: {
     position: 'absolute',

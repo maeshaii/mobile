@@ -550,26 +550,29 @@ export default function PostDetailScreen() {
               );
             }
             return (
-              <View style={[
-                styles.imagesGrid,
-                images.length === 2 && styles.twoImagesGrid,
-                images.length === 3 && styles.threeImagesGrid,
-                images.length === 4 && styles.fourImagesGrid,
-                images.length >= 5 && styles.fivePlusImagesGrid
-              ]}>
-                {images.slice(0, 6).map((img, idx) => (
-                  <TouchableOpacity 
-                    key={idx}
-                    onPress={() => {
-                      setSelectedImageIndex(idx);
-                      setImageViewerVisible(true);
-                    }}
-                    style={[
-                      styles.gridImageContainer,
-                      images.length === 3 && idx === 0 && styles.threeImagesFirst,
-                      images.length === 3 && idx > 0 && styles.threeImagesRest
-                    ]}
-                  >
+              <View style={styles.imagesGrid}>
+                {images.slice(0, 6).map((img, idx) => {
+                  // Determine grid style based on image count and position
+                  let gridStyle = styles.gridImageContainer;
+                  if (images.length === 2) {
+                    gridStyle = styles.twoImagesGrid;
+                  } else if (images.length === 3) {
+                    gridStyle = idx === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
+                  } else if (images.length === 4) {
+                    gridStyle = styles.fourImagesGrid;
+                  } else if (images.length >= 5) {
+                    gridStyle = styles.fivePlusImagesGrid;
+                  }
+                  
+                  return (
+                    <TouchableOpacity 
+                      key={idx}
+                      onPress={() => {
+                        setSelectedImageIndex(idx);
+                        setImageViewerVisible(true);
+                      }}
+                      style={[gridStyle, { marginBottom: 2 }]}
+                    >
                     <Image source={renderImage(img.image_url)!} style={styles.gridImage} resizeMode="cover" />
                     {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
                     {idx === 5 && images.length > 6 && (
@@ -578,7 +581,8 @@ export default function PostDetailScreen() {
                       </View>
                     )}
                   </TouchableOpacity>
-                ))}
+                  );
+                })}
               </View>
             );
           })()}
@@ -1844,31 +1848,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2,
+    justifyContent: 'space-between',
     marginTop: 12,
   },
+  // Facebook-style grid layouts
   twoImagesGrid: {
+    width: '49%',
     height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesGrid: {
-    height: 200,
+    // Container style - individual images have their own styles
   },
   fourImagesGrid: {
-    height: 200,
+    width: '49%',
+    height: 150,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   fivePlusImagesGrid: {
-    height: 200,
+    width: '49%',
+    height: 120,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImageContainer: {
     position: 'relative',
     overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesFirst: {
-    width: '50%',
-    height: '100%',
+    width: '49%',
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesRest: {
-    width: '50%',
-    height: '50%',
+    width: '49%',
+    height: 100,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImage: {
     width: '100%',

@@ -1,5 +1,6 @@
 import { FontAwesome } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -121,7 +122,7 @@ export default function PostScreen() {
       
       // Show progress for image uploads
       if (selectedImages.length > 0 || selectedImage) {
-        Alert.alert('Uploading', 'Processing images and uploading post...', [], { cancelable: false });
+        Alert.alert('Processing', 'Compressing images and preparing upload...', [], { cancelable: false });
       }
       
       // Handle images - use multiple images if available, fallback to single image
@@ -129,12 +130,29 @@ export default function PostScreen() {
       let postImages: string[] = [];
       
       if (selectedImages.length > 0) {
-        // Use multiple images - convert to base64
+        // Use multiple images - compress and convert to base64
         try {
           const base64Images = [];
-          for (const imageUri of selectedImages) {
+          for (let i = 0; i < selectedImages.length; i++) {
+            const imageUri = selectedImages[i];
+            console.log(`Processing image ${i + 1}/${selectedImages.length}: ${imageUri}`);
+            
             if (imageUri.startsWith('file://')) {
-              const base64 = await FileSystem.readAsStringAsync(imageUri, {
+              // Compress the image first
+              const compressedImage = await ImageManipulator.manipulateAsync(
+                imageUri,
+                [
+                  { resize: { width: 800 } }, // Resize to max width of 800px
+                ],
+                { 
+                  compress: 0.7, // 70% quality
+                  format: ImageManipulator.SaveFormat.JPEG 
+                }
+              );
+              
+              console.log(`Compressed image ${i + 1}: ${compressedImage.uri}`);
+              
+              const base64 = await FileSystem.readAsStringAsync(compressedImage.uri, {
                 encoding: 'base64',
               });
               base64Images.push(`data:image/jpeg;base64,${base64}`);
@@ -143,6 +161,7 @@ export default function PostScreen() {
             }
           }
           postImages = base64Images;
+          console.log(`Successfully processed ${base64Images.length} images`);
         } catch (error) {
           console.error('Error converting multiple images to base64:', error);
           Alert.alert('Error', 'Failed to process images. Please try again.');
@@ -152,8 +171,20 @@ export default function PostScreen() {
         // Fallback to single image for backward compatibility
         if (selectedImage.startsWith('file://')) {
           try {
-            // Convert local file to base64
-            const base64 = await FileSystem.readAsStringAsync(selectedImage, {
+            // Compress the image first
+            const compressedImage = await ImageManipulator.manipulateAsync(
+              selectedImage,
+              [
+                { resize: { width: 800 } }, // Resize to max width of 800px
+              ],
+              { 
+                compress: 0.7, // 70% quality
+                format: ImageManipulator.SaveFormat.JPEG 
+              }
+            );
+            
+            // Convert compressed image to base64
+            const base64 = await FileSystem.readAsStringAsync(compressedImage.uri, {
               encoding: 'base64',
             });
             postImage = `data:image/jpeg;base64,${base64}`;
