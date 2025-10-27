@@ -47,7 +47,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
 const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || 'https://simultaneously-wrinkliest-dominik.ngrok-free.dev');
+export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 
@@ -61,6 +61,8 @@ const api = axios.create({
     'ngrok-skip-browser-warning': 'true'  // Required for ngrok free accounts
   },
 });
+
+// Note: FormData uploads are handled separately using fetch() to avoid Content-Type issues
 
 /** Export api instance for session management */
 export { api };
@@ -1321,6 +1323,7 @@ export type ConversationSummary = {
   conversation_id: number;
   updated_at: string;
   unread_count: number;
+  is_message_request?: boolean;
   last_message?: {
     content: string;
     created_at: string;
@@ -1454,20 +1457,99 @@ export const getWebSocketBase = async () => {
   }
 };
 
+// New API functions for enhanced messaging features
+export const getMutualFollows = async (userId: number) => {
+  try {
+    const { data } = await api.get(`/api/follow/${userId}/mutual/`);
+    console.log('Mobile getMutualFollows API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile getMutualFollows API Error:', error);
+    throw error;
+  }
+};
+
+export const getOnlineUsers = async () => {
+  try {
+    const { data } = await api.get('/api/online-users/');
+    console.log('Mobile getOnlineUsers API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile getOnlineUsers API Error:', error);
+    throw error;
+  }
+};
+
 // Mobile -> Backend: POST /api/messaging/attachments/
 export const uploadAttachment = async (file: any, conversationId: number) => {
   try {
+    console.log('Uploading attachment - file:', file);
+    console.log('Uploading attachment - conversationId:', conversationId);
+    
+    // Get authentication token
+    const token = await getAccessToken();
+    console.log('Upload token available:', !!token);
+    
+    // Create FormData with proper file object
     const formData = new FormData();
-    formData.append('file', file);
+    
+    // Ensure file object has proper structure for React Native
+    const fileObj = {
+      uri: file.uri,
+      type: file.type || file.mimeType || 'application/octet-stream',
+      name: file.name || file.fileName || 'attachment',
+    };
+    
+    formData.append('file', fileObj as any);
     formData.append('conversation_id', conversationId.toString());
     
-    const { data } = await api.post('/api/messaging/attachments/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    // Create headers object
+    const headers: Record<string, string> = {
+      'ngrok-skip-browser-warning': 'true',
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    console.log('Upload headers:', headers);
+    console.log('Upload URL:', `${API_BASE_URL}/api/messaging/attachments/`);
+    
+    // Use fetch instead of axios for FormData to avoid Content-Type issues
+    console.log('Sending fetch request with FormData...');
+    console.log('FormData entries:');
+    for (const [key, value] of formData.entries()) {
+      console.log(`  ${key}:`, value);
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/api/messaging/attachments/`, {
+      method: 'POST',
+      headers,
+      body: formData,
     });
+    
+    console.log('Fetch response status:', response.status);
+    console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Upload failed:', response.status, errorText);
+      throw new Error(`Upload failed: ${response.status} ${errorText}`);
+    }
+    
+    const data = await response.json();
     console.log('Mobile uploadAttachment API Response:', data);
     return data;
   } catch (error) {
     console.error('Mobile uploadAttachment API Error:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    } else if (error.request) {
+      console.error('Request error:', error.request);
+    } else {
+      console.error('Error message:', error.message);
+    }
     throw error;
   }
 };

@@ -17,6 +17,8 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   size = 40,
   style 
 }) => {
+  // Ensure size is always positive
+  const safeSize = Math.max(1, Math.abs(size || 40));
   // Generate initials from first and last name
   const getInitials = (first: string, last: string) => {
     const firstInitial = first.charAt(0).toUpperCase();
@@ -30,9 +32,9 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   const hasValidProfilePic = profilePic && profilePic.trim() !== '' && profilePic !== 'null' && profilePic !== 'undefined';
   
   const avatarStyle = {
-    width: size,
-    height: size,
-    borderRadius: size / 2,
+    width: safeSize,
+    height: safeSize,
+    borderRadius: safeSize / 2,
   };
 
   // Always prioritize initials if no valid profile pic
@@ -45,7 +47,7 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
       ]}>
         <Text style={[
           styles.initialsText, 
-          { fontSize: size * 0.4 }
+          { fontSize: safeSize * 0.4 }
         ]}>
           {initials || '?'}
         </Text>
