@@ -19,6 +19,9 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
 }) => {
   const [imageError, setImageError] = useState(false);
   
+  // Ensure size is always positive
+  const safeSize = Math.max(1, Math.abs(size || 40));
+  
   // Generate initials from first and last name
   const getInitials = (first: string, last: string) => {
     const firstInitial = first.charAt(0).toUpperCase();
@@ -36,9 +39,9 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
     !imageError;
   
   const avatarStyle = {
-    width: size,
-    height: size,
-    borderRadius: size / 2,
+    width: safeSize,
+    height: safeSize,
+    borderRadius: safeSize / 2,
   };
 
   // Show initials if no valid profile pic or if image failed to load
@@ -51,7 +54,7 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
       ]}>
         <Text style={[
           styles.initialsText, 
-          { fontSize: size * 0.4 }
+          { fontSize: safeSize * 0.4 }
         ]}>
           {initials || '?'}
         </Text>
