@@ -1,13 +1,14 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput } from 'react-native';
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost, getDonationLikes, getDonationReposts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import DonationPostCard from './DonationPostCard';
 import RepostCard from '../repost/RepostCard';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import MentionInput from '../../components/MentionInput';
 import { convertImageToBase64 } from '../../utils/imageUtils';
 
@@ -108,6 +109,8 @@ export default function DonationPage() {
             post_title: d.post_title ?? undefined,
             post_content: d.description ?? d.post_content ?? '',
             post_image: d.post_image ?? (imagesArray[0]?.image_url || null),
+            post_images: imagesArray, // Add all images array
+            images: imagesArray, // Also add as 'images' for compatibility
             type: d.type ?? 'donation',
             created_at: d.created_at ?? d.donation_date ?? d.date_created ?? null,
             likes_count: d.likes_count ?? (Array.isArray(d.likes) ? d.likes.length : 0),
@@ -128,6 +131,8 @@ export default function DonationPage() {
                 post_id: d.donation_id ?? d.post_id ?? d.id,
                 post_content: d.description ?? d.post_content ?? '',
                 post_image: d.post_image ?? (imagesArray[0]?.image_url || null),
+                post_images: imagesArray, // Add all images array
+                images: imagesArray, // Also add as 'images' for compatibility
                 user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
                 created_at: d.created_at ?? d.donation_date ?? d.date_created ?? null,
                 likes_count: d.likes_count || 0,
@@ -162,20 +167,54 @@ export default function DonationPage() {
 
   const pickImages = async () => {
     try {
+      console.log('Starting image picker...');
+      
+      // Request permissions first
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('Permission result:', permissionResult);
+      
+      if (permissionResult.status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library to attach images.');
+        return;
+      }
+      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false, // Disable editing when multiple selection is enabled
-        quality: 0.8,
-        allowsMultipleSelection: true,
+        allowsEditing: false, // Disable editing to allow multiple selection
+        quality: 0.5, // Reduced quality to reduce file size
+        allowsMultipleSelection: true, // Enable multiple image selection
       });
 
+      console.log('Image picker result:', result);
+      console.log('Canceled:', result.canceled);
+      console.log('Assets:', result.assets);
+
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const maxImages = 10;
+        console.log(`Selected ${result.assets.length} images`);
+        const maxImages = 15;
         const newImages = result.assets.slice(0, maxImages - selectedImages.length);
+        console.log(`Adding ${newImages.length} new images (max: ${maxImages}, current: ${selectedImages.length})`);
         
-        // Store image URIs directly instead of converting to base64
-        const imageUris = newImages.map(asset => asset.uri);
-        setSelectedImages(prev => [...prev, ...imageUris]);
+        // Store the original file URIs instead of converting to base64
+        const imageUris: string[] = [];
+        for (const asset of newImages) {
+          try {
+            console.log('Storing image URI:', asset.uri);
+            imageUris.push(asset.uri);
+            console.log('Successfully stored image URI');
+          } catch (error) {
+            console.error('Error storing image URI:', error);
+          }
+        }
+        
+        console.log(`Successfully stored ${imageUris.length} image URIs`);
+        setSelectedImages(prev => {
+          const newList = [...prev, ...imageUris];
+          console.log(`Total images now: ${newList.length}`);
+          return newList;
+        });
+      } else {
+        console.log('No images selected or picker was canceled');
       }
     } catch (error) {
       console.error('Error picking images:', error);
@@ -202,10 +241,56 @@ export default function DonationPage() {
       console.log('Selected images types:', selectedImages.map(img => typeof img));
       console.log('=== END DONATION SUBMISSION DEBUG ===');
       
-      // Pass image URIs directly without base64 conversion
+      // Show progress for image uploads
+      if (selectedImages.length > 0) {
+        Alert.alert('Processing', 'Compressing images and preparing upload...', [], { cancelable: false });
+      }
+      
+      // Process images - compress and convert to base64 like the post creation page
+      let processedImages: string[] = [];
+      
+      if (selectedImages.length > 0) {
+        try {
+          const base64Images = [];
+          for (let i = 0; i < selectedImages.length; i++) {
+            const imageUri = selectedImages[i];
+            console.log(`Processing image ${i + 1}/${selectedImages.length}: ${imageUri}`);
+            
+            if (imageUri.startsWith('file://')) {
+              // Compress the image first
+              const compressedImage = await ImageManipulator.manipulateAsync(
+                imageUri,
+                [
+                  { resize: { width: 800 } }, // Resize to max width of 800px
+                ],
+                { 
+                  compress: 0.7, // 70% quality
+                  format: ImageManipulator.SaveFormat.JPEG 
+                }
+              );
+              
+              console.log(`Compressed image ${i + 1}: ${compressedImage.uri}`);
+              
+              const base64 = await FileSystem.readAsStringAsync(compressedImage.uri, {
+                encoding: 'base64',
+              });
+              base64Images.push(`data:image/jpeg;base64,${base64}`);
+            } else {
+              base64Images.push(imageUri);
+            }
+          }
+          processedImages = base64Images;
+          console.log(`Successfully processed ${base64Images.length} images`);
+        } catch (error) {
+          console.error('Error converting images to base64:', error);
+          Alert.alert('Error', 'Failed to process images. Please try again.');
+          return;
+        }
+      }
+      
       const response = await createDonationPost({
         description: donationMessage.trim(),
-        images: selectedImages
+        images: processedImages
       });
       
       if (response.success) {
@@ -220,7 +305,28 @@ export default function DonationPage() {
       }
     } catch (error) {
       console.error('Error creating donation request:', error);
-      Alert.alert('Error', 'Failed to submit donation request. Please try again.');
+      
+      // Provide more specific error messages like the post creation page
+      let errorMessage = 'Failed to submit donation request. Please try again.';
+      let errorTitle = 'Error';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('ECONNABORTED')) {
+          errorTitle = 'Upload Timeout';
+          errorMessage = 'The upload timed out. This might be due to large images or slow connection. Please try with fewer or smaller images.';
+        } else if (error.message.includes('Network Error') || error.message.includes('ERR_NETWORK')) {
+          errorTitle = 'Network Error';
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+        } else if (error.message.includes('413') || error.message.includes('too large')) {
+          errorTitle = 'File Too Large';
+          errorMessage = 'Images are too large. Please try with smaller images or fewer images.';
+        } else if (error.message.includes('Invalid image format')) {
+          errorTitle = 'Invalid Image';
+          errorMessage = 'One or more images are in an unsupported format. Please try with different images.';
+        }
+      }
+      
+      Alert.alert(errorTitle, errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -357,6 +463,8 @@ export default function DonationPage() {
                     ? { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) }
                     : p
                 ));
+                // Auto-refresh donation posts after like/unlike
+                setTimeout(() => loadDonationPosts(), 500);
               }}
               onOpenViewer={async (post, type) => {
                 try {
@@ -383,9 +491,13 @@ export default function DonationPage() {
                     ? { ...p, post_content: newContent }
                     : p
                 ));
+                // Auto-refresh donation posts after edit
+                setTimeout(() => loadDonationPosts(), 500);
               }}
               onDeleted={(postId) => {
                 setPosts(prev => prev.filter((p: any) => p.post_id !== postId));
+                // Auto-refresh donation posts after delete
+                setTimeout(() => loadDonationPosts(), 500);
               }}
               onRepostToggle={(postId, isReposted) => {
                 setPosts(prev => prev.map((p: any) => 
@@ -393,6 +505,8 @@ export default function DonationPage() {
                     ? { ...p, reposts_count: isReposted ? (p.reposts_count || 0) + 1 : Math.max(0, (p.reposts_count || 0) - 1) }
                     : p
                 ));
+                // Auto-refresh donation posts after repost
+                setTimeout(() => loadDonationPosts(), 500);
               }}
             />
           );
@@ -446,89 +560,88 @@ export default function DonationPage() {
         </View>
       </Modal>
 
-      {/* Donation Creation Modal */}
-      <Modal visible={showDonationCreate} transparent animationType="slide" onRequestClose={() => setShowDonationCreate(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.donationModal}>
-            <View style={styles.donationModalHeader}>
-              <Text style={styles.donationModalTitle}>💰 Request Help</Text>
-              <TouchableOpacity onPress={() => setShowDonationCreate(false)}>
-                <FontAwesome name="times" size={20} color="#666" />
-              </TouchableOpacity>
+      {/* Donation Creation Modal - Full Screen Style */}
+      <Modal visible={showDonationCreate} animationType="slide" onRequestClose={() => setShowDonationCreate(false)}>
+        <View style={styles.fullScreenModal}>
+          {/* Top Bar */}
+          <View style={styles.topBar}>
+            <TouchableOpacity 
+              style={styles.topBarButtonLeft} 
+              onPress={() => setShowDonationCreate(false)}
+              disabled={isSubmitting}
+            >
+              <Text style={styles.closeIcon}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.title}>REQUEST HELP</Text>
+            <TouchableOpacity 
+              style={[styles.topBarButtonRight, isSubmitting && styles.disabledButton]} 
+              onPress={handleDonationSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#222" />
+              ) : (
+                <Text style={styles.postButton}>POST</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.separator} />
+        
+          {/* User Info */}
+          <View style={styles.postContainer}>
+            <View style={styles.userRow}>
+              <UserAvatar 
+                profilePic={user?.profile_pic}
+                firstName={user?.f_name}
+                lastName={user?.l_name}
+                size={40}
+                style={styles.avatar}
+              />
+              <Text style={styles.userName}>{user?.f_name} {user?.l_name}</Text>
             </View>
 
-            <View style={styles.donationModalContent}>
-              <View style={styles.donationUserInfo}>
-                <UserAvatar 
-                  profilePic={user?.profile_pic}
-                  firstName={user?.f_name}
-                  lastName={user?.l_name}
-                  size={40}
-                  style={styles.donationAvatar}
-                />
-                <View>
-                  <Text style={styles.donationUserName}>{user?.f_name} {user?.l_name}</Text>
-                  <Text style={styles.donationUserSubtext}>is requesting help</Text>
-                </View>
-              </View>
+            {/* Post Input */}
+            <MentionInput
+              value={donationMessage}
+              onChange={setDonationMessage}
+              placeholder="Describe your situation and how donations would help..."
+              style={styles.input}
+              multiline
+            />
 
-              <View style={styles.donationInputContainer}>
-                <Text style={styles.donationInputLabel}>Tell us about your need:</Text>
-                <MentionInput
-                  value={donationMessage}
-                  onChange={setDonationMessage}
-                  placeholder="Describe your situation and how donations would help (e.g., therapy sessions, medical expenses, emergency fund, etc.)..."
-                  style={styles.donationInput}
-                  multiline
-                />
-              </View>
+            {/* Character Count */}
+            <Text style={styles.charCount}>{donationMessage.length}/1000</Text>
+          </View>
 
-              {/* Image Upload Section */}
-              <View style={styles.imageUploadContainer}>
-                <TouchableOpacity style={styles.imageUploadButton} onPress={pickImages}>
-                  <FontAwesome name="image" size={20} color="#1e3a8a" />
-                  <Text style={styles.imageUploadText}>
-                    {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Images (Optional)'}
-                  </Text>
-                </TouchableOpacity>
-                
-                {/* Display selected images */}
-                {selectedImages.length > 0 && (
-                  <ScrollView horizontal style={styles.selectedImagesContainer}>
-                    {selectedImages.map((image, index) => (
-                      <View key={index} style={styles.selectedImageWrapper}>
-                        <Image source={{ uri: image }} style={styles.selectedImage} />
-                        <TouchableOpacity 
-                          style={styles.removeImageButton}
-                          onPress={() => removeImage(index)}
-                        >
-                          <FontAwesome name="times" size={12} color="#fff" />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </ScrollView>
-                )}
-              </View>
-
-              <View style={styles.donationModalActions}>
-                <TouchableOpacity 
-                  style={[styles.donationButton, styles.donationCancelButton]} 
-                  onPress={() => setShowDonationCreate(false)}
-                  disabled={isSubmitting}
-                >
-                  <Text style={styles.donationCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.donationButton, styles.donationSubmitButton, isSubmitting && styles.donationButtonDisabled]} 
-                  onPress={handleDonationSubmit}
-                  disabled={isSubmitting}
-                >
-                  <Text style={styles.donationSubmitButtonText}>
-                    {isSubmitting ? 'Posting...' : 'Post Request'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+          {/* Add Image Section */}
+          <View style={styles.addImageContainer}>
+            <TouchableOpacity 
+              style={styles.addImageRow} 
+              onPress={pickImages}
+            >
+              <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
+              <Text style={styles.addImageText}>
+                {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Image(s)'}
+              </Text>
+            </TouchableOpacity>
+            
+            {/* Display multiple selected images */}
+            {selectedImages.length > 0 && (
+              <ScrollView horizontal style={styles.imagesContainer}>
+                {selectedImages.map((image, index) => (
+                  <View key={index} style={styles.selectedImageContainer}>
+                    <Image source={{ uri: image }} style={styles.selectedImage} />
+                    <TouchableOpacity 
+                      style={styles.removeImageButton}
+                      onPress={() => removeImage(index)}
+                    >
+                      <Text style={styles.removeImageText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
@@ -661,95 +774,154 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
   },
-  // Donation Modal Styles
-  donationModal: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    width: '90%',
-    maxHeight: '80%',
+  // Full Screen Modal Styles - matching post creation interface
+  fullScreenModal: {
+    flex: 1,
+    backgroundColor: '#fff',
   },
-  donationModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  donationModalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  donationModalContent: {
-    padding: 20,
-  },
-  donationUserInfo: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
-  },
-  donationAvatar: {
-    width: 40,
+    justifyContent: 'center',
+    marginBottom: 16,
+    marginTop: 35,
+    position: 'relative',
     height: 40,
-    borderRadius: 20,
+  },
+  topBarButtonLeft: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  topBarButtonRight: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  closeIcon: { 
+    fontSize: 24, 
+    color: '#333' 
+  },
+  title: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: '#222',
+    textAlign: 'center',
+    flex: 1,
+  },
+  postButton: { 
+    color: '#222', 
+    fontWeight: 'bold', 
+    fontSize: 16 
+  },
+  separator: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    width: '100%',
+    marginBottom: 10,
+  },
+  postContainer: {
+    marginTop: 1,
+    paddingHorizontal: 16,
+  },
+  userRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginBottom: 12,
+    marginTop: 10,
+  },
+  userName: { 
+    fontWeight: 'bold', 
+    fontSize: 15, 
+    color: '#222',
+    marginTop: -15,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    padding: 12,
+    fontSize: 15,
+    minHeight: 100,
+    marginBottom: 16,
+    textAlignVertical: 'top',
+    color: '#D9D9D9',
+  },
+  charCount: {
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'right',
+    marginTop: -10,
+    marginBottom: 10,
+  },
+  addImageContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    // iOS shadow (top only)
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    // Android shadow
+    elevation: 4,
+    // Optional: add a thin border at the top
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    padding: 16,
+    marginTop: 30,
+  },
+  addImageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  addImageIcon: {
+    width: 32,
+    height: 32,
     marginRight: 12,
   },
-  donationUserName: {
+  addImageText: {
+    color: '#4B944D',
+    fontWeight: 'bold',
     fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
   },
-  donationUserSubtext: {
+  imagesContainer: {
+    marginTop: 10,
+    maxHeight: 150,
+  },
+  selectedImageContainer: {
+    position: 'relative',
+    marginTop: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  selectedImage: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 5,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  removeImageText: {
+    color: '#fff',
     fontSize: 12,
-    color: '#6b7280',
   },
-  donationInputContainer: {
-    marginBottom: 20,
-  },
-  donationInputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  donationInput: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  donationModalActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  donationButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  donationCancelButton: {
-    backgroundColor: '#f3f4f6',
-  },
-  donationSubmitButton: {
-    backgroundColor: '#1e3a8a',
-  },
-  donationButtonDisabled: {
-    opacity: 0.5,
-  },
-  donationCancelButtonText: {
-    color: '#374151',
-    fontWeight: '600',
-  },
-  donationSubmitButtonText: {
-    color: 'white',
-    fontWeight: '600',
+  disabledButton: {
+    opacity: 0.7,
   },
   // Info cards
   infoCard: {
@@ -794,49 +966,5 @@ const styles = StyleSheet.create({
   bulletText: {
     color: '#4b5563',
     fontSize: 12,
-  },
-  // Image upload styles
-  imageUploadContainer: {
-    marginBottom: 20,
-  },
-  imageUploadButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderStyle: 'dashed',
-  },
-  imageUploadText: {
-    marginLeft: 8,
-    color: '#1e3a8a',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  selectedImagesContainer: {
-    marginTop: 10,
-    maxHeight: 120,
-  },
-  selectedImageWrapper: {
-    position: 'relative',
-    marginRight: 8,
-  },
-  selectedImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-  },
-  removeImageButton: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });

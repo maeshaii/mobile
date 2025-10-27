@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost, getRepostLikes, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import { getImagesFromContent } from '../../utils/imageUtils';
 
 dayjs.extend(relativeTime);
 
@@ -74,7 +75,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   console.log('RepostCard - is_liked field:', repost.is_liked);
 
   // Local state for repost actions
-  const [isLiked, setIsLiked] = useState(!!repost.likes?.some((l: any) => l.user_id === currentUserId));
+  const [isLiked, setIsLiked] = useState(repost.is_liked || false);
   const [likeCount, setLikeCount] = useState(repost.likes_count || 0);
   const [repostCount, setRepostCount] = useState(repost.reposts_count || 0);
   const [showActions, setShowActions] = useState(false);
@@ -110,11 +111,10 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
   // Sync like state and repost count when repost data changes
   useEffect(() => {
-    const isLikedByCurrentUser = !!repost.likes?.some((l: any) => l.user_id === currentUserId);
-    setIsLiked(isLikedByCurrentUser);
-    setLikeCount(repost.likes_count || repost.likes?.length || 0);
+    setIsLiked(repost.is_liked || false);
+    setLikeCount(repost.likes_count || 0);
     setRepostCount(repost.reposts_count || 0);
-  }, [repost.likes, repost.likes_count, repost.reposts_count, currentUserId]);
+  }, [repost.is_liked, repost.likes_count, repost.reposts_count]);
   const repostTimeFromNow = (() => {
     const t = (repost as any)?.created_at || (repost as any)?.repost_date;
     return t ? dayjs(t).fromNow() : '';
@@ -124,29 +124,8 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     return t ? dayjs(t).fromNow() : '';
   })();
 
-  // Handle both single image and multiple images for repost
-  const getImagesFromRepostPost = (post: any) => {
-    const images = [];
-    
-    // Add main post image if exists (backward compatibility)
-    if (post.post_image) {
-      images.push({
-        image_id: 0,
-        image_url: post.post_image,
-        order: 0
-      });
-    }
-    
-    // Note: Backend repost detail only provides post_image (singular), not post_images (plural)
-    // Add post_images array if exists (multiple images) - for compatibility with other endpoints
-    if (post.post_images && Array.isArray(post.post_images)) {
-      images.push(...post.post_images);
-    }
-    
-    return images.sort((a, b) => a.order - b.order);
-  };
-
-  const originalImages = repost.original_post ? getImagesFromRepostPost(repost.original_post) : [];
+  // Use centralized image utility with deduplication
+  const originalImages = repost.original_post ? getImagesFromContent(repost.original_post) : [];
   const originalImageUrl = originalImages.length > 0 
     ? (String(originalImages[0].image_url).startsWith('http') ? originalImages[0].image_url : `${API_BASE_URL}${originalImages[0].image_url}`)
     : null;
@@ -486,7 +465,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                   setImageViewerVisible(true);
                 }}
               >
-                <Image source={{ uri: originalImageUrl }} style={styles.originalImage} resizeMode="cover" />
+                <Image source={{ uri: originalImageUrl || '' }} style={styles.originalImage} resizeMode="cover" />
               </TouchableOpacity>
             ) : (
               <ScrollView horizontal style={styles.originalImagesScroll} showsHorizontalScrollIndicator={false}>

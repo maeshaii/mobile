@@ -70,7 +70,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
-const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev'; // This will be replaced by ngrok script
+const ngrokUrl = 'https://era-meatier-seasonally.ngrok-free.dev'; // This will be replaced by ngrok script
 // Use ngrok for production, localhost for development
 export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
 
@@ -405,10 +405,23 @@ export const checkFollowStatus = async (userId: number) => {
 /** Suggested Users */
 // Mobile -> Backend: GET /api/users_list_view/?current_user_id={userId}
 export const fetchSuggestedUsers = async () => {
-  const user = await getUserInfo();
-  const currentUserId = user?.user_id || user?.id;
-  const { data } = await api.get(`/api/users_list_view/?current_user_id=${currentUserId}`);
-  return data;
+  try {
+    const user = await getUserInfo();
+    const currentUserId = user?.user_id || user?.id;
+    
+    // Only make the request if we have a valid user ID
+    if (!currentUserId) {
+      console.warn('No current user ID available for suggested users');
+      return { success: false, users: [], message: 'User not authenticated' };
+    }
+    
+    const { data } = await api.get(`/api/users_list_view/?current_user_id=${currentUserId}`);
+    return data;
+  } catch (error) {
+    console.error('Error fetching suggested users:', error);
+    // Return empty result instead of throwing to prevent app crashes
+    return { success: false, users: [], message: 'Failed to load suggested users' };
+  }
 };
 
 // Mobile -> Backend: GET /api/admin-peso-users/
@@ -555,13 +568,44 @@ export const sendReminder = async () => (await api.post('/api/send-reminder/')).
 // Mobile -> Backend: GET /api/posts/
 export const getPosts = async () => {
   try {
+    console.log('Mobile getPosts: Starting API call...');
+    
+    // Check if we have a valid token before making the request
+    const token = await getAccessToken();
+    if (!token) {
+      console.error('Mobile getPosts: No access token available');
+      throw new Error('No access token available');
+    }
+    
+    console.log('Mobile getPosts: Making API request with token:', token.substring(0, 20) + '...');
+    
     const response = await api.get('/api/posts/');
     console.log('Mobile getPosts API Response:', response.data);
     console.log('Posts array:', response.data?.posts);
     console.log('Posts count:', response.data?.posts?.length);
     return response.data?.posts || [];
-  } catch (error) {
+  } catch (error: any) {
     console.error('Mobile getPosts API Error:', error);
+    
+    // Check if it's a 403 error specifically
+    if (error.response?.status === 403) {
+      console.error('Mobile getPosts: 403 Forbidden - Authentication issue');
+      console.error('Response data:', error.response?.data);
+      
+      // Try to refresh the token and retry once
+      try {
+        console.log('Mobile getPosts: Attempting token refresh...');
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          console.log('Mobile getPosts: Token refreshed, retrying request...');
+          const retryResponse = await api.get('/api/posts/');
+          return retryResponse.data?.posts || [];
+        }
+      } catch (refreshError) {
+        console.error('Mobile getPosts: Token refresh failed:', refreshError);
+      }
+    }
+    
     throw error;
   }
 };
@@ -667,8 +711,30 @@ export const getFeed = async () => {
     const feedItems = sortFeedWithPriority(allItems);
     
     return feedItems;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Mobile getFeed API Error:', error);
+    
+    // Check if it's a 403 error specifically
+    if (error.response?.status === 403) {
+      console.error('Mobile getFeed: 403 Forbidden - Authentication issue');
+      console.error('Response data:', error.response?.data);
+      
+      // Try to refresh token and retry
+      try {
+        console.log('Mobile getFeed: Attempting token refresh...');
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          console.log('Mobile getFeed: Token refreshed, retrying feed request...');
+          // Retry the posts request
+          const postsResponse = await api.get('/api/posts/');
+          const posts = postsResponse.data?.posts || [];
+          return sortFeedWithPriority(posts.map((post: any) => ({ ...post, item_type: 'post' })));
+        }
+      } catch (refreshError) {
+        console.error('Mobile getFeed: Token refresh failed:', refreshError);
+      }
+    }
+    
     // Fallback to just posts if donations endpoint doesn't exist
     return getPosts().then(posts => posts.map((post: any) => ({ ...post, item_type: 'post' })));
   }

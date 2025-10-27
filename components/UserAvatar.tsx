@@ -71,9 +71,13 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
       source={imageSource} 
       style={[avatarStyle, style]}
       resizeMode="cover"
-      onError={() => {
-        console.warn('Failed to load profile image:', profilePic);
+      onError={(error) => {
+        console.warn('Failed to load profile image:', profilePic, 'Error:', error.nativeEvent.error);
         setImageError(true);
+      }}
+      onLoadStart={() => {
+        // Reset error state when starting to load a new image
+        setImageError(false);
       }}
     />
   );

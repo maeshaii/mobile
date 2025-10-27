@@ -5,9 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
+import MentionInput from '../../components/MentionInput';
 import PostCard from './postCard';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { getImagesFromContent } from '../../utils/imageUtils';
 
 dayjs.extend(relativeTime);
 
@@ -317,10 +320,8 @@ export default function PostDetailScreen() {
 
   const getPostImages = (p: any): Array<{ image_url: string; order?: number }> => {
     if (!p) return [];
-    const images: Array<{ image_url: string; order?: number }> = [];
-    if (p.post_image) images.push({ image_url: p.post_image, order: 0 });
-    if (Array.isArray(p.post_images)) images.push(...p.post_images);
-    return images.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    // Use the proper image utility function to avoid duplicates
+    return getImagesFromContent(p);
   };
 
   const meId = me?.id || me?.user_id;
@@ -772,16 +773,13 @@ export default function PostDetailScreen() {
                           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                           style={styles.editBox}
                         >
-                          <TextInput
-                            style={styles.editInput}
+                          <MentionInput
                             value={editText}
-                            onChangeText={setEditText}
+                            onChange={setEditText}
                             placeholder="Edit your comment..."
-                            placeholderTextColor="#9ca3af"
+                            style={styles.editInput}
                             multiline
-                            autoFocus
-                            returnKeyType="default"
-                            blurOnSubmit={false}
+                            maxLength={500}
                           />
                           <View style={styles.editActions}>
                             <TouchableOpacity onPress={() => handleUpdateComment(c.comment_id)} style={styles.sendBtn}>
@@ -794,7 +792,9 @@ export default function PostDetailScreen() {
                         </KeyboardAvoidingView>
                       ) : (
                         <View style={styles.commentBubble}>
-                          <Text style={styles.commentText}>{c.comment_content}</Text>
+                          {renderTextWithMentions(c.comment_content, [], (userId) => {
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                          })}
                         </View>
                       )}
 
@@ -851,16 +851,13 @@ export default function PostDetailScreen() {
                                           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                                           style={styles.editReplyContainer}
                                         >
-                                          <TextInput
-                                            style={styles.editReplyInput}
+                                          <MentionInput
                                             value={editReplyText}
-                                            onChangeText={setEditReplyText}
+                                            onChange={setEditReplyText}
                                             placeholder="Edit your reply..."
-                                            placeholderTextColor="#9ca3af"
+                                            style={styles.editReplyInput}
                                             multiline
-                                            autoFocus
-                                            returnKeyType="default"
-                                            blurOnSubmit={false}
+                                            maxLength={500}
                                           />
                                           <View style={styles.editReplyActions}>
                                             <TouchableOpacity
@@ -878,7 +875,11 @@ export default function PostDetailScreen() {
                                           </View>
                                         </KeyboardAvoidingView>
                                       ) : (
-                                        <Text style={styles.replyText}>{reply.reply_content}</Text>
+                                        <Text style={styles.replyText}>
+                                          {renderTextWithMentions(reply.reply_content, [], (userId) => {
+                                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                          })}
+                                        </Text>
                                       )}
                                       
                                       <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
@@ -948,16 +949,13 @@ export default function PostDetailScreen() {
           </View>
         )}
           <View style={styles.commentInputRow}>
-            <TextInput
-              style={styles.commentInput}
+            <MentionInput
               value={replyingTo ? replyText : commentText}
-              onChangeText={replyingTo ? setReplyText : setCommentText}
+              onChange={replyingTo ? setReplyText : setCommentText}
               placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
-              placeholderTextColor="#9ca3af"
+              style={styles.commentInput}
               multiline
-              returnKeyType="send"
-              blurOnSubmit
-              onSubmitEditing={replyingTo ? handleSendReply : handleSendComment}
+              maxLength={500}
             />
             <TouchableOpacity
               disabled={replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment)}

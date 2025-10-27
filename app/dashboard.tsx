@@ -8,6 +8,8 @@ import {
   repostPost, deleteRepost, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus
 } from '../services/api';
 import UserAvatar from '../components/UserAvatar';
+import { renderTextWithMentions } from '../utils/mentionUtils';
+import MentionInput from '../components/MentionInput';
 import TrackerReminderModal from '../components/TrackerReminderModal';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../utils/imageUtils';
 
@@ -37,39 +39,63 @@ export default function DashboardScreen() {
     loadUserInfo();
   }, []);
 
+  const loadPosts = async () => {
+    try {
+      console.log('Loading posts...');
+      const postsData = await getFeed();
+      setPosts(postsData || []);
+      console.log('Posts loaded successfully:', postsData?.length || 0);
+    } catch (err: any) {
+      console.error('Error loading posts:', err);
+      setError('Failed to load posts');
+    }
+  };
+
   const loadUserInfo = async () => {
     try {
       setLoading(true);
-      const [userInfo, postsData] = await Promise.all([
-        getUserInfo(),
-        getFeed()
-      ]);
       
-      if (userInfo) {
-        setUser(userInfo);
-        setEditData({
-          name: userInfo.name || '',
-          course: userInfo.course || '',
-          year_graduated: userInfo.year_graduated ? String(userInfo.year_graduated) : '',
-          profile_pic: userInfo.profile_pic || '',
-        });
-
-        // Check tracker status for alumni users
-        console.log('👤 User account type:', userInfo.account_type);
-        if (userInfo.account_type === 'alumni') {
-          console.log('🎓 User is alumni, checking tracker status...');
-          await checkTrackerStatus();
-        } else {
-          console.log('❌ User is not alumni, skipping tracker check');
-        }
-      } else {
+      // First check if user is authenticated
+      const userInfo = await getUserInfo();
+      if (!userInfo) {
+        console.log('No user info found, redirecting to login');
         router.replace('/login/login');
+        return;
+      }
+      
+      console.log('User authenticated, loading feed...');
+      const postsData = await getFeed();
+      
+      setUser(userInfo);
+      setEditData({
+        name: userInfo.name || '',
+        course: userInfo.course || '',
+        year_graduated: userInfo.year_graduated ? String(userInfo.year_graduated) : '',
+        profile_pic: userInfo.profile_pic || '',
+      });
+
+      // Check tracker status for alumni users
+      console.log('👤 User account type:', userInfo.account_type);
+      if (userInfo.account_type === 'alumni') {
+        console.log('🎓 User is alumni, checking tracker status...');
+        await checkTrackerStatus();
+      } else {
+        console.log('❌ User is not alumni, skipping tracker check');
       }
       
       setPosts(postsData || []);
-    } catch (err) {
-      setError('Failed to load user information');
+    } catch (err: any) {
       console.error('Error loading user info:', err);
+      
+      // If it's a 403 error, the user might not be properly authenticated
+      if (err.response?.status === 403) {
+        console.log('403 error - user not authenticated, redirecting to login');
+        setError('Session expired. Please log in again.');
+        router.replace('/login/login');
+        return;
+      }
+      
+      setError('Failed to load user information');
     } finally {
       setLoading(false);
     }
@@ -348,23 +374,8 @@ export default function DashboardScreen() {
                 console.log('Post post_images:', post.post_images);
                 console.log('Post post_image:', post.post_image);
                 
-                const images: any[] = [];
-                
-                // Add main post image if exists (backward compatibility)
-                if (post.post_image) {
-                  console.log('Dashboard - Adding post_image:', post.post_image);
-                  images.push({
-                    image_id: 0,
-                    image_url: post.post_image,
-                    order: 0
-                  });
-                }
-                
-                // Add post_images array if exists (multiple images)
-                if (post.post_images && Array.isArray(post.post_images)) {
-                  console.log('Dashboard - Adding post_images:', post.post_images);
-                  images.push(...post.post_images);
-                }
+                // Use the proper image utility function to avoid duplicates
+                const images = getImagesFromContent(post);
                 
                 console.log('Dashboard - Images to display:', images);
                 console.log('Dashboard - Images length:', images.length);
@@ -381,66 +392,20 @@ export default function DashboardScreen() {
                       </TouchableOpacity>
                     ) : (
                       // Multiple images - Facebook-style grid layout
-                      <View style={styles.imagesContainer}>
-                        {images.length === 2 ? (
-                          // 2 images: side by side
-                          <View style={styles.twoImagesContainer}>
-                            {images.slice(0, 2).map((image, index) => {
-                              const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
-                              return (
-                                <TouchableOpacity key={index} style={styles.twoImagesGrid}>
-                                  <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                        ) : images.length === 3 ? (
-                          // 3 images: one big on left, two half-sized on right
-                          <View style={styles.threeImagesContainer}>
-                            <TouchableOpacity style={styles.threeImagesFirst}>
-                              <Image source={{ uri: String(images[0].image_url).startsWith('http') ? images[0].image_url : `${API_BASE_URL}${images[0].image_url}` }} style={styles.gridImage} resizeMode="cover" />
+                      <View style={styles.imagesGrid}>
+                        {images.slice(0, 4).map((image, index) => {
+                          const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+                          return (
+                            <TouchableOpacity key={index} style={styles.fourImagesGrid}>
+                              <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                              {index === 3 && images.length > 4 && (
+                                <View style={styles.moreImagesOverlay}>
+                                  <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
+                                </View>
+                              )}
                             </TouchableOpacity>
-                            <View style={styles.threeImagesRight}>
-                              {images.slice(1, 3).map((image, index) => {
-                                const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
-                                return (
-                                  <TouchableOpacity key={index + 1} style={styles.threeImagesRest}>
-                                    <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </View>
-                          </View>
-                        ) : images.length === 4 ? (
-                          // 4 images: 2x2 grid
-                          <View style={styles.fourImagesContainer}>
-                            {images.slice(0, 4).map((image, index) => {
-                              const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
-                              return (
-                                <TouchableOpacity key={index} style={styles.fourImagesGrid}>
-                                  <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                        ) : (
-                          // 5+ images: 2x3 grid with "+X more" overlay
-                          <View style={styles.fivePlusImagesContainer}>
-                            {images.slice(0, 6).map((image, index) => {
-                              const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
-                              return (
-                                <TouchableOpacity key={index} style={styles.fivePlusImagesGrid}>
-                                  <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
-                                  {index === 5 && images.length > 6 && (
-                                    <View style={styles.moreImagesOverlay}>
-                                      <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
-                                    </View>
-                                  )}
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                        )}
+                          );
+                        })}
                       </View>
                     )}
                   </View>
@@ -489,6 +454,8 @@ export default function DashboardScreen() {
                         }
                         setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p));
                       }
+                      // Auto-refresh feed after like/unlike
+                      setTimeout(() => loadPosts(), 500);
                     } catch (e) {
                       Alert.alert('Error', 'Failed to update like');
                     }
@@ -519,6 +486,8 @@ export default function DashboardScreen() {
                         await repostPost(post.post_id);
                         setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: (p.reposts_count||0)+1 } : p));
                         Alert.alert('Reposted');
+                        // Auto-refresh feed after repost
+                        setTimeout(() => loadPosts(), 500);
                       }
                     } catch (e) {
                       Alert.alert('Error', 'Failed to repost');
@@ -592,7 +561,9 @@ export default function DashboardScreen() {
                       </View>
                     </View>
                     <View style={styles.commentBubble}>
-                    <Text style={styles.commentBody}>{c.comment_content}</Text>
+                      {renderTextWithMentions(c.comment_content, [], (userId) => {
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                      })}
                     </View>
                   </View>
                 </View>
@@ -601,11 +572,11 @@ export default function DashboardScreen() {
 
             {viewerType === 'comments' && selectedPost ? (
               <View style={styles.commentInputRow}>
-                <TextInput
-                  style={styles.commentInput}
-                  placeholder="Write a comment..."
+                <MentionInput
                   value={commentText}
-                  onChangeText={setCommentText}
+                  onChange={setCommentText}
+                  placeholder="Write a comment..."
+                  style={styles.commentInput}
                 />
                 <TouchableOpacity
                   style={styles.sendBtn}
@@ -1096,66 +1067,15 @@ const styles = StyleSheet.create({
     height: 300,
     borderRadius: 8,
   },
-  // Facebook-style grid layouts - explicit containers
-  twoImagesContainer: {
-    flexDirection: 'row',
-    gap: 2,
-    height: 200,
-  },
-  threeImagesContainer: {
-    flexDirection: 'row',
-    gap: 2,
-    height: 200,
-  },
-  threeImagesRight: {
-    flex: 1,
-    gap: 2,
-  },
-  fourImagesContainer: {
+  imagesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2,
-    height: 252, // 2 rows of 150px each
-  },
-  fivePlusImagesContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 2,
-    height: 364, 
-  },
-  
-  // Individual image styles
-  twoImagesGrid: {
-    flex: 1,
-    height: 200,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesFirst: {
-    width: '49%',
-    height: 200,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesRest: {
-    width: '100%',
-    height: 99, // (200 - 2) / 2
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
+    justifyContent: 'space-between',
   },
   fourImagesGrid: {
     width: '49%',
-    height: 125,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  fivePlusImagesGrid: {
-    width: '49%',
-    height: 120,
+    height: 150,
     position: 'relative',
     overflow: 'hidden',
     borderRadius: 4,
@@ -1171,13 +1091,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   moreImagesText: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
   },
 });

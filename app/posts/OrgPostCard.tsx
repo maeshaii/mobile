@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { commentOnPost, getPostComments, likePost, unlikePost } from '../../services/api';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 interface Post {
   id: number;
@@ -183,7 +184,10 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
                   </Text>
                 </View>
                 <View style={styles.commentBubble}>
-                  <Text style={styles.commentText}>{comment.comment_content}</Text>
+                  {renderTextWithMentions(comment.comment_content, [], (userId) => {
+                    // Navigate to user profile - you might need to implement this
+                    console.log('Navigate to user:', userId);
+                  })}
                 </View>
               </View>
             ))}
@@ -228,7 +232,10 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
                       </Text>
                     </View>
                     <View style={styles.modalCommentBubble}>
-                      <Text style={styles.modalCommentText}>{comment.comment_content}</Text>
+                      {renderTextWithMentions(comment.comment_content, [], (userId) => {
+                        // Navigate to user profile - you might need to implement this
+                        console.log('Navigate to user:', userId);
+                      })}
                     </View>
                   </View>
                 </View>
