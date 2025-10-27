@@ -1,12 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, FlatList, Platform, AppState, Alert, Keyboard, Dimensions, StatusBar } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, FlatList, Platform, AppState, Alert, Keyboard, Dimensions, StatusBar, Modal, Linking, ScrollView, ActivityIndicator } from 'react-native';
+// Using expo-av for video playback (more stable)
+import { Video, ResizeMode } from 'expo-av';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment } from '../../services/api';
+import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system/legacy';
+
+// Get directory paths - use type assertion to bypass TypeScript issues
+const CACHE_DIR = (FileSystem as any).cacheDirectory || '';
+const DOC_DIR = (FileSystem as any).documentDirectory || '';
+import * as Sharing from 'expo-sharing';
+import EmojiSelector from 'react-native-emoji-selector';
+import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL } from '../../services/api';
 import { ConversationWebSocket, TypingIndicator, WsEvent } from '../../services/websocketHelper';
+import { getFileIcon, getFileTypeDisplayName, formatFileSize, isImageFile, isVideoFile, isAudioFile, FileCategory } from '../../utils/fileUtils';
+import { deduplicateMessages, addMessageWithDeduplication, replaceTempMessage, removeTempMessage, isDuplicateMessage } from '../../utils/messageUtils';
+import { sanitizeUserInput, validateMessageType } from '../../utils/securityUtils';
+import { useLogger } from '../../utils/logger';
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
 
@@ -20,9 +34,16 @@ type UiMsg = {
   created_at?: string;
   attachment_url?: string | null;
   message_type?: string;
+  attachment_info?: {
+    file_name?: string;
+    file_type?: string;
+    file_category?: FileCategory;
+    file_size?: number;
+  };
 };
 
 const ChatMessageScreen = () => {
+  const logger = useLogger('ChatMessageScreen');
   const router = useRouter();
   const { conversationId, name } = useLocalSearchParams<{ conversationId: string; name: string }>();
   const [messages, setMessages] = useState<UiMsg[]>([]);
@@ -34,11 +55,49 @@ const ChatMessageScreen = () => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   
+  // Download modal state
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadFile, setDownloadFile] = useState<{url: string, name: string, type: string} | null>(null);
+  const [isSharing, setIsSharing] = useState(false); // Prevent multiple share requests
+  
+  // Image viewing state
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [viewingImageUrl, setViewingImageUrl] = useState<string | null>(null);
+  
+  // Emoji picker state
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  
+  // Video player state
+  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
+  const [videoLoading, setVideoLoading] = useState<Set<string>>(new Set());
+  
+  // Typing indicators state
+  const [typingUsers, setTypingUsers] = useState<Set<number>>(new Set());
+  
+  // Connection status state
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
+  
   const flatListRef = useRef<FlatList>(null);
   const wsRef = useRef<ConversationWebSocket | null>(null);
   const typingIndicatorRef = useRef<TypingIndicator | null>(null);
   const hasMarkedAsRead = useRef(false);
   const typingTimeoutRef = useRef<any>(null);
+
+  // Emoji picker functionality using react-native-emoji-selector
+  const handleEmojiSelect = (emoji: string) => {
+    try {
+      // Validate emoji before adding
+      if (emoji && typeof emoji === 'string' && emoji.length > 0) {
+        setInput(prev => prev + emoji);
+        setShowEmojiPicker(false);
+      } else {
+        console.warn('Invalid emoji selected:', emoji);
+      }
+    } catch (error) {
+      console.error('Error handling emoji selection:', error);
+      setShowEmojiPicker(false);
+    }
+  };
 
   // Load current user
   useEffect(() => {
@@ -95,80 +154,80 @@ const ChatMessageScreen = () => {
     }
   }, [messages.length]);
 
+  // Function to load messages (can be called from auto-refresh)
+  const loadMessages = async () => {
+    if (!conversationId || !currentUser || !currentUser.id) {
+      console.log('Skipping message load - missing data:', { conversationId, currentUser: !!currentUser, userId: currentUser?.id });
+      return;
+    }
+    try {
+      console.log('Loading messages for conversation:', conversationId, 'user:', currentUser.id);
+      const data = await listMessages(Number(conversationId));
+      const arr = Array.isArray(data?.results) ? data.results : [];
+      const mapped: UiMsg[] = arr.map((m: MessageItem) => {
+        const isMe = m?.sender?.is_me === true || m?.sender?.user_id === currentUser.id;
+        console.log('Mapping message:', {
+          message_id: m.message_id,
+          content: m.content,
+          sender_id: m.sender?.user_id,
+          current_user_id: currentUser.id,
+          is_me: m?.sender?.is_me,
+          isMe,
+          sent: isMe
+        });
+        return {
+          id: String(m.message_id), 
+          text: m.content, 
+          sent: isMe,
+          sender_id: m.sender?.user_id,
+          sender_name: m.sender?.name,
+          created_at: m.created_at,
+          attachment_url: m.attachments?.[0]?.file_url || null,
+          message_type: m.message_type,
+          attachment_info: m.attachments?.[0] ? {
+            file_name: m.attachments[0].file_name,
+            file_type: m.attachments[0].file_type,
+            file_category: m.attachments[0].file_category,
+            file_size: m.attachments[0].file_size
+          } : undefined
+        };
+      });
+      
+      // Use the new deduplication utility
+      const finalUnique = deduplicateMessages(mapped);
+      console.log('De-duplicated messages:', finalUnique.length, 'from', mapped.length);
+      setMessages(finalUnique);
+      setNextCursor(data?.next_cursor || null);
+      
+      // Auto-scroll to bottom after loading messages (like web)
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 200);
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-refresh messages every 30 seconds to ensure real-time sync
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      if (conversationId && currentUser?.id) {
+        console.log('Auto-refreshing messages...');
+        loadMessages();
+      }
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, [conversationId, currentUser?.id]);
+
   useEffect(() => {
     // Load initial messages - only when we have both conversationId and currentUser
-    async function load() {
-      if (!conversationId || !currentUser || !currentUser.id) {
-        console.log('Skipping message load - missing data:', { conversationId, currentUser: !!currentUser, userId: currentUser?.id });
-        return;
-      }
-      try {
-        console.log('Loading messages for conversation:', conversationId, 'user:', currentUser.id);
-        const data = await listMessages(Number(conversationId));
-        const arr = Array.isArray(data?.results) ? data.results : [];
-        const mapped: UiMsg[] = arr.map((m: any) => {
-          const isMe = m?.sender?.is_me === true || m?.sender?.user_id === currentUser.id;
-          console.log('Mapping message:', {
-            message_id: m.message_id,
-            content: m.content,
-            sender_id: m.sender?.user_id,
-            current_user_id: currentUser.id,
-            is_me: m?.sender?.is_me,
-            isMe,
-            sent: isMe
-          });
-          return {
-            id: String(m.message_id), 
-            text: m.content, 
-            sent: isMe,
-            sender_id: m.sender?.user_id,
-            sender_name: m.sender?.name,
-            created_at: m.created_at,
-            attachment_url: m.attachments?.[0]?.file_url || null,
-            message_type: m.message_type
-          };
-        });
-        
-        // De-duplicate messages using byId map like web (exact same logic)
-        const byId: Record<string, UiMsg> = {};
-        mapped.forEach(m => { 
-          // If we already have this message, prioritize based on sent status
-          if (byId[m.id]) {
-            if (m.sent && !byId[m.id].sent) {
-              byId[m.id] = m; // Prefer sent version
-            }
-          } else {
-            byId[m.id] = m;
-          }
-        });
-        
-        // Secondary de-duplication by content + timestamp + sender (like web)
-        const finalUnique: UiMsg[] = [];
-        const seen = new Set<string>();
-        Object.values(byId).forEach(m => {
-          const key = `${m.text}_${m.created_at}_${m.sender_id}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            finalUnique.push(m);
-          }
-        });
-        
-        console.log('De-duplicated messages:', finalUnique.length, 'from', mapped.length);
-        setMessages(finalUnique);
-        setNextCursor(data?.next_cursor || null);
-        
-        // Auto-scroll to bottom after loading messages (like web)
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }, 200);
-      } catch (e) {
-        console.warn('Failed to load messages', e);
-      } finally {
-        setLoading(false);
-      }
+    if (conversationId && currentUser?.id) {
+      loadMessages();
     }
-    load();
-  }, [conversationId, currentUser]);
+  }, [conversationId, currentUser?.id]);
 
   useEffect(() => {
     // Connect WebSocket - only when we have both conversationId and currentUser
@@ -177,15 +236,49 @@ const ChatMessageScreen = () => {
       return;
     }
 
-    console.log('Connecting WebSocket for conversation:', conversationId, 'user:', currentUser.id);
-    const ws = new ConversationWebSocket(Number(conversationId), getWebSocketBase());
-    wsRef.current = ws;
+    const connectWebSocket = async () => {
+      try {
+        console.log('Connecting WebSocket for conversation:', conversationId, 'user:', currentUser.id);
+        const wsBaseUrl = await getWebSocketBase();
+        
+        // Get JWT token for WebSocket authentication
+        const token = await getAccessToken();
+        console.log('WebSocket token available:', !!token);
+        
+        // If no token or token is expired, try to refresh it
+        let validToken = token;
+        if (!token) {
+          console.log('No token available, attempting refresh...');
+          try {
+            const refreshToken = await getRefreshToken();
+            if (refreshToken) {
+              const response = await api.post('/api/token/refresh/', { refresh: refreshToken });
+              if (response.data?.access) {
+                await SecureStore.setItemAsync('accessToken', response.data.access);
+                validToken = response.data.access;
+                console.log('Token refreshed successfully');
+              }
+            }
+          } catch (refreshError) {
+            console.log('Token refresh failed:', refreshError);
+            // Continue without token - WebSocket will fail but that's expected
+          }
+        }
+        
+        console.log('WebSocket token available:', !!validToken);
+        console.log('WebSocket token preview:', validToken ? `${validToken.substring(0, 20)}...` : 'None');
+        console.log('WebSocket base URL:', wsBaseUrl);
+        console.log('Creating WebSocket with token:', !!validToken);
+        const ws = new ConversationWebSocket(Number(conversationId), wsBaseUrl, validToken || undefined);
+        wsRef.current = ws;
     
     const typingIndicator = new TypingIndicator(ws);
     typingIndicatorRef.current = typingIndicator;
 
-    ws.onStatus((status) => {
+    // Create callback functions that can be properly cleaned up
+    const statusCallback = (status: 'connecting' | 'connected' | 'disconnected' | 'error') => {
       console.log('WebSocket status:', status);
+      setConnectionStatus(status);
       if (status === 'connected') {
         // Mark conversation as read when connected
         if (!hasMarkedAsRead.current) {
@@ -193,9 +286,9 @@ const ChatMessageScreen = () => {
           hasMarkedAsRead.current = true;
         }
       }
-    });
+    };
 
-    ws.onMessage((event: WsEvent) => {
+    const messageCallback = (event: WsEvent) => {
       if (!currentUser || !currentUser.id) {
         console.log('Skipping WebSocket message - no currentUser');
         return;
@@ -212,6 +305,12 @@ const ChatMessageScreen = () => {
             break;
           }
           
+          // Validate message data before processing
+          if (!event.message_id || !event.sender_id || !event.sender_name) {
+            console.warn('Invalid message data received:', event);
+            break;
+          }
+          
           setMessages((prev) => {
             const id = String(event.message_id);
             const map: Record<string, UiMsg> = {};
@@ -225,33 +324,67 @@ const ChatMessageScreen = () => {
             
             const newMessage: UiMsg = {
               id,
-              text: event.content,
+              text: event.content || '',
               sent: false, // Received message
               sender_id: event.sender_id,
               sender_name: event.sender_name,
               created_at: event.created_at,
               attachment_url: event.attachment_url,
-              message_type: event.message_type
+              message_type: event.message_type,
+              attachment_info: event.attachment_info
             };
             
             console.log('Adding new message from WebSocket:', newMessage);
-            return [...prev, newMessage];
+            // Check if this is a duplicate before adding
+            if (isDuplicateMessage(prev, newMessage)) {
+              return prev;
+            }
+            return addMessageWithDeduplication(prev, newMessage);
           });
           break;
         case 'typing':
-          // Handle typing indicators if needed
+          // Handle typing indicators
+          if (event.user_id && event.user_id !== myId) {
+            setTypingUsers(prev => new Set(prev).add(event.user_id));
+            
+            // Clear typing indicator after 3 seconds
+            setTimeout(() => {
+              setTypingUsers(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(event.user_id);
+                return newSet;
+              });
+            }, 3000);
+          }
           break;
         case 'pong':
           console.log('WebSocket message received: pong myId:', myId);
           break;
       }
-    });
+    };
 
-    // Connect the WebSocket
-    ws.connect();
+    // Store callbacks for cleanup
+    wsRef.current.statusCallback = statusCallback;
+    wsRef.current.messageCallback = messageCallback;
+
+    // Add callbacks
+    ws.onStatus(statusCallback);
+    ws.onMessage(messageCallback);
+
+        // Connect the WebSocket
+        ws.connect();
+        } catch (error) {
+          logger.error('Failed to establish session for WebSocket', error);
+        }
+    };
+
+    connectWebSocket();
 
     return () => {
-      ws.disconnect();
+      // Clean up WebSocket connection
+      if (wsRef.current) {
+        wsRef.current.disconnect();
+      }
     };
   }, [conversationId, currentUser]);
 
@@ -269,24 +402,26 @@ const ChatMessageScreen = () => {
   }, [conversationId]);
 
   const handleSend = async () => {
-    const text = input.trim();
-    if (!text || !currentUser || !currentUser.id) return;
+    try {
+      // Sanitize input on client side as first line of defense
+      const sanitizedText = sanitizeUserInput(input.trim());
+      if (!sanitizedText || !currentUser || !currentUser.id) return;
     
-    console.log('Sending message:', text, 'user:', currentUser.id);
-    
-    const tempId = `temp_${Date.now()}_${Math.random()}`;
-    const tempMessage: UiMsg = {
-      id: tempId,
-      text,
-      sent: true,
-      tempId,
-      sender_id: currentUser.id,
-      sender_name: currentUser.name,
-      created_at: new Date().toISOString(),
-    };
+      console.log('Sending message:', sanitizedText, 'user:', currentUser.id);
+      
+      const tempId = `temp_${Date.now()}_${Math.random()}`;
+      const tempMessage: UiMsg = {
+        id: tempId,
+        text: sanitizedText,
+        sent: true,
+        tempId,
+        sender_id: currentUser.id,
+        sender_name: currentUser.name,
+        created_at: new Date().toISOString(),
+      };
     
     // Add temporary message immediately (optimistic UI)
-    setMessages(prev => [...prev, tempMessage]);
+    setMessages(prev => addMessageWithDeduplication(prev, tempMessage));
     setInput('');
     
     // Clear any existing typing timeout
@@ -294,32 +429,33 @@ const ChatMessageScreen = () => {
       clearTimeout(typingTimeoutRef.current);
     }
     
-    try {
-      const saved = await sendMessageApi(Number(conversationId), { content: text });
+      try {
+        const saved = await sendMessageApi(Number(conversationId), { content: sanitizedText });
       console.log('Message sent successfully:', saved);
       
-      // Replace temporary message with saved message
-      setMessages(prev => prev.map(m => 
-        m.tempId === tempId 
-          ? {
-              ...m,
-              id: String(saved.message_id),
-              tempId: undefined,
-              created_at: saved.created_at,
-            }
-          : m
-      ));
+      // Replace temporary message with saved message using utility function
+      const savedMessage: UiMsg = {
+        ...tempMessage,
+        id: String(saved.message_id),
+        tempId: undefined,
+        created_at: saved.created_at,
+      };
       
-      console.log('Replaced temp message with saved message');
+        setMessages(prev => replaceTempMessage(prev, tempId, savedMessage));
+        console.log('Replaced temp message with saved message');
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        // Remove temporary message on error
+        setMessages(prev => removeTempMessage(prev, tempId));
+        Alert.alert('Error', 'Failed to send message. Please try again.');
+      }
+      
+      // Scroll to bottom after sending
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (error) {
-      console.error('Failed to send message:', error);
-      // Remove temporary message on error
-      setMessages(prev => prev.filter(m => m.tempId !== tempId));
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      console.error('Input sanitization failed:', error);
+      Alert.alert('Invalid Input', 'Invalid message content. Please check your input and try again.');
     }
-    
-    // Scroll to bottom after sending
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   const handleInputChange = (text: string) => {
@@ -364,30 +500,10 @@ const ChatMessageScreen = () => {
         };
       });
       
-      // De-duplicate with existing messages (exact same logic as web)
+      // De-duplicate with existing messages using utility function
       setMessages((prev) => {
         const joined = [...mapped, ...prev];
-        const byId: Record<string, UiMsg> = {};
-        joined.forEach(m => { 
-          if (byId[m.id]) {
-            if (m.sent && !byId[m.id].sent) {
-              byId[m.id] = m;
-            }
-          } else {
-            byId[m.id] = m;
-          }
-        });
-        
-        const finalUnique: UiMsg[] = [];
-        const seen = new Set<string>();
-        Object.values(byId).forEach(m => {
-          const key = `${m.text}_${m.created_at}_${m.sender_id}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            finalUnique.push(m);
-          }
-        });
-        
+        const finalUnique = deduplicateMessages(joined);
         console.log('Loaded more messages:', finalUnique.length, 'from', joined.length);
         return finalUnique;
       });
@@ -402,13 +518,13 @@ const ChatMessageScreen = () => {
 
   const handleAttachmentPress = async () => {
     try {
-      // Show action sheet for image vs document picker
+      // Show action sheet for different file types
       Alert.alert(
         'Select Attachment',
         'Choose the type of file you want to attach',
         [
           {
-            text: 'Photo/Video',
+            text: '📷 Photo/Image',
             onPress: async () => {
               try {
                 // Request permissions for image picker
@@ -419,8 +535,8 @@ const ChatMessageScreen = () => {
                 }
 
                 const result = await ImagePicker.launchImageLibraryAsync({
-                  mediaTypes: ImagePicker.MediaTypeOptions.All,
-                  allowsEditing: false, // Disable cropping
+                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                  allowsEditing: false,
                   quality: 0.8,
                 });
 
@@ -434,11 +550,48 @@ const ChatMessageScreen = () => {
             },
           },
           {
-            text: 'Document',
+            text: '🎥 Video',
+            onPress: async () => {
+              try {
+                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (status !== 'granted') {
+                  Alert.alert('Permission Required', 'Please grant permission to access your media library.');
+                  return;
+                }
+
+                const result = await ImagePicker.launchImageLibraryAsync({
+                  mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+                  allowsEditing: false,
+                  quality: 0.8,
+                });
+
+                if (!result.canceled && result.assets[0]) {
+                  await uploadAndSendAttachment(result.assets[0]);
+                }
+              } catch (error) {
+                console.error('Error with video picker:', error);
+                Alert.alert('Error', 'Failed to select video. Please try again.');
+              }
+            },
+          },
+          {
+            text: '📄 Documents (PDF, Word, Excel, etc.)',
             onPress: async () => {
               try {
                 const result = await DocumentPicker.getDocumentAsync({
-                  type: '*/*',
+                  type: [
+                    'application/pdf',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'application/vnd.ms-powerpoint',
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    'text/plain',
+                    'text/csv',
+                    'application/zip',
+                    'application/x-rar-compressed'
+                  ],
                   copyToCacheDirectory: true,
                 });
 
@@ -469,19 +622,55 @@ const ChatMessageScreen = () => {
       // Create proper file object for upload
       const fileObj = {
         uri: file.uri,
-        type: file.type || 'application/octet-stream',
-        name: file.name || 'attachment',
+        type: file.mimeType || file.type || 'application/octet-stream',
+        name: file.fileName || file.name || 'attachment',
       };
       
-      const attachment = await uploadAttachment(fileObj);
+      const attachment = await uploadAttachment(fileObj, Number(conversationId));
       console.log('Attachment uploaded:', attachment);
       
-      // Determine message type based on file type
-      const messageType = file.type?.startsWith('image/') ? 'image' : 'file';
+      // Determine message type and content based on file category
+      let messageType: 'text' | 'image' | 'file' | 'system' = 'file';
+      let messageContent = '📎 File';
+      
+      switch (attachment.file_category) {
+        case 'image':
+          messageType = 'image';
+          messageContent = '📷 Image';
+          break;
+        case 'video':
+          messageType = 'file'; // Backend only supports 'file' for videos
+          messageContent = '🎥 Video File';
+          break;
+        case 'audio':
+          messageType = 'file'; // Backend only supports 'file' for audio
+          messageContent = '🎵 Audio File';
+          break;
+        case 'pdf':
+          messageContent = '📄 PDF Document';
+          break;
+        case 'word':
+          messageContent = '📝 Word Document';
+          break;
+        case 'excel':
+          messageContent = '📊 Excel Spreadsheet';
+          break;
+        case 'powerpoint':
+          messageContent = '📈 PowerPoint Presentation';
+          break;
+        case 'archive':
+          messageContent = '📦 Archive File';
+          break;
+        case 'text':
+          messageContent = '📄 Text Document';
+          break;
+        default:
+          messageContent = `📎 ${attachment.file_name}`;
+      }
       
       // Send message with attachment
       const message = await sendMessageApi(Number(conversationId), { 
-        content: messageType === 'image' ? '📷 Image' : '📎 File',
+        content: messageContent,
         message_type: messageType,
         attachment_id: attachment.attachment_id
       });
@@ -490,13 +679,19 @@ const ChatMessageScreen = () => {
       // Add message to UI
       const newMessage: UiMsg = {
         id: String(message.message_id),
-        text: message.content || (messageType === 'image' ? '📷 Image' : '📎 File'),
+        text: message.content || messageContent,
         sent: true,
         sender_id: currentUser.id,
         sender_name: currentUser.name,
         created_at: message.created_at,
         attachment_url: attachment.file_url,
         message_type: messageType,
+        attachment_info: {
+          file_name: attachment.file_name,
+          file_type: attachment.file_type,
+          file_category: attachment.file_category as FileCategory,
+          file_size: attachment.file_size,
+        },
       };
       
       setMessages(prev => [...prev, newMessage]);
@@ -528,7 +723,17 @@ const ChatMessageScreen = () => {
         </TouchableOpacity>
         <Text style={styles.topBarTitle}>{name || 'Chat'}</Text>
         <View style={styles.topBarRight}>
-          <Text style={styles.connectionStatus}>Connected</Text>
+          <Text style={[
+            styles.connectionStatus,
+            connectionStatus === 'connected' ? styles.connectionStatusConnected : 
+            connectionStatus === 'connecting' ? styles.connectionStatusConnecting :
+            connectionStatus === 'error' ? styles.connectionStatusError :
+            styles.connectionStatusDisconnected
+          ]}>
+            {connectionStatus === 'connected' ? '●' : 
+             connectionStatus === 'connecting' ? '○' :
+             connectionStatus === 'error' ? '●' : '○'}
+          </Text>
         </View>
       </View>
 
@@ -596,11 +801,226 @@ const ChatMessageScreen = () => {
                     
                     {/* Message content */}
                     {item.attachment_url ? (
-                      <Image 
-                        source={{ uri: item.attachment_url }} 
-                        style={styles.attachmentImage}
-                        resizeMode="cover"
-                      />
+                      <View>
+                        {console.log('Rendering attachment:', {
+                          url: item.attachment_url,
+                          category: item.attachment_info?.file_category,
+                          type: item.attachment_info?.file_type,
+                          name: item.attachment_info?.file_name
+                        })}
+                        {item.attachment_info?.file_category === 'image' || isImageFile(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type) ? (
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                              onPress={() => {
+                                if (item.attachment_url) {
+                                  // Show image in modal for viewing
+                                  const fullUrl = item.attachment_url.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`;
+                                  setViewingImageUrl(fullUrl);
+                                  setShowImageModal(true);
+                                }
+                              }}
+                          >
+                            <Image 
+                              source={{ uri: item.attachment_url?.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}` }} 
+                              style={styles.attachmentImage}
+                              resizeMode="cover"
+                              defaultSource={samplePic}
+                              onError={(error) => {
+                                console.log('Image load error:', error);
+                              }}
+                              onLoad={() => {
+                                console.log('Image loaded successfully:', item.attachment_url);
+                              }}
+                            />
+                            {item.attachment_info?.file_name && (
+                              <Text style={[styles.attachmentFileName, isActuallyMine ? styles.attachmentFileNameSent : styles.attachmentFileNameReceived]}>
+                                {item.attachment_info.file_name}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        ) : item.attachment_info?.file_category === 'video' || isVideoFile(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type) ? (
+                          <View style={styles.videoContainer}>
+                            <TouchableOpacity
+                              activeOpacity={0.8}
+                              onPress={() => {
+                                setPlayingVideoId(playingVideoId === item.id ? null : item.id);
+                                if (playingVideoId !== item.id) {
+                                  setVideoLoading(new Set([item.id]));
+                                }
+                              }}
+                              style={styles.videoThumbnail}
+                            >
+                              {videoLoading.has(item.id) && playingVideoId === item.id && (
+                                <View style={{ position: 'absolute', top: '50%', left: '50%', zIndex: 10, marginLeft: -20, marginTop: -20 }}>
+                                  <ActivityIndicator size="large" color="#007bff" />
+                                </View>
+                              )}
+                              <Video
+                                source={{ 
+                                  uri: item.attachment_url?.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`,
+                                  overrideFileExtensionAndroid: 'mp4',
+                                }}
+                                style={styles.videoPlayer}
+                                useNativeControls={true}
+                                resizeMode={ResizeMode.CONTAIN}
+                                shouldPlay={playingVideoId === item.id}
+                                positionMillis={0}
+                                progressUpdateIntervalMillis={250}
+                                volume={1.0}
+                                onPlaybackStatusUpdate={(status: any) => {
+                                  if (status.isLoaded && !status.isBuffering) {
+                                    setVideoLoading(prev => {
+                                      const newSet = new Set(prev);
+                                      newSet.delete(item.id);
+                                      return newSet;
+                                    });
+                                  }
+                                  if (status.didJustFinish) {
+                                    setPlayingVideoId(null);
+                                  }
+                                }}
+                                onError={(error) => {
+                                  console.error('Video error:', error);
+                                  setVideoLoading(prev => {
+                                    const newSet = new Set(prev);
+                                    newSet.delete(item.id);
+                                    return newSet;
+                                  });
+                                  Alert.alert('Error', 'Could not play video');
+                                  setPlayingVideoId(null);
+                                }}
+                                onLoad={(status) => {
+                                  console.log('Video loaded successfully');
+                                }}
+                              />
+                            </TouchableOpacity>
+                            {item.attachment_info?.file_name && (
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4 }}>
+                                <Text style={[styles.attachmentFileName, isActuallyMine ? styles.attachmentFileNameSent : styles.attachmentFileNameReceived]} numberOfLines={1}>
+                                  {item.attachment_info.file_name}
+                                </Text>
+                                <TouchableOpacity
+                                  onPress={async () => {
+                                    if (item.attachment_url && !isSharing) {
+                                      try {
+                                        setIsSharing(true);
+                                        const fullUrl = item.attachment_url.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`;
+                                        
+                                        // Convert media URL to api URL if needed
+                                        const bypassUrl = fullUrl.replace(/\/media\//, '/api/messaging/files/');
+                                        
+                                        const filename = item.attachment_info?.file_name || `video_${Date.now()}.mp4`;
+                                        
+                                        const downloadResult = await FileSystem.downloadAsync(
+                                          bypassUrl,
+                                          `${CACHE_DIR}${filename}`,
+                                          {
+                                            headers: {
+                                              'ngrok-skip-browser-warning': 'true',
+                                              'User-Agent': 'MobileApp/1.0'
+                                            }
+                                          }
+                                        );
+                                        
+                                        if (downloadResult.status === 200) {
+                                          Alert.alert(
+                                            'Video Downloaded',
+                                            'Video has been downloaded. What would you like to do?',
+                                            [
+                                              {
+                                                text: 'Play Video',
+                                                onPress: async () => {
+                                                  try {
+                                                    await Linking.openURL(downloadResult.uri);
+                                                  } catch (error) {
+                                                    console.error('Error opening video:', error);
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                text: 'Share',
+                                                onPress: async () => {
+                                                  try {
+                                                    const isAvailable = await Sharing.isAvailableAsync();
+                                                    if (isAvailable) {
+                                                      await Sharing.shareAsync(downloadResult.uri);
+                                                    }
+                                                  } catch (error) {
+                                                    console.error('Error sharing video:', error);
+                                                  }
+                                                }
+                                              },
+                                              {
+                                                text: 'Done',
+                                                style: 'cancel'
+                                              }
+                                            ]
+                                          );
+                                        } else {
+                                          throw new Error(`Download failed: ${downloadResult.status}`);
+                                        }
+                                      } catch (error) {
+                                        console.error('Video download error:', error);
+                                        Alert.alert('Error', 'Could not download video');
+                                      } finally {
+                                        setIsSharing(false);
+                                      }
+                                    }
+                                  }}
+                                  style={{ padding: 4 }}
+                                >
+                                  <FontAwesome name="download" size={18} color={isActuallyMine ? 'rgba(255, 255, 255, 0.8)' : '#666'} />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        ) : item.attachment_info?.file_category === 'audio' || isAudioFile(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type) ? (
+                          <View>
+                            <TouchableOpacity style={styles.audioAttachment}>
+                              <FontAwesome name="play-circle" size={30} color={isActuallyMine ? '#1C4E80' : '#666'} />
+                              <Text style={[styles.audioAttachmentText, isActuallyMine ? styles.audioAttachmentTextSent : styles.audioAttachmentTextReceived]}>
+                                Audio File
+                              </Text>
+                            </TouchableOpacity>
+                            {item.attachment_info?.file_name && (
+                              <Text style={[styles.attachmentFileName, isActuallyMine ? styles.attachmentFileNameSent : styles.attachmentFileNameReceived]}>
+                                {item.attachment_info.file_name}
+                              </Text>
+                            )}
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              const url = item.attachment_url;
+                              const fileName = item.attachment_info?.file_name || item.text;
+                              const fileType = item.attachment_info?.file_type || '';
+                              if (!url) return;
+                              
+                              // Show download confirmation for documents
+                              const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+                              setDownloadFile({ url: fullUrl, name: fileName, type: fileType });
+                              setShowDownloadModal(true);
+                            }}
+                            style={[styles.fileAttachment, isActuallyMine ? styles.fileAttachmentSent : styles.fileAttachmentReceived]}
+                          >
+                            <Text style={[styles.fileIcon, isActuallyMine ? styles.fileIconSent : styles.fileIconReceived]}>
+                              {getFileIcon(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type)}
+                            </Text>
+                            <View style={styles.fileInfo}>
+                              <Text style={[styles.fileName, isActuallyMine ? styles.fileNameSent : styles.fileNameReceived]} numberOfLines={1}>
+                                {item.attachment_info?.file_name || item.text}
+                              </Text>
+                              {item.attachment_info?.file_size && (
+                                <Text style={[styles.fileSize, isActuallyMine ? styles.fileSizeSent : styles.fileSizeReceived]}>
+                                  {formatFileSize(item.attachment_info.file_size)}
+                                </Text>
+                              )}
+                            </View>
+                            <Text style={styles.downloadIcon}>⬇️</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     ) : (
                       <Text style={[
                         styles.messageText,
@@ -610,16 +1030,24 @@ const ChatMessageScreen = () => {
                       </Text>
                     )}
                     
-                    {/* Timestamp */}
-                    <Text style={[
-                      styles.timestamp,
-                      isActuallyMine ? styles.timestampSent : styles.timestampReceived
+                    {/* Timestamp and Status */}
+                    <View style={[
+                      styles.timestampContainer,
+                      isActuallyMine ? styles.timestampContainerSent : styles.timestampContainerReceived
                     ]}>
-                      {item.created_at ? new Date(item.created_at).toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      }) : ''}
-                    </Text>
+                      <Text style={[
+                        styles.timestamp,
+                        isActuallyMine ? styles.timestampSent : styles.timestampReceived
+                      ]}>
+                        {item.created_at ? new Date(item.created_at).toLocaleTimeString([], { 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        }) : ''}
+                      </Text>
+                      {isActuallyMine && (
+                        <Text style={styles.messageStatus}>✓✓</Text>
+                      )}
+                    </View>
                   </View>
                 </View>
               );
@@ -638,6 +1066,23 @@ const ChatMessageScreen = () => {
               ) : null
             }
           />
+          
+          {/* Typing Indicator */}
+          {typingUsers.size > 0 && (
+            <View style={styles.typingIndicator}>
+              <View style={styles.typingDots}>
+                <View style={[styles.typingDot, styles.typingDot1]} />
+                <View style={[styles.typingDot, styles.typingDot2]} />
+                <View style={[styles.typingDot, styles.typingDot3]} />
+              </View>
+              <Text style={styles.typingText}>
+                {Array.from(typingUsers).map(userId => {
+                  // For now, just show "Someone" - you could enhance this to show actual names
+                  return 'Someone';
+                }).join(', ')} typing...
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Input Bar - Fixed at bottom with keyboard offset */}
@@ -653,6 +1098,12 @@ const ChatMessageScreen = () => {
               style={styles.attachmentButton}
             >
               <FontAwesome name="paperclip" size={20} color="white" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => setShowEmojiPicker(!showEmojiPicker)}
+              style={styles.emojiButton}
+            >
+              <FontAwesome name="smile-o" size={20} color="white" />
             </TouchableOpacity>
             <TextInput
               style={styles.input}
@@ -672,6 +1123,249 @@ const ChatMessageScreen = () => {
           </View>
         </View>
       </View>
+      
+      {/* Download Confirmation Modal */}
+      <Modal
+        visible={showDownloadModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDownloadModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Download File</Text>
+            <Text style={styles.modalSubtitle}>
+              Are you sure you want to download "{downloadFile?.name}"?
+            </Text>
+            <Text style={styles.modalFileType}>
+              File type: {downloadFile?.type || 'Unknown'}
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={() => setShowDownloadModal(false)}
+              >
+                <Text style={[styles.modalButtonText, styles.modalButtonTextSecondary]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={async () => {
+                  if (downloadFile && !isSharing) {
+                    try {
+                      setIsSharing(true);
+                      // Convert media URL to ngrok bypass URL
+                      console.log('Original file URL:', downloadFile.url);
+                      const bypassUrl = downloadFile.url.replace(/\/media\//, '/api/messaging/files/');
+                      console.log('File URL conversion:', { original: downloadFile.url, bypass: bypassUrl });
+                      
+                      // Download the file first
+                      const fileName = downloadFile.name || `file_${Date.now()}`;
+                      const fileUri = `${DOC_DIR}${fileName}`;
+                      
+                      const downloadResult = await FileSystem.downloadAsync(bypassUrl, fileUri, {
+                        headers: {
+                          'ngrok-skip-browser-warning': 'true',
+                          'User-Agent': 'MobileApp/1.0'
+                        }
+                      });
+                      
+                      if (downloadResult.status === 200) {
+                        // Give option to save or share
+                        Alert.alert(
+                          'File Downloaded',
+                          'File has been downloaded. What would you like to do?',
+                          [
+                            {
+                              text: 'Open File',
+                              onPress: async () => {
+                                try {
+                                  await Linking.openURL(downloadResult.uri);
+                                } catch (error) {
+                                  console.error('Error opening file:', error);
+                                }
+                              }
+                            },
+                            {
+                              text: 'Share',
+                              onPress: async () => {
+                                try {
+                                  const isAvailable = await Sharing.isAvailableAsync();
+                                  if (isAvailable) {
+                                    await Sharing.shareAsync(downloadResult.uri);
+                                  }
+                                } catch (error) {
+                                  console.error('Error sharing file:', error);
+                                }
+                              }
+                            },
+                            {
+                              text: 'Done',
+                              style: 'cancel'
+                            }
+                          ]
+                        );
+                      } else {
+                        throw new Error(`Download failed: ${downloadResult.status}`);
+                      }
+                    } catch (error) {
+                      console.error('File download error:', error);
+                      Alert.alert('Error', 'Could not download file. Please try again.');
+                    } finally {
+                      setIsSharing(false);
+                      setShowDownloadModal(false);
+                      setDownloadFile(null);
+                    }
+                  }
+                }}
+              >
+                <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>Download</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Emoji Picker Modal */}
+      {showEmojiPicker && (
+        <Modal
+          visible={showEmojiPicker}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowEmojiPicker(false)}
+        >
+          <View style={styles.emojiModalOverlay}>
+            <View style={styles.emojiModalContainer}>
+              {/* Header */}
+              <View style={styles.emojiModalHeader}>
+                <Text style={styles.emojiModalTitle}>Choose Emoji</Text>
+                <TouchableOpacity
+                  style={styles.emojiModalCloseButton}
+                  onPress={() => setShowEmojiPicker(false)}
+                >
+                  <Text style={styles.emojiModalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Emoji Selector */}
+              <EmojiSelector
+                onEmojiSelected={handleEmojiSelect}
+                showSearchBar={true}
+                showTabs={true}
+                showSectionTitles={true}
+                showHistory={true}
+                columns={8}
+                placeholder="Search emojis..."
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Image Viewing Modal */}
+      <Modal
+        visible={showImageModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImageModal(false)}
+      >
+        <View style={styles.imageModalOverlay}>
+          <TouchableOpacity 
+            style={styles.imageModalCloseArea}
+            activeOpacity={1}
+            onPress={() => setShowImageModal(false)}
+          >
+            <View style={styles.imageModalContent}>
+              <TouchableOpacity 
+                style={styles.imageModalCloseButton}
+                onPress={() => setShowImageModal(false)}
+              >
+                <Text style={styles.imageModalCloseText}>✕</Text>
+              </TouchableOpacity>
+              {viewingImageUrl && (
+                <>
+                  <Image 
+                    source={{ uri: viewingImageUrl }} 
+                    style={styles.imageModalImage}
+                    resizeMode="contain"
+                  />
+                  <TouchableOpacity
+                    style={styles.imageDownloadButton}
+                    onPress={async () => {
+                      if (viewingImageUrl && !isSharing) {
+                        try {
+                          setIsSharing(true);
+                          const filename = viewingImageUrl.substring(viewingImageUrl.lastIndexOf('/') + 1) || `image_${Date.now()}.jpg`;
+                          
+                          // Convert media URL to api URL if needed
+                          const bypassUrl = viewingImageUrl.replace(/\/media\//, '/api/messaging/files/');
+                          
+                          const downloadResult = await FileSystem.downloadAsync(
+                            bypassUrl,
+                            `${DOC_DIR}${filename}`,
+                            {
+                              headers: {
+                                'ngrok-skip-browser-warning': 'true',
+                                'User-Agent': 'MobileApp/1.0'
+                              }
+                            }
+                          );
+                          
+                        if (downloadResult.status === 200) {
+                          Alert.alert(
+                            'Image Downloaded',
+                            'Image has been downloaded. What would you like to do?',
+                            [
+                              {
+                                text: 'View Image',
+                                onPress: async () => {
+                                  try {
+                                    await Linking.openURL(downloadResult.uri);
+                                  } catch (error) {
+                                    console.error('Error opening image:', error);
+                                  }
+                                }
+                              },
+                              {
+                                text: 'Share',
+                                onPress: async () => {
+                                  try {
+                                    const isAvailable = await Sharing.isAvailableAsync();
+                                    if (isAvailable) {
+                                      await Sharing.shareAsync(downloadResult.uri);
+                                    }
+                                  } catch (error) {
+                                    console.error('Error sharing image:', error);
+                                  }
+                                }
+                              },
+                              {
+                                text: 'Done',
+                                style: 'cancel'
+                              }
+                            ]
+                          );
+                        } else {
+                          throw new Error(`Download failed: ${downloadResult.status}`);
+                        }
+                      } catch (error) {
+                          console.error('Image download error:', error);
+                          Alert.alert('Error', 'Could not download image');
+                        } finally {
+                          setIsSharing(false);
+                        }
+                      }
+                    }}
+                  >
+                    <FontAwesome name="download" size={24} color="white" />
+                    <Text style={styles.imageDownloadButtonText}>Download</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
     </View>
   );
 };
@@ -710,6 +1404,18 @@ const styles = StyleSheet.create({
   connectionStatus: {
     color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 12,
+  },
+  connectionStatusConnected: {
+    color: '#4CAF50',
+  },
+  connectionStatusConnecting: {
+    color: '#FF9800',
+  },
+  connectionStatusError: {
+    color: '#F44336',
+  },
+  connectionStatusDisconnected: {
+    color: '#9E9E9E',
   },
   chatContainer: {
     flex: 1,
@@ -771,15 +1477,165 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginVertical: 4,
   },
+  attachmentFileName: {
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  attachmentFileNameSent: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  attachmentFileNameReceived: {
+    color: '#666',
+  },
+  videoContainer: {
+    marginVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  videoThumbnail: {
+    width: 280,
+    height: 160,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  videoPlayer: {
+    width: '100%',
+    height: 200,
+    maxWidth: 400,
+    backgroundColor: '#000',
+    borderRadius: 8,
+  },
+  videoPlayButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+  },
+  videoPlayText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  audioAttachment: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    marginVertical: 4,
+    minWidth: 200,
+  },
+  audioAttachmentText: {
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  audioAttachmentTextSent: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  audioAttachmentTextReceived: {
+    color: '#666',
+  },
+  fileAttachment: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 4,
+    minWidth: 200,
+    maxWidth: 300,
+    borderWidth: 1,
+  },
+  fileAttachmentSent: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.32)',
+  },
+  fileAttachmentReceived: {
+    backgroundColor: '#f1f3f4',
+    borderColor: '#dde3ea',
+  },
+  fileIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  fileIconSent: {
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  fileIconReceived: {
+    color: '#1a1a1a',
+  },
+  fileInfo: {
+    flex: 1,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  fileNameSent: {
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  fileNameReceived: {
+    color: '#1a1a1a',
+  },
+  fileSize: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  fileSizeSent: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  fileSizeReceived: {
+    color: '#555',
+  },
+  downloadIcon: {
+    fontSize: 18,
+    marginLeft: 8,
+    opacity: 0.7,
+  },
+  timestampContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  timestampContainerSent: {
+    justifyContent: 'flex-end',
+  },
+  timestampContainerReceived: {
+    justifyContent: 'flex-start',
+  },
   timestamp: {
     fontSize: 11,
-    marginTop: 4,
   },
   timestampSent: {
     color: 'rgba(255, 255, 255, 0.7)',
   },
   timestampReceived: {
     color: '#666',
+  },
+  messageStatus: {
+    fontSize: 12,
+    color: '#42b883',
+    marginLeft: 4,
   },
   inputBarContainer: {
     position: 'absolute',
@@ -832,6 +1688,230 @@ const styles = StyleSheet.create({
   loadingText: {
     color: '#666',
     fontSize: 16,
+  },
+  
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    width: '80%',
+    maxWidth: 300,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#1a1a1a',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalFileType: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  modalButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginHorizontal: 4,
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#1e3a8a',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#f1f3f4',
+    borderWidth: 1,
+    borderColor: '#dde3ea',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalButtonTextPrimary: {
+    color: 'white',
+  },
+  modalButtonTextSecondary: {
+    color: '#1a1a1a',
+  },
+  
+  // Emoji picker styles
+  emojiButton: {
+    padding: 12,
+    marginRight: 8,
+  },
+  emojiModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  emojiModalContainer: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+    height: '60%',
+  },
+  emojiModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  emojiModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  emojiModalCloseButton: {
+    padding: 8,
+  },
+  emojiModalCloseText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#666',
+  },
+  emojiGrid: {
+    flex: 1,
+    padding: 10,
+  },
+  emojiRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around',
+  },
+  emojiButton: {
+    padding: 8,
+    margin: 4,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  emojiText: {
+    fontSize: 24,
+    textAlign: 'center',
+  },
+  
+  // Typing Indicator Styles
+  typingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    maxWidth: 200,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  typingDot: {
+    width: 6,
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    borderRadius: 3,
+    marginHorizontal: 2,
+  },
+  typingDot1: {
+    // Note: React Native doesn't support CSS animations directly
+    // You would need to use Animated API for proper animations
+  },
+  typingDot2: {
+    // Note: React Native doesn't support CSS animations directly
+  },
+  typingDot3: {
+    // Note: React Native doesn't support CSS animations directly
+  },
+  typingText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontStyle: 'italic',
+  },
+  
+  // Image Modal Styles
+  imageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalCloseArea: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalContent: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  imageModalCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalCloseText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  imageModalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imageDownloadButton: {
+    position: 'absolute',
+    bottom: 80,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    minWidth: 120,
+  },
+  imageDownloadButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
 

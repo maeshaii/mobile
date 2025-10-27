@@ -51,7 +51,11 @@
       "typedRoutes": true
     },
     "extra": {
+<<<<<<< HEAD
+      "API_BASE_URL": "https://nonalliterative-brian-tastefully.ngrok-free.dev"
+=======
       "API_BASE_URL": "https://precontributive-nonatomic-tandra.ngrok-free.dev"
+>>>>>>> 6816742e668def8e5663f81bb9f7d3d07cffb6f8
     }
   }
 }

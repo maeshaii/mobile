@@ -435,8 +435,35 @@ export default function SettingsPage() {
     }
   };
 
+  const validatePassword = (password: string): string => {
+    if (password.length < 16) {
+      return 'Password must be at least 16 characters long.';
+    }
+    if (!/[A-Z]/.test(password)) {
+      return 'Password must contain at least one uppercase letter.';
+    }
+    if (!/[a-z]/.test(password)) {
+      return 'Password must contain at least one lowercase letter.';
+    }
+    if (!/\d/.test(password)) {
+      return 'Password must contain at least one number.';
+    }
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      return 'Password must contain at least one special character.';
+    }
+    return '';
+  };
+
   const onSavePassword = () => {
-    if (!newPassword.trim()) return Alert.alert('Error', 'Please enter a password');
+    if (!newPassword.trim()) {
+      return Alert.alert('Error', 'Please enter a password');
+    }
+    
+    const validationError = validatePassword(newPassword);
+    if (validationError) {
+      return Alert.alert('Validation Error', validationError);
+    }
+    
     Alert.alert('Saved', 'Password updated.');
     setNewPassword('');
   };
@@ -655,12 +682,15 @@ export default function SettingsPage() {
 
           {open.password && (
             <View style={styles.cardBody}>
+              <Text style={styles.sectionNote}>
+                Password must be at least 16 characters with uppercase, lowercase, number, and special character.
+              </Text>
               <LabeledInput
-                label="Enter Password :"
+                label="Enter New Password :"
                 value={newPassword}
                 onChangeText={setNewPassword}
                 secureTextEntry
-                placeholder="••••••••"
+                placeholder="••••••••••••••••"
               />
 
               <View style={styles.buttonRow}>

@@ -37,7 +37,7 @@ export default function LoginScreen() {
     
     try {
       // UNIFIED: Call the same API endpoint as web frontend
-      const data = await loginUser(ctuId.trim(), password);
+      const data = await loginUser(ctuId.trim(), password.trim());
       
       if (data.success && data.user && data.user.account_type) {
         if (data.must_change_password) {

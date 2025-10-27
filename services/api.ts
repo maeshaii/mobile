@@ -66,13 +66,19 @@ function endpoint(path: string): string {
 const rawFromExpo = (Constants.expoConfig?.extra as any)?.API_BASE_URL as string | undefined;
 const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
-// Prefer explicit config (Expo extra or env). Fallback to localhost for local dev.
+// Prefer explicit config (Expo extra or env). Fallback to a default ngrok URL only if not provided.
+// To change at runtime without code edits, set expo.extra.API_BASE_URL in app.json/app.config.
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
+<<<<<<< HEAD
 const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev'; // This will be replaced by ngrok script
 // Use ngrok for production, localhost for development
 export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
+=======
+const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
+export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
+>>>>>>> 6816742e668def8e5663f81bb9f7d3d07cffb6f8
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -83,12 +89,22 @@ console.log('Localhost URL:', localhostUrl);
 /** Axios instance */
 const api = axios.create({
   baseURL: API_BASE_URL,
+<<<<<<< HEAD
   timeout: 180000, // Increased to 180 seconds for compressed image uploads
+=======
+  timeout: 10000,
+  withCredentials: true, // Enable for session-based WebSocket auth
+>>>>>>> 6816742e668def8e5663f81bb9f7d3d07cffb6f8
   headers: { 
     Accept: 'application/json',
     'ngrok-skip-browser-warning': 'true'  // Required for ngrok free accounts
   },
 });
+
+// Note: FormData uploads are handled separately using fetch() to avoid Content-Type issues
+
+/** Export api instance for session management */
+export { api };
 
 /** Auth helpers */
 export const getAccessToken = async () => Storage.getItem('accessToken');
@@ -121,6 +137,15 @@ export const logoutUser = async () => {
   } catch (e) {
     console.warn('Failed to delete user:', e);
   }
+  try {
+    await Storage.deleteItem('lastLogin');
+  } catch (e) {
+    console.warn('Failed to delete lastLogin:', e);
+  }
+  
+  // Reset token refresh state to prevent issues with subsequent logins
+  isRefreshing = false;
+  refreshWaitQueue = [];
 };
 
 // Clear all stored tokens - useful for debugging login issues
@@ -145,6 +170,16 @@ export const clearAllTokens = async () => {
   } catch (e) {
     console.warn('Failed to delete lastLogin:', e);
   }
+  
+  // Reset token refresh state
+  isRefreshing = false;
+  refreshWaitQueue = [];
+};
+
+// Force clear all authentication state - use this for complete logout
+export const forceLogout = async () => {
+  await clearAllTokens();
+  console.log('Mobile: Force logout completed - all authentication state cleared');
 };
 
 /** Attach bearer - but NOT for login/token endpoints */
@@ -235,10 +270,18 @@ api.interceptors.response.use(
 /** Auth API - UNIFIED WITH WEB FRONTEND */
 // Mobile -> Backend: POST /api/token/ (CustomTokenObtainPairView)
 export const loginUser = async (acc_username: string, acc_password: string) => {
+<<<<<<< HEAD
   console.log('Mobile: Sending login request:', { acc_username, acc_password });
   console.log('Mobile: API Base URL:', API_BASE_URL);
+=======
+  // Trim credentials to prevent whitespace issues
+  const trimmedUsername = acc_username.trim();
+  const trimmedPassword = acc_password.trim();
+  
+  console.log('Mobile: Sending login request:', { acc_username: trimmedUsername, acc_password: trimmedPassword });
+>>>>>>> 6816742e668def8e5663f81bb9f7d3d07cffb6f8
   try {
-    const response = await api.post('/api/token/', { acc_username, acc_password });
+    const response = await api.post('/api/token/', { acc_username: trimmedUsername, acc_password: trimmedPassword });
     console.log('Mobile: Login response received:', response.data);
     
     // Save tokens and user info to Storage (mobile equivalent of localStorage)
@@ -1442,7 +1485,7 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
     return { success: true };
 };
 
-export default api;
+/** Messaging API - UNIFIED WITH WEB FRONTEND */
 
 /** Notification API */
 // Mobile -> Backend: GET /api/notifications/?user_id={userId}
@@ -1474,6 +1517,7 @@ export type ConversationSummary = {
   conversation_id: number;
   updated_at: string;
   unread_count: number;
+  is_message_request?: boolean;
   last_message?: {
     content: string;
     created_at: string;
@@ -1490,93 +1534,219 @@ export type ConversationSummary = {
 export type MessageItem = {
   message_id: number;
   content: string;
-  message_type: 'text' | 'image' | 'file' | 'system';
-  sender: { user_id: number; name: string; avatar_url?: string | null };
+  sender: {
+    user_id: number;
+    name: string;
+    is_me?: boolean;
+  };
   is_read: boolean;
   created_at: string;
+  message_type?: string;
+  attachments?: Array<{
+    file_url: string;
+    file_name: string;
+    file_type: string;
+    file_category: string;
+    file_size: number;
+  }>;
+};
+// Mobile -> Backend: GET /api/messaging/conversations/
+export const listConversations = async () => {
+  try {
+    const { data } = await api.get('/api/messaging/conversations/');
+    console.log('Mobile listConversations API Response:', data);
+    return data || [];
+  } catch (error) {
+    console.error('Mobile listConversations API Error:', error);
+    throw error;
+  }
 };
 
-export const listConversations = async (): Promise<ConversationSummary[]> => {
-  const { data } = await api.get('/api/messaging/conversations/');
-  return data as ConversationSummary[];
+// Mobile -> Backend: POST /api/messaging/conversations/
+export const createConversation = async (participant_id: number) => {
+  try {
+    const { data } = await api.post('/api/messaging/conversations/', { participant_id });
+    console.log('Mobile createConversation API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile createConversation API Error:', error);
+    throw error;
+  }
 };
 
-export const createConversation = async (participant_id: number): Promise<ConversationSummary> => {
-  const { data } = await api.post('/api/messaging/conversations/', { participant_id });
-  return data as ConversationSummary;
+// Mobile -> Backend: GET /api/messaging/conversations/{id}/messages/
+export const listMessages = async (conversationId: number, params?: { cursor?: string; limit?: number }) => {
+  try {
+    const qs: string[] = [];
+    if (params?.cursor) qs.push(`cursor=${encodeURIComponent(params.cursor)}`);
+    if (params?.limit) qs.push(`limit=${params.limit}`);
+    const url = `/api/messaging/conversations/${conversationId}/messages/${qs.length ? `?${qs.join('&')}` : ''}`;
+    const { data } = await api.get(url);
+    console.log('Mobile listMessages API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile listMessages API Error:', error);
+    throw error;
+  }
 };
 
-export const listMessages = async (
-  conversationId: number,
-  params?: { cursor?: string; limit?: number }
-): Promise<{ results: MessageItem[]; next_cursor?: string | null }> => {
-  const qs: string[] = [];
-  if (params?.cursor) qs.push(`cursor=${encodeURIComponent(params.cursor)}`);
-  if (params?.limit) qs.push(`limit=${params.limit}`);
-  const url = `/api/messaging/conversations/${conversationId}/messages/${qs.length ? `?${qs.join('&')}` : ''}`;
-  const { data } = await api.get(url);
-  return data as { results: MessageItem[]; next_cursor?: string | null };
-};
-
+// Mobile -> Backend: POST /api/messaging/conversations/{id}/messages/
 export const sendMessage = async (
   conversationId: number,
   payload: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; attachment_id?: number }
-): Promise<MessageItem> => {
-  const body: any = {
-    content: payload.content ?? '',
-    message_type: payload.message_type ?? 'text',
-    attachment_id: payload.attachment_id,
-  };
-  const { data } = await api.post(`/api/messaging/conversations/${conversationId}/messages/`, body);
-  return data as MessageItem;
+) => {
+  try {
+    const body: any = {
+      content: payload.content ?? '',
+      message_type: payload.message_type ?? 'text',
+      attachment_id: payload.attachment_id,
+    };
+    const { data } = await api.post(`/api/messaging/conversations/${conversationId}/messages/`, body);
+    console.log('Mobile sendMessage API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile sendMessage API Error:', error);
+    throw error;
+  }
 };
 
+// Mobile -> Backend: POST /api/messaging/conversations/{id}/read/
 export const markConversationRead = async (conversationId: number) => {
-  const { data } = await api.post(`/api/messaging/conversations/${conversationId}/read/`, {});
-  return data as { status: string; messages_marked_read: number; timestamp: string };
+  try {
+    const { data } = await api.post(`/api/messaging/conversations/${conversationId}/read/`);
+    console.log('Mobile markConversationRead API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile markConversationRead API Error:', error);
+    throw error;
+  }
 };
 
-export const deleteMessageApi = async (conversationId: number, messageId: number) => {
-  const { data } = await api.delete(`/api/messaging/conversations/${conversationId}/messages/${messageId}/`);
-  return data as { status: string };
+// Mobile -> Backend: Generate WebSocket URL for conversation
+export const getConversationWsUrl = async (conversationId: number) => {
+  try {
+    // Get the base URL and construct WebSocket URL
+    const baseUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
+    const wsUrl = `${baseUrl}/ws/chat/${conversationId}/`;
+    console.log('Mobile getConversationWsUrl generated:', wsUrl);
+    return wsUrl;
+  } catch (error) {
+    console.error('Mobile getConversationWsUrl API Error:', error);
+    throw error;
+  }
 };
 
-export const searchUsersForMessaging = async (q: string) => {
-  const { data } = await api.get(`/api/messaging/users/search/?q=${encodeURIComponent(q)}`);
-  return data as { users: Array<{ user_id: number; f_name: string; l_name: string }>; count: number; query: string };
+// Mobile -> Backend: Get WebSocket base URL
+export const getWebSocketBase = async () => {
+  try {
+    // Generate WebSocket base URL from API base URL
+    const baseUrl = API_BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
+    // Remove any trailing slashes - don't add /ws/ here since it's added in the constructor
+    const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+    console.log('Mobile getWebSocketBase generated:', cleanBaseUrl);
+    return cleanBaseUrl;
+  } catch (error) {
+    console.error('Mobile getWebSocketBase API Error:', error);
+    throw error;
+  }
 };
 
-/** WebSocket helpers */
-export const getWebSocketBase = (): string => {
-  // Translate HTTP base to WS base
-  const http = API_BASE_URL;
-  if (http.startsWith('https://')) return `wss://${http.slice('https://'.length)}`;
-  if (http.startsWith('http://')) return `ws://${http.slice('http://'.length)}`;
-  return `ws://${http}`;
+// New API functions for enhanced messaging features
+export const getMutualFollows = async (userId: number) => {
+  try {
+    const { data } = await api.get(`/api/follow/${userId}/mutual/`);
+    console.log('Mobile getMutualFollows API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile getMutualFollows API Error:', error);
+    throw error;
+  }
 };
 
-export const getConversationWsUrl = async (conversationId: number): Promise<string> => {
-  const token = await getAccessToken();
-  const base = getWebSocketBase();
-  const url = `${base}/ws/chat/${conversationId}/`;
-  // Prefer header on native WS, but most RN environments send querystring token reliably
-  return token ? `${url}?token=${encodeURIComponent(token)}` : url;
+export const getOnlineUsers = async () => {
+  try {
+    const { data } = await api.get('/api/online-users/');
+    console.log('Mobile getOnlineUsers API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile getOnlineUsers API Error:', error);
+    throw error;
+  }
 };
 
-/** Attachments */
-export const uploadAttachment = async (file: any): Promise<{
-  attachment_id: number;
-  file_name: string;
-  file_type: string;
-  file_size: number;
-  file_url: string;
-  uploaded_at: string;
-}> => {
-  const formData = new FormData();
-  formData.append('file', file);
-  
-  const { data } = await api.post('/api/messaging/attachments/', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data;
+// Mobile -> Backend: POST /api/messaging/attachments/
+export const uploadAttachment = async (file: any, conversationId: number) => {
+  try {
+    console.log('Uploading attachment - file:', file);
+    console.log('Uploading attachment - conversationId:', conversationId);
+    
+    // Get authentication token
+    const token = await getAccessToken();
+    console.log('Upload token available:', !!token);
+    
+    // Create FormData with proper file object
+    const formData = new FormData();
+    
+    // Ensure file object has proper structure for React Native
+    const fileObj = {
+      uri: file.uri,
+      type: file.type || file.mimeType || 'application/octet-stream',
+      name: file.name || file.fileName || 'attachment',
+    };
+    
+    formData.append('file', fileObj as any);
+    formData.append('conversation_id', conversationId.toString());
+    
+    // Create headers object
+    const headers: Record<string, string> = {
+      'ngrok-skip-browser-warning': 'true',
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    console.log('Upload headers:', headers);
+    console.log('Upload URL:', `${API_BASE_URL}/api/messaging/attachments/`);
+    
+    // Use fetch instead of axios for FormData to avoid Content-Type issues
+    console.log('Sending fetch request with FormData...');
+    console.log('FormData entries:');
+    for (const [key, value] of formData.entries()) {
+      console.log(`  ${key}:`, value);
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/api/messaging/attachments/`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    
+    console.log('Fetch response status:', response.status);
+    console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Upload failed:', response.status, errorText);
+      throw new Error(`Upload failed: ${response.status} ${errorText}`);
+    }
+    
+    const data = await response.json();
+    console.log('Mobile uploadAttachment API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile uploadAttachment API Error:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    } else if (error.request) {
+      console.error('Request error:', error.request);
+    } else {
+      console.error('Error message:', error.message);
+    }
+    throw error;
+  }
 };
+
+export default api;
+

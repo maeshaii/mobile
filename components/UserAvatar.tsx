@@ -17,11 +17,13 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   size = 40,
   style 
 }) => {
+<<<<<<< HEAD
   const [imageError, setImageError] = useState(false);
   
+=======
   // Ensure size is always positive
   const safeSize = Math.max(1, Math.abs(size || 40));
-  
+>>>>>>> 6816742e668def8e5663f81bb9f7d3d07cffb6f8
   // Generate initials from first and last name
   const getInitials = (first: string, last: string) => {
     const firstInitial = first.charAt(0).toUpperCase();
