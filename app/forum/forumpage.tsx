@@ -315,6 +315,7 @@ export default function CCICTPage() {
               key={`forum-repost-${item.repost_id}`}
               repost={item}
               currentUserId={currentUserId || undefined}
+              isForum
               onLikeToggle={(repostId: number, liked: boolean) => {
                 setPosts(prev => prev.map(p => (p.repost_id === repostId ? { ...p, is_liked: liked, likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)) } : p)));
               }}
@@ -524,10 +525,10 @@ export default function CCICTPage() {
                         // Navigate to the original post detail page
                         if (selectedRepost.original?.post_id) {
                           console.log('Navigating to original post detail:', selectedRepost.original.post_id);
-                          router.push(`/posts/detail?postId=${selectedRepost.original.post_id}`);
+                          router.push(`/posts/detail?postId=${selectedRepost.original.post_id}&isForumPost=true`);
                         } else if (selectedRepost.original?.forum_id) {
                           console.log('Navigating to original forum detail:', selectedRepost.original.forum_id);
-                          router.push(`/posts/detail?postId=${selectedRepost.original.forum_id}`);
+                          router.push(`/posts/detail?postId=${selectedRepost.original.forum_id}&isForumPost=true`);
                         } else if (selectedRepost.original?.donation_id) {
                           console.log('Navigating to original donation detail:', selectedRepost.original.donation_id);
                           router.push(`/posts/detail?postId=${selectedRepost.original.donation_id}`);

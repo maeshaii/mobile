@@ -62,9 +62,10 @@ interface Props {
   onEdited?: (repostId: number, newCaption: string) => void;
   onDeleted?: (repostId: number) => void;
   onOriginalPostReposted?: (originalPostId: number) => void;
+  isForum?: boolean;
 }
 
-const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted }) => {
+const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted, isForum }) => {
   const router = useRouter();
 
   console.log('RepostCard - repost data:', repost);
@@ -181,8 +182,15 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   const handleOriginalPostPress = () => {
     console.log('RepostCard - Original post data:', repost.original_post);
     console.log('RepostCard - Original post ID:', repost.original_post.post_id);
-    console.log('RepostCard - Navigating to:', `/posts/detail?postId=${repost.original_post.post_id}`);
-    router.push(`/posts/detail?postId=${repost.original_post.post_id}`);
+    const route: any = {
+      pathname: '/posts/detail',
+      params: { postId: String(repost.original_post.post_id) }
+    };
+    if (isForum) {
+      (route.params as any).isForumPost = 'true';
+    }
+    console.log('RepostCard - Navigating to:', route);
+    router.push(route);
   };
 
   const handleDelete = async () => {

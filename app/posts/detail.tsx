@@ -3,7 +3,7 @@ import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
+import { getPostDetail, getDonationDetail, getForumDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import MentionInput from '../../components/MentionInput';
@@ -18,6 +18,9 @@ export default function PostDetailScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
+  const isForumPost = Array.isArray(params.isForumPost)
+    ? params.isForumPost[0] === 'true'
+    : params.isForumPost === 'true';
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -52,11 +55,85 @@ export default function PostDetailScreen() {
     try {
       setLoading(true);
       console.log('Loading post detail for postId:', postId);
-      const [detail, user] = await Promise.all([
-        getPostDetail(postId),
+      const [user] = await Promise.all([
         getUserInfo()
       ]);
-      console.log('Post detail loaded:', detail);
+      let detail: any | null = null;
+
+      if (isForumPost) {
+        // Prefer forum detail for forum-origin posts
+        try {
+          const forum = await getForumDetail(postId);
+          if (forum) {
+            const imagesArray = Array.isArray(forum.post_images)
+              ? forum.post_images
+              : Array.isArray(forum.images)
+                ? forum.images
+                : forum.post_image
+                  ? [{ image_url: forum.post_image, order: 0 }]
+                  : [];
+            detail = {
+              post_id: forum.post_id ?? postId,
+              post_title: forum.post_title ?? undefined,
+              post_content: forum.post_content ?? '',
+              post_image: forum.post_image ?? (imagesArray[0]?.image_url || null),
+              post_images: imagesArray,
+              images: imagesArray,
+              created_at: forum.created_at ?? forum.date_created ?? null,
+              likes_count: forum.likes_count ?? (Array.isArray(forum.likes) ? forum.likes.length : 0),
+              comments_count: forum.comments_count ?? (Array.isArray(forum.comments) ? forum.comments.length : 0),
+              reposts_count: forum.reposts_count ?? (Array.isArray(forum.reposts) ? forum.reposts.length : 0),
+              is_liked: !!forum.is_liked,
+              user: forum.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
+            };
+          }
+        } catch (e) {
+          console.log('getForumDetail failed, will try general post detail. Error:', e);
+        }
+      }
+
+      // If not forum or forum detail missing, try general post detail
+      if (!detail) {
+        try {
+          detail = await getPostDetail(postId);
+        } catch (e) {
+          console.log('getPostDetail failed, will try donation detail fallback. Error:', e);
+        }
+      }
+
+      // Fallback: try donation detail if regular post not found or empty
+      if (!detail || (typeof detail !== 'object')) {
+        try {
+          const donation = await getDonationDetail(postId);
+          if (donation) {
+            // Normalize donation detail to match expected post shape
+            const imagesArray = Array.isArray(donation.images)
+              ? donation.images.map((img: any, idx: number) => ({
+                  image_url: typeof img === 'string' ? img : (img.image_url || img.url || img.path),
+                  order: img.order ?? idx,
+                }))
+              : [];
+            detail = {
+              post_id: donation.donation_id ?? donation.post_id ?? donation.id ?? postId,
+              post_title: donation.post_title ?? undefined,
+              post_content: donation.description ?? donation.post_content ?? '',
+              post_image: donation.post_image ?? (imagesArray[0]?.image_url || null),
+              post_images: imagesArray,
+              images: imagesArray,
+              created_at: donation.created_at ?? donation.donation_date ?? donation.date_created ?? null,
+              likes_count: donation.likes_count ?? (Array.isArray(donation.likes) ? donation.likes.length : 0),
+              comments_count: donation.comments_count ?? (Array.isArray(donation.comments) ? donation.comments.length : 0),
+              reposts_count: donation.reposts_count ?? (Array.isArray(donation.reposts) ? donation.reposts.length : 0),
+              is_liked: !!donation.is_liked,
+              user: donation.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
+            };
+          }
+        } catch (e2) {
+          console.log('Donation detail fallback also failed:', e2);
+        }
+      }
+
+      console.log('Post detail loaded (normalized):', detail);
       setPost(detail);
       setMe(user);
       

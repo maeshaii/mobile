@@ -1591,7 +1591,7 @@ export default function RepostCommentsScreen() {
                   router.push(`/posts/detail?postId=${repost.original.post_id}`);
                 } else if (repost.original?.forum_id) {
                   console.log('Navigating to original forum detail:', repost.original.forum_id);
-                  router.push(`/posts/detail?postId=${repost.original.forum_id}`);
+                  router.push(`/posts/detail?postId=${repost.original.forum_id}&isForumPost=true`);
                 } else if (repost.original?.donation_id) {
                   console.log('Navigating to original donation detail:', repost.original.donation_id);
                   router.push(`/posts/detail?postId=${repost.original.donation_id}`);

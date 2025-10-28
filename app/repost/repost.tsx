@@ -282,7 +282,7 @@ export default function RepostScreen() {
           ) : null}
 
           {/* Nested original post card (tap to open original post detail) */}
-          <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/detail?postId=${original.post_id}`); }}>
+          <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/detail?postId=${original.post_id}&isForumPost=${isForumPost}`); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <Image source={origAvatar} style={styles.avatarSmall} />
               <View style={{ flex: 1 }}>
