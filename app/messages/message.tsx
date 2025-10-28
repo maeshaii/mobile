@@ -4,7 +4,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useRouter, useFocusEffect } from 'expo-router';
 import type { Href } from 'expo-router';
-import { listConversations, ConversationSummary, getOnlineUsers } from '../../services/api';
+import { listConversations, ConversationSummary, getOnlineUsers, createConversation } from '../../services/api';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import UserAvatar from '../../components/UserAvatar';
 
@@ -19,6 +19,7 @@ type Row = {
   unread: number;
   isMessageRequest?: boolean;
   isOnline?: boolean;
+  targetUserId?: number; // for virtual online rows without existing conversation
 };
 
 const MessageScreen = () => {
@@ -29,6 +30,7 @@ const MessageScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'request' | 'online'>('all');
   const [onlineUsers, setOnlineUsers] = useState<Set<number>>(new Set());
+  const [onlineUsersData, setOnlineUsersData] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [notificationWs, setNotificationWs] = useState<NotificationWebSocket | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -96,7 +98,8 @@ const MessageScreen = () => {
           lastName,
           unread: c.unread_count || 0,
           isMessageRequest: c.is_message_request || false,
-          isOnline: false, // Will be updated after loading online users
+          // online to be determined via other participant's user_id
+          isOnline: false,
         };
       });
       setRows(mapped);
@@ -107,12 +110,16 @@ const MessageScreen = () => {
         if (onlineResponse.success) {
           const onlineUserIds = new Set<number>(onlineResponse.online_users.map((user: any) => user.user_id));
           setOnlineUsers(onlineUserIds);
+          setOnlineUsersData(onlineResponse.online_users);
           
-          // Update rows with online status
-          const updatedRows = mapped.map(row => ({
-            ...row,
-            isOnline: onlineUserIds.has(row.id) || false
-          }));
+          // Update rows with online status using other participant's user_id
+          const updatedRows = (data || []).map((c: ConversationSummary, idx: number) => {
+            const otherUserId = c.other_participant?.user_id;
+            return {
+              ...mapped[idx],
+              isOnline: otherUserId ? onlineUserIds.has(otherUserId) : false,
+            };
+          });
           setRows(updatedRows);
         }
       } catch (error) {
@@ -135,7 +142,30 @@ const MessageScreen = () => {
     if (activeFilter === 'request') {
       filtered = rows.filter(row => row.isMessageRequest);
     } else if (activeFilter === 'online') {
-      filtered = rows.filter(row => row.isOnline);
+      // 1) Existing conversations whose other participant is online
+      const existingOnline = rows.filter(row => row.isOnline);
+      
+      // 2) Virtual items for online mutuals without an existing conversation
+      const existingOtherIds = new Set<number>(
+        rows.map(r => r.targetUserId).filter(Boolean) as number[]
+      );
+      const virtualRows: Row[] = (onlineUsersData || [])
+        .filter((u: any) => !existingOtherIds.has(u.user_id))
+        .map((u: any) => ({
+          id: -u.user_id, // sentinel negative id for virtual row
+          targetUserId: u.user_id,
+          name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim(),
+          lastMessage: '',
+          date: new Date().toLocaleDateString(),
+          profilePic: u.profile_pic || undefined,
+          firstName: u.f_name,
+          lastName: u.l_name,
+          unread: 0,
+          isMessageRequest: false,
+          isOnline: true,
+        }));
+      
+      filtered = [...existingOnline, ...virtualRows];
     }
     
     // Apply search
@@ -221,7 +251,20 @@ const MessageScreen = () => {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.messageCard}
-            onPress={() => router.push({ pathname: '/messages/chatmessage', params: { conversationId: String(item.id), name: item.name } })}
+            onPress={async () => {
+              // If virtual row, create conversation first
+              if (item.id < 0 && item.targetUserId) {
+                try {
+                  const newConv = await createConversation(item.targetUserId);
+                  router.push({ pathname: '/messages/chatmessage', params: { conversationId: String(newConv.conversation_id), name: item.name } });
+                  return;
+                } catch (e) {
+                  console.warn('Failed to create conversation from Online tab (mobile):', e);
+                  return;
+                }
+              }
+              router.push({ pathname: '/messages/chatmessage', params: { conversationId: String(item.id), name: item.name } });
+            }}
           >
             <View style={styles.avatarContainer}>
               <UserAvatar
