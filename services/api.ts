@@ -71,7 +71,7 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 // Use localhost for development, ngrok for production
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
-const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
+const ngrokUrl = 'http://192.168.101.70:8000'; // Hardcoded IPv4 address
 // Use ngrok for production, localhost for development
 export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
 
