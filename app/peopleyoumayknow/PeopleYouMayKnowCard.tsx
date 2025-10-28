@@ -44,6 +44,7 @@ export default function PeopleYouMayKnowCard() {
   const [loading, setLoading] = useState(false);
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
   const [isDismissed, setIsDismissed] = useState(false);
+  const [imageErrors, setImageErrors] = useState<{ [key: number]: boolean }>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -137,10 +138,14 @@ export default function PeopleYouMayKnowCard() {
                 onPress={() => handleUserPress(user.id)}
                 activeOpacity={0.8}
               >
-                {user.profile_pic ? (
+                {user.profile_pic && !imageErrors[user.id] ? (
                   <Image
                     source={{ uri: user.profile_pic }}
                     style={styles.profileImage}
+                    onError={() => {
+                      console.warn('Failed to load profile image for user:', user.id, user.profile_pic);
+                      setImageErrors(prev => ({ ...prev, [user.id]: true }));
+                    }}
                   />
                 ) : (
                   <View style={[styles.profileImage, styles.initialsContainer]}>

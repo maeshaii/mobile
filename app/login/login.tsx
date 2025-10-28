@@ -61,8 +61,8 @@ export default function LoginScreen() {
             router.replace('/homepage/home');
           }
         } else if (data.user.account_type.ojt) {
-          // OJT user - redirect to home (same as alumni)
-          router.replace('/homepage/home');
+          // OJT user - redirect to OJT dashboard
+          router.replace('/ojt/ojtpage');
         } else if (data.user.account_type.admin) {
           setError('Admin accounts cannot access mobile app');
         } else if (data.user.account_type.coordinator) {

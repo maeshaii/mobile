@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -12,35 +13,35 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getPostsByUserType, getUserInfo } from '../../services/api';
-import OrgPostCard from '../posts/OrgPostCard';
+import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
+import PostCard from '../posts/postCard';
+import UserAvatar from '../../components/UserAvatar';
 
 const ccictLogo = require('../../assets/images/ccict_logo.jpg');
 
-const orgInfo = {
-  name: 'CCICT',
-  username: '@CCICT_CTU_MAIN_CAMPUS',
-  bio: 'College of Computing, Information and Communication Technology',
-  profile_pic: ccictLogo,
-};
-
 interface Post {
-  id: number;
-  post_title: string;
+  post_id: number;
+  post_title?: string;
   post_content: string;
-  post_image?: string;
-  created_at: string;
-  updated_at: string;
-  user: {
-    id: number;
-    username: string;
-    first_name: string;
-    last_name: string;
-  };
+  post_image?: string | null;
+  post_images?: any[];
+  type?: string | null;
+  created_at?: string | null;
+  likes?: any[];
+  comments?: any[];
+  reposts?: any[];
   likes_count: number;
   comments_count: number;
-  is_liked: boolean;
-  comments: Comment[];
+  reposts_count?: number;
+  is_liked?: boolean;
+  user: { 
+    user_id: number; 
+    f_name: string; 
+    l_name: string; 
+    profile_pic?: string | null;
+    account_type?: string;
+    user_type?: string;
+  };
 }
 
 interface Comment {
@@ -60,23 +61,143 @@ export default function CCICTPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [adminProfile, setAdminProfile] = useState<any>(null);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
+  const [selectedPostStats, setSelectedPostStats] = useState<any>(null);
 
   useEffect(() => {
     fetchPosts();
-    getUserInfo().catch(() => null);
+    loadUserInfo();
+    loadAdminProfile();
   }, []);
+
+  const loadUserInfo = async () => {
+    try {
+      const userInfo = await getUserInfo();
+      setUser(userInfo);
+    } catch (error) {
+      console.error('Error loading user info:', error);
+    }
+  };
+
+  const loadAdminProfile = async () => {
+    try {
+      console.log('CCICT page - Loading admin profile...');
+      
+      // Get admin user IDs
+      const adminUsersData = await getAdminPesoUsers();
+      const adminUserIds = adminUsersData.admin_user_ids || [];
+      console.log('CCICT page - Admin user IDs:', adminUserIds);
+      
+      if (adminUserIds.length > 0) {
+        // Get the first admin user's profile
+        const adminUserId = adminUserIds[0];
+        console.log('CCICT page - Getting profile for admin user ID:', adminUserId);
+        
+        const adminDetails = await getAlumniDetails(adminUserId);
+        console.log('CCICT page - Admin details:', adminDetails);
+        
+        // Create admin profile object
+        const adminProfileData = {
+          name: adminDetails?.f_name && adminDetails?.l_name 
+            ? `${adminDetails.f_name} ${adminDetails.l_name}` 
+            : 'CCICT Admin',
+          username: adminDetails?.acc_username || '@CCICT_CTU_MAIN_CAMPUS',
+          bio: adminDetails?.profile_bio || 'College of Computing, Information and Communication Technology',
+          profile_pic: adminDetails?.profile_pic 
+            ? (String(adminDetails.profile_pic).startsWith('http') || String(adminDetails.profile_pic).startsWith('data:'))
+              ? adminDetails.profile_pic 
+              : `https://magnitudinous-labialized-lorelei.ngrok-free.dev${adminDetails.profile_pic}`
+            : ccictLogo,
+        };
+        
+        console.log('CCICT page - Admin profile data:', adminProfileData);
+        setAdminProfile(adminProfileData);
+      } else {
+        // Fallback to default CCICT info if no admin found
+        console.log('CCICT page - No admin users found, using default');
+        setAdminProfile({
+          name: 'CCICT',
+          username: '@CCICT_CTU_MAIN_CAMPUS',
+          bio: 'College of Computing, Information and Communication Technology',
+          profile_pic: ccictLogo,
+        });
+      }
+    } catch (error) {
+      console.error('CCICT page - Error loading admin profile:', error);
+      // Fallback to default CCICT info on error
+      setAdminProfile({
+        name: 'CCICT',
+        username: '@CCICT_CTU_MAIN_CAMPUS',
+        bio: 'College of Computing, Information and Communication Technology',
+        profile_pic: ccictLogo,
+      });
+    }
+  };
 
   const fetchPosts = async () => {
     try {
       setLoading(true);
-      console.log('CCICT page - Fetching admin posts...');
-      const postsData = await getPostsByUserType('admin');
-      console.log('CCICT page - Received posts data:', postsData);
-      console.log('CCICT page - Number of posts:', postsData?.length || 0);
-      setPosts(postsData);
-    } catch (error) {
+      console.log('CCICT page - Fetching posts (simplified approach)...');
+      
+      // Get all posts (same as main feed) - admin posts are already included
+      const allPostsData = await getPosts();
+      console.log('CCICT page - Received all posts data:', allPostsData);
+      console.log('CCICT page - Total posts:', allPostsData?.length || 0);
+      
+      // Get current user ID for like persistence
+      const currentUser = await getUserInfo();
+      const currentUserId = currentUser?.user_id || currentUser?.id;
+      
+      // Filter for admin posts by checking user account type or name patterns
+      const adminPosts = allPostsData.filter((post: any) => {
+        const user = post.user || {};
+        const userName = `${user.f_name || ''} ${user.l_name || ''}`.toLowerCase();
+        const isAdminPost = 
+          user.account_type === 'admin' ||
+          user.user_type === 'admin' ||
+          userName.includes('admin') ||
+          userName.includes('ccict') ||
+          user.f_name?.toLowerCase().includes('admin') ||
+          user.l_name?.toLowerCase().includes('admin');
+        
+        console.log(`CCICT page - Post ${post.id || post.post_id}:`);
+        console.log(`  - User name: ${user.f_name} ${user.l_name}`);
+        console.log(`  - User account_type: ${user.account_type}`);
+        console.log(`  - User user_type: ${user.user_type}`);
+        console.log(`  - Is admin post: ${isAdminPost}`);
+        
+        return isAdminPost;
+      }).map((post: any) => {
+        // Set is_liked based on current user's likes
+        const likesArr = Array.isArray(post?.likes) ? post.likes : [];
+        const likedByMe = currentUserId ? likesArr.some((l: any) => l?.user_id === currentUserId || l?.user?.user_id === currentUserId) : false;
+        
+        return {
+          ...post,
+          is_liked: !!likedByMe
+        };
+      });
+      
+      console.log('CCICT page - Filtered admin posts:', adminPosts);
+      console.log('CCICT page - Number of admin posts:', adminPosts?.length || 0);
+      
+      if (adminPosts && Array.isArray(adminPosts)) {
+        setPosts(adminPosts);
+        console.log('CCICT page - Successfully set admin posts:', adminPosts.length);
+      } else {
+        console.log('CCICT page - No admin posts found');
+        setPosts([]);
+      }
+    } catch (error: any) {
       console.error('CCICT page - Error fetching posts:', error);
-      Alert.alert('Error', 'Failed to load CCICT posts. Please check your connection.');
+      console.error('CCICT page - Error details:', error.response?.data || error.message);
+      console.error('CCICT page - Error status:', error.response?.status);
+      console.error('CCICT page - Error URL:', error.config?.url);
+      Alert.alert('Error', `Failed to load CCICT posts: ${error.message || 'Unknown error'}`);
+      setPosts([]);
     } finally {
       setLoading(false);
     }
@@ -85,11 +206,11 @@ export default function CCICTPage() {
   const handleLikeToggle = (postId: number, isLiked: boolean) => {
     setPosts(prev =>
       prev.map(p =>
-        p.id === postId
+        p.post_id === postId
           ? {
               ...p,
               is_liked: isLiked,
-              likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1),
+              likes_count: isLiked ? (p.likes_count || 0) + 1 : Math.max(0, (p.likes_count || 0) - 1),
             }
           : p
       )
@@ -99,7 +220,7 @@ export default function CCICTPage() {
   const handleCommentAdded = (postId: number, comments: Comment[]) => {
     setPosts(prev =>
       prev.map(p =>
-        p.id === postId ? { ...p, comments, comments_count: comments.length } : p
+        p.post_id === postId ? { ...p, comments, comments_count: comments.length } : p
       )
     );
   };
@@ -107,6 +228,7 @@ export default function CCICTPage() {
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchPosts();
+    await loadAdminProfile();
     setRefreshing(false);
   };
 
@@ -140,12 +262,15 @@ export default function CCICTPage() {
       {/* Org Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileImageWrapper}>
-          <Image source={orgInfo.profile_pic} style={styles.profileImage} />
+          <Image 
+            source={adminProfile?.profile_pic || ccictLogo} 
+            style={styles.profileImage} 
+          />
         </View>
-        <Text style={styles.profileName}>{orgInfo.name}</Text>
-        <Text style={styles.profileUsername}>{orgInfo.username}</Text>
+        <Text style={styles.profileName}>{adminProfile?.name || 'CCICT'}</Text>
+        <Text style={styles.profileUsername}>{adminProfile?.username || '@CCICT_CTU_MAIN_CAMPUS'}</Text>
         <View style={styles.bioRow}>
-          <Text style={styles.bioText}>{orgInfo.bio}</Text>
+          <Text style={styles.bioText}>{adminProfile?.bio || 'College of Computing, Information and Communication Technology'}</Text>
         </View>
       </View>
 
@@ -164,15 +289,113 @@ export default function CCICTPage() {
         </View>
       ) : (
         posts.map(post => (
-          <OrgPostCard
-            key={post.id}
+          <PostCard
+            key={post.post_id}
             post={post}
-            orgInfo={orgInfo}
+            currentUserId={user?.user_id}
             onLikeToggle={handleLikeToggle}
-            onCommentAdded={handleCommentAdded}
+            onOpenViewer={async (post, type) => {
+              try {
+                setSelectedPostStats(post);
+                setViewerType(type);
+                setViewerVisible(true);
+
+                if (type === 'likes') {
+                  const likesData = await getPostLikes(post.post_id);
+                  setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                } else if (type === 'reposts') {
+                  const repostsData = await getPostReposts(post.post_id);
+                  setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                }
+              } catch (error) {
+                console.error('Error fetching viewer data:', error);
+                Alert.alert('Error', 'Failed to load data');
+              }
+            }}
+            onEdited={(postId, newContent) => {
+              setPosts(prev => prev.map(p => 
+                p.post_id === postId 
+                  ? { ...p, post_content: newContent } 
+                  : p
+              ));
+            }}
+            onDeleted={(postId) => {
+              setPosts(prev => prev.filter(p => p.post_id !== postId));
+            }}
+            onRepostToggle={(postId, reposted) => {
+              setPosts(prev => prev.map(p => 
+                p.post_id === postId 
+                  ? { ...p, reposts_count: Math.max(0, (p.reposts_count || 0) + (reposted ? 1 : -1)) } 
+                  : p
+              ));
+            }}
           />
         ))
       )}
+
+      {/* Viewer Modal */}
+      <Modal
+        visible={viewerVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setViewerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewerModal}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.modalTitle}>
+                {viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}
+              </Text>
+              <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320 }}>
+              {viewerType === 'likes' && selectedPostStats?.likes?.length > 0 && selectedPostStats?.likes?.map((u: any, idx: number) => (
+                <View key={idx} style={styles.listItemRow}>
+                  <UserAvatar 
+                    profilePic={u.profile_pic}
+                    firstName={u.f_name}
+                    lastName={u.l_name}
+                    size={32}
+                    style={styles.listAvatar}
+                  />
+                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                </View>
+              ))}
+
+              {viewerType === 'likes' && (!selectedPostStats?.likes || selectedPostStats?.likes?.length === 0) && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 16 }}>No likes yet</Text>
+                </View>
+              )}
+
+              {viewerType === 'reposts' && selectedPostStats?.reposts?.length > 0 && selectedPostStats?.reposts?.map((r: any) => (
+                <View key={r.repost_id} style={styles.listItemRow}>
+                  <UserAvatar 
+                    profilePic={r.user?.profile_pic}
+                    firstName={r.user?.f_name}
+                    lastName={r.user?.l_name}
+                    size={32}
+                    style={styles.listAvatar}
+                  />
+                  <View>
+                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
+                  </View>
+                </View>
+              ))}
+
+              {viewerType === 'reposts' && (!selectedPostStats?.reposts || selectedPostStats?.reposts?.length === 0) && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 16 }}>No reposts yet</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -290,5 +513,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#bbb',
     marginTop: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  viewerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '92%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    color: '#333',
+  },
+  listItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e0e7ef',
+    marginRight: 10,
+  },
+  listText: {
+    fontSize: 14,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  listSubText: {
+    fontSize: 12,
+    color: '#888',
   },
 });

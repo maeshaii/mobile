@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, ActivityIndicator, ScrollView, TextInput } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost, getRepostLikes, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import { getImagesFromContent } from '../../utils/imageUtils';
 
 dayjs.extend(relativeTime);
 
@@ -27,7 +28,9 @@ interface OriginalPost {
     user_id: number; 
     f_name: string; 
     l_name: string; 
-    profile_pic?: string | null 
+    profile_pic?: string | null;
+    account_type?: string;
+    user_type?: string;
   };
 }
 
@@ -40,12 +43,15 @@ interface Repost {
     l_name: string;
     profile_pic?: string;
     user_id?: number;
+    account_type?: string;
+    user_type?: string;
   };
   original_post: OriginalPost;
   likes_count?: number;
   comments_count?: number;
   reposts_count?: number;
   is_liked?: boolean;
+  likes?: any[];
 }
 
 interface Props {
@@ -64,6 +70,9 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   console.log('RepostCard - repost data:', repost);
   console.log('RepostCard - repost caption:', repost.repost_caption);
   console.log('RepostCard - original_post:', repost.original_post);
+  console.log('RepostCard - repost likes:', repost.likes);
+  console.log('RepostCard - currentUserId:', currentUserId);
+  console.log('RepostCard - is_liked field:', repost.is_liked);
 
   // Local state for repost actions
   const [isLiked, setIsLiked] = useState(repost.is_liked || false);
@@ -91,6 +100,21 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
   const repostUserName = `${repost.user?.f_name || ''} ${repost.user?.l_name || ''}`.trim() || 'User';
   const originalUserName = `${repost.original_post.user?.f_name || ''} ${repost.original_post.user?.l_name || ''}`.trim() || 'User';
+  
+  // Check if users are admin or peso for priority display
+  const repostUserType = repost.user?.account_type || repost.user?.user_type || 'user';
+  const originalUserType = repost.original_post?.user?.account_type || repost.original_post?.user?.user_type || 'user';
+  const isRepostAdmin = repostUserType === 'admin';
+  const isRepostPeso = repostUserType === 'peso';
+  const isOriginalAdmin = originalUserType === 'admin';
+  const isOriginalPeso = originalUserType === 'peso';
+
+  // Sync like state and repost count when repost data changes
+  useEffect(() => {
+    setIsLiked(repost.is_liked || false);
+    setLikeCount(repost.likes_count || 0);
+    setRepostCount(repost.reposts_count || 0);
+  }, [repost.is_liked, repost.likes_count, repost.reposts_count]);
   const repostTimeFromNow = (() => {
     const t = (repost as any)?.created_at || (repost as any)?.repost_date;
     return t ? dayjs(t).fromNow() : '';
@@ -100,29 +124,8 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     return t ? dayjs(t).fromNow() : '';
   })();
 
-  // Handle both single image and multiple images for repost
-  const getImagesFromRepostPost = (post: any) => {
-    const images = [];
-    
-    // Add main post image if exists (backward compatibility)
-    if (post.post_image) {
-      images.push({
-        image_id: 0,
-        image_url: post.post_image,
-        order: 0
-      });
-    }
-    
-    // Note: Backend repost detail only provides post_image (singular), not post_images (plural)
-    // Add post_images array if exists (multiple images) - for compatibility with other endpoints
-    if (post.post_images && Array.isArray(post.post_images)) {
-      images.push(...post.post_images);
-    }
-    
-    return images.sort((a, b) => a.order - b.order);
-  };
-
-  const originalImages = repost.original_post ? getImagesFromRepostPost(repost.original_post) : [];
+  // Use centralized image utility with deduplication
+  const originalImages = repost.original_post ? getImagesFromContent(repost.original_post) : [];
   const originalImageUrl = originalImages.length > 0 
     ? (String(originalImages[0].image_url).startsWith('http') ? originalImages[0].image_url : `${API_BASE_URL}${originalImages[0].image_url}`)
     : null;
@@ -349,19 +352,45 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     <View style={styles.card}>
       {/* Repost Header */}
       <View style={styles.repostHeader}>
-        <UserAvatar 
-          profilePic={repost.user?.profile_pic}
-          firstName={repost.user?.f_name}
-          lastName={repost.user?.l_name}
-          size={24}
-          style={styles.headerAvatar}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.repostUser}>{repostUserName}</Text>
-          {!!repostTimeFromNow && (
-            <Text style={styles.repostMeta}>{repostTimeFromNow}</Text>
-          )}
-        </View>
+        <TouchableOpacity
+          onPress={() => {
+            const uid = repost.user?.user_id;
+            if (uid) {
+              router.push(`/profile/profilepage?viewUserId=${uid}`);
+            }
+          }}
+          disabled={!repost.user?.user_id}
+          style={styles.repostUserContainer}
+        >
+          <UserAvatar 
+            profilePic={repost.user?.profile_pic}
+            firstName={repost.user?.f_name}
+            lastName={repost.user?.l_name}
+            size={24}
+            style={styles.headerAvatar}
+          />
+          <View style={{ flex: 1 }}>
+            <View style={styles.nameContainer}>
+              <Text style={[
+                styles.repostUser,
+                (repost.user?.user_id && repost.user?.user_id !== currentUserId) ? styles.clickableName : null
+              ]}>{repostUserName}</Text>
+              {(isRepostAdmin || isRepostPeso) && (
+                <View style={[
+                  styles.priorityBadge,
+                  isRepostAdmin ? styles.adminBadge : styles.pesoBadge
+                ]}>
+                  <Text style={styles.priorityBadgeText}>
+                    {isRepostAdmin ? 'ADMIN' : 'PESO'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {!!repostTimeFromNow && (
+              <Text style={styles.repostMeta}>{repostTimeFromNow}</Text>
+            )}
+          </View>
+        </TouchableOpacity>
         {currentUserId === repost.user?.user_id && (
           <TouchableOpacity
             onPress={() => setShowActions(true)}
@@ -381,19 +410,45 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       {repost.original_post && (
         <TouchableOpacity style={styles.originalPost} onPress={handleOriginalPostPress} activeOpacity={0.8}>
           <View style={styles.originalHeader}>
-            <UserAvatar 
-              profilePic={repost.original_post.user?.profile_pic}
-              firstName={repost.original_post.user?.f_name}
-              lastName={repost.original_post.user?.l_name}
-              size={36}
-              style={styles.originalAvatar}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.originalUserName}>{originalUserName}</Text>
-              {!!originalTimeFromNow && (
-                <Text style={styles.originalMeta}>{originalTimeFromNow}</Text>
-              )}
-            </View>
+            <TouchableOpacity
+              onPress={() => {
+                const uid = repost.original_post.user?.user_id;
+                if (uid) {
+                  router.push(`/profile/profilepage?viewUserId=${uid}`);
+                }
+              }}
+              disabled={!repost.original_post.user?.user_id}
+              style={styles.originalUserContainer}
+            >
+              <UserAvatar 
+                profilePic={repost.original_post.user?.profile_pic}
+                firstName={repost.original_post.user?.f_name}
+                lastName={repost.original_post.user?.l_name}
+                size={36}
+                style={styles.originalAvatar}
+              />
+              <View style={{ flex: 1 }}>
+                <View style={styles.nameContainer}>
+                  <Text style={[
+                    styles.originalUserName,
+                    (repost.original_post.user?.user_id && repost.original_post.user?.user_id !== currentUserId) ? styles.clickableName : null
+                  ]}>{originalUserName}</Text>
+                  {(isOriginalAdmin || isOriginalPeso) && (
+                    <View style={[
+                      styles.priorityBadge,
+                      isOriginalAdmin ? styles.adminBadge : styles.pesoBadge
+                    ]}>
+                      <Text style={styles.priorityBadgeText}>
+                        {isOriginalAdmin ? 'ADMIN' : 'PESO'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                {!!originalTimeFromNow && (
+                  <Text style={styles.originalMeta}>{originalTimeFromNow}</Text>
+                )}
+              </View>
+            </TouchableOpacity>
           </View>
 
           {/* Original Content */}
@@ -410,7 +465,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                   setImageViewerVisible(true);
                 }}
               >
-                <Image source={{ uri: originalImageUrl }} style={styles.originalImage} resizeMode="cover" />
+                <Image source={{ uri: originalImageUrl || '' }} style={styles.originalImage} resizeMode="cover" />
               </TouchableOpacity>
             ) : (
               <ScrollView horizontal style={styles.originalImagesScroll} showsHorizontalScrollIndicator={false}>
@@ -547,7 +602,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
         <View style={styles.modalOverlay}>
           <View style={styles.viewerModal}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={styles.modalTitle}>Likes ({likesUsers.length})</Text>
+              <Text style={styles.modalTitle}>Likes {likesUsers.length}</Text>
               <TouchableOpacity onPress={() => setLikesModalVisible(false)}>
                 <Text style={{ color: '#1e3a8a', fontWeight: 'bold', fontSize: 16 }}>Close</Text>
               </TouchableOpacity>
@@ -566,20 +621,21 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                       <Text style={styles.emptyText}>No likes yet</Text>
                     </View>
                   ) : (
-                    likesUsers.map((u, idx) => {
-                      // Add safety checks for user data
-                      if (!u) return null;
+                    likesUsers.map((like, idx) => {
+                      // Add safety checks for like data
+                      if (!like || !like.user) return null;
+                      const user = like.user;
                       return (
-                        <View key={`like-${u.user_id || idx}`} style={styles.listItemRow}>
+                        <View key={`like-${like.like_id || idx}`} style={styles.listItemRow}>
                           <UserAvatar 
-                            profilePic={u.profile_pic} 
-                            firstName={u.f_name || 'User'} 
-                            lastName={u.l_name || ''} 
+                            profilePic={user.profile_pic} 
+                            firstName={user.f_name || 'User'} 
+                            lastName={user.l_name || ''} 
                             size={36} 
                             style={styles.listAvatar} 
                           />
                           <Text style={styles.listText}>
-                            {u.f_name || 'User'} {u.l_name || ''}
+                            {user.f_name || 'User'} {user.l_name || ''}
                           </Text>
                         </View>
                       );
@@ -923,6 +979,41 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: 400,
     height: 400,
+  },
+  repostUserContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  originalUserContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  clickableName: {
+    color: '#1e3a8a',
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  priorityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  adminBadge: {
+    backgroundColor: '#dc2626', // Red for admin
+  },
+  pesoBadge: {
+    backgroundColor: '#059669', // Green for peso
+  },
+  priorityBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
 

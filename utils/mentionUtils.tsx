@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { searchAlumni } from '../services/api';
 
 interface MentionUser {
   user_id: number;
@@ -11,57 +12,112 @@ interface MentionUser {
 }
 
 /**
- * Render text with mentions (@username) as clickable links
- * Note: onMentionPress callback should be provided by the parent component
+ * Render text with mentions (@username) and names as clickable links
+ * Uses the same approach as web frontend - handles both @mentions and name detection
  */
 export const renderTextWithMentions = (
   text: string, 
   users: MentionUser[] = [], 
   onMentionPress?: (userId: number) => void
-): React.ReactNode[] => {
-  if (!text) return [text];
+): React.ReactNode => {
+  if (!text) return <Text>{text}</Text>;
 
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
   const mentionRegex = /@(\w+)/g;
-  const parts = text.split(mentionRegex);
+  // Enhanced regex to detect names (First Last format)
+  const nameRegex = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g;
   
-  return parts.map((part, index) => {
-    if (mentionRegex.test(part)) {
-      // This is a mention (@username)
-      const username = part.substring(1); // Remove @
-      
-      // Find the user in the users array
-      const user = users.find(u => u.name === username || `${u.f_name} ${u.l_name}`.trim() === username);
-      
-      if (user && onMentionPress) {
-        return React.createElement(
-          TouchableOpacity,
-          {
-            key: index,
-            onPress: () => onMentionPress(user.user_id)
-          },
-          React.createElement(
-            Text,
-            { style: styles.mentionText },
-            `@${user.name}`
-          )
-        );
-      } else {
-        // User not found or no callback, render as plain text
-        return React.createElement(
-          Text,
-          { key: index, style: styles.mentionText },
-          part
-        );
-      }
-    } else {
-      // Regular text
-      return React.createElement(
-        Text,
-        { key: index },
-        part
-      );
-    }
-  });
+  const parts = text.split(urlRegex);
+  
+  return (
+    <Text>
+      {parts.map((part, index) => {
+        if (urlRegex.test(part)) {
+          // Handle URLs
+          return (
+            <Text key={index} style={{ color: '#007bff', textDecorationLine: 'underline' }}>
+              {part}
+            </Text>
+          );
+        }
+        
+        // Handle mentions (@username) and names
+        const mentionParts = part.split(mentionRegex);
+        const processedMentionParts = mentionParts.map((mentionPart, mentionIndex) => {
+          if (mentionRegex.test(mentionPart)) {
+            // This is a @mention
+            const username = mentionPart.substring(1); // Remove @
+            
+            return (
+              <TouchableOpacity
+                key={`${index}-${mentionIndex}`}
+                onPress={() => {
+                  if (onMentionPress) {
+                    // Use the same search approach as web frontend
+                    searchAlumni(username)
+                      .then(response => {
+                        if (response.results && response.results.length > 0) {
+                          const foundUser = response.results[0];
+                          onMentionPress(foundUser.id);
+                        }
+                      })
+                      .catch(error => {
+                        console.error('Error searching for user:', error);
+                      });
+                  }
+                }}
+              >
+                <Text style={styles.mentionText}>
+                  {mentionPart}
+                </Text>
+              </TouchableOpacity>
+            );
+          }
+          
+          // Handle names (First Last format)
+          const nameParts = mentionPart.split(nameRegex);
+          return nameParts.map((namePart, nameIndex) => {
+            if (nameRegex.test(namePart)) {
+              // This looks like a name
+              return (
+                <TouchableOpacity
+                  key={`${index}-${mentionIndex}-${nameIndex}`}
+                  onPress={() => {
+                    if (onMentionPress) {
+                      // Search for the user by name
+                      searchAlumni(namePart)
+                        .then(response => {
+                          if (response.results && response.results.length > 0) {
+                            const foundUser = response.results[0];
+                            onMentionPress(foundUser.id);
+                          }
+                        })
+                        .catch(error => {
+                          console.error('Error searching for user:', error);
+                        });
+                    }
+                  }}
+                >
+                  <Text style={styles.mentionText}>
+                    {namePart}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }
+            
+            // Regular text
+            return (
+              <Text key={`${index}-${mentionIndex}-${nameIndex}`}>
+                {namePart}
+              </Text>
+            );
+          });
+        });
+        
+        return processedMentionParts;
+      })}
+    </Text>
+  );
 };
 
 /**

@@ -1,5 +1,6 @@
 import { FontAwesome } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -46,32 +47,54 @@ export default function PostScreen() {
 
   const pickImage = async () => {
     try {
+      console.log('Starting image picker...');
+      
+      // Request permissions first
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('Permission result:', permissionResult);
+      
+      if (permissionResult.status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library to attach images.');
+        return;
+      }
+      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
+        allowsEditing: false, // Disable editing to allow multiple selection
+        quality: 0.5, // Reduced quality to reduce file size
         allowsMultipleSelection: true, // Enable multiple image selection
       });
 
+      console.log('Image picker result:', result);
+      console.log('Canceled:', result.canceled);
+      console.log('Assets:', result.assets);
+
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        console.log(`Selected ${result.assets.length} images`);
         const maxImages = 15;
         const newImages = result.assets.slice(0, maxImages - selectedImages.length);
+        console.log(`Adding ${newImages.length} new images (max: ${maxImages}, current: ${selectedImages.length})`);
         
-        // Convert to base64 for each image
-        const base64Images: string[] = [];
+        // Store the original file URIs instead of converting to base64
+        const imageUris: string[] = [];
         for (const asset of newImages) {
           try {
-            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-              encoding: 'base64',
-            });
-            base64Images.push(`data:image/jpeg;base64,${base64}`);
+            console.log('Storing image URI:', asset.uri);
+            imageUris.push(asset.uri);
+            console.log('Successfully stored image URI');
           } catch (error) {
-            console.error('Error converting image to base64:', error);
+            console.error('Error storing image URI:', error);
           }
         }
         
-        setSelectedImages(prev => [...prev, ...base64Images]);
+        console.log(`Successfully stored ${imageUris.length} image URIs`);
+        setSelectedImages(prev => {
+          const newList = [...prev, ...imageUris];
+          console.log(`Total images now: ${newList.length}`);
+          return newList;
+        });
+      } else {
+        console.log('No images selected or picker was canceled');
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -93,20 +116,75 @@ export default function PostScreen() {
 
     try {
       setSubmitting(true);
+      console.log('Starting post submission...');
+      console.log('Post type:', postType);
+      console.log('Selected images count:', selectedImages.length);
+      
+      // Show progress for image uploads
+      if (selectedImages.length > 0 || selectedImage) {
+        Alert.alert('Processing', 'Compressing images and preparing upload...', [], { cancelable: false });
+      }
       
       // Handle images - use multiple images if available, fallback to single image
       let postImage = '';
       let postImages: string[] = [];
       
       if (selectedImages.length > 0) {
-        // Use multiple images
-        postImages = selectedImages;
+        // Use multiple images - compress and convert to base64
+        try {
+          const base64Images = [];
+          for (let i = 0; i < selectedImages.length; i++) {
+            const imageUri = selectedImages[i];
+            console.log(`Processing image ${i + 1}/${selectedImages.length}: ${imageUri}`);
+            
+            if (imageUri.startsWith('file://')) {
+              // Compress the image first
+              const compressedImage = await ImageManipulator.manipulateAsync(
+                imageUri,
+                [
+                  { resize: { width: 800 } }, // Resize to max width of 800px
+                ],
+                { 
+                  compress: 0.7, // 70% quality
+                  format: ImageManipulator.SaveFormat.JPEG 
+                }
+              );
+              
+              console.log(`Compressed image ${i + 1}: ${compressedImage.uri}`);
+              
+              const base64 = await FileSystem.readAsStringAsync(compressedImage.uri, {
+                encoding: 'base64',
+              });
+              base64Images.push(`data:image/jpeg;base64,${base64}`);
+            } else {
+              base64Images.push(imageUri);
+            }
+          }
+          postImages = base64Images;
+          console.log(`Successfully processed ${base64Images.length} images`);
+        } catch (error) {
+          console.error('Error converting multiple images to base64:', error);
+          Alert.alert('Error', 'Failed to process images. Please try again.');
+          return;
+        }
       } else if (selectedImage) {
         // Fallback to single image for backward compatibility
         if (selectedImage.startsWith('file://')) {
           try {
-            // Convert local file to base64
-            const base64 = await FileSystem.readAsStringAsync(selectedImage, {
+            // Compress the image first
+            const compressedImage = await ImageManipulator.manipulateAsync(
+              selectedImage,
+              [
+                { resize: { width: 800 } }, // Resize to max width of 800px
+              ],
+              { 
+                compress: 0.7, // 70% quality
+                format: ImageManipulator.SaveFormat.JPEG 
+              }
+            );
+            
+            // Convert compressed image to base64
+            const base64 = await FileSystem.readAsStringAsync(compressedImage.uri, {
               encoding: 'base64',
             });
             postImage = `data:image/jpeg;base64,${base64}`;
@@ -126,7 +204,7 @@ export default function PostScreen() {
         const forumData = {
           title: '', // Forum posts don't require title
           content: postContent.trim(),
-          image: postImages.length > 0 ? postImages[0] : postImage // Use first image if multiple, fallback to single
+          images: postImages.length > 0 ? postImages : (postImage ? [postImage] : undefined), // Use multiple images
         };
         console.log('Submitting forum post data:', forumData);
         await createForumPost(forumData);
@@ -144,12 +222,40 @@ export default function PostScreen() {
         await createPost(postData);
       }
       
+      console.log('Post created successfully!');
       Alert.alert('Success', 'Post created successfully!', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error) {
       console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post. Please try again.');
+      
+      // Provide more specific error messages
+      let errorMessage = 'Failed to create post. Please try again.';
+      let errorTitle = 'Error';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('ECONNABORTED')) {
+          errorTitle = 'Upload Timeout';
+          errorMessage = 'The upload timed out. This might be due to large images or slow connection. Please try with fewer or smaller images.';
+        } else if (error.message.includes('Network Error') || error.message.includes('ERR_NETWORK')) {
+          errorTitle = 'Network Error';
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+        } else if (error.message.includes('413') || error.message.includes('too large')) {
+          errorTitle = 'File Too Large';
+          errorMessage = 'Images are too large. Please try with smaller images or fewer images.';
+        } else if (error.message.includes('Invalid image format')) {
+          errorTitle = 'Invalid Image';
+          errorMessage = 'One or more images are in an unsupported format. Please try with different images.';
+        } else if (error.message.includes('Upload timeout')) {
+          errorTitle = 'Upload Timeout';
+          errorMessage = error.message;
+        }
+      }
+      
+      Alert.alert(errorTitle, errorMessage, [
+        { text: 'OK', style: 'default' },
+        { text: 'Try Again', onPress: () => handleSubmit() }
+      ]);
     } finally {
       setSubmitting(false);
     }
@@ -222,7 +328,13 @@ export default function PostScreen() {
 
         {/* Add Image Section */}
         <View style={styles.addImageContainer}>
-          <TouchableOpacity style={styles.addImageRow} onPress={pickImage}>
+          <TouchableOpacity 
+            style={styles.addImageRow} 
+            onPress={() => {
+              console.log('Image button pressed!');
+              pickImage();
+            }}
+          >
             <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
             <Text style={styles.addImageText}>
               {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Image(s)'}
@@ -530,3 +642,5 @@ topBarButtonRight: {
   },
 
 });
+
+

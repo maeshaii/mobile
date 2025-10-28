@@ -53,6 +53,18 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   const images = getImagesFromContent(post);
   const imageUrl = getFirstImageUrl(post);
 
+  // Debug logging for images
+  console.log('=== DONATION POST CARD IMAGE DEBUG ===');
+  console.log('Post ID:', post.post_id);
+  console.log('Post data keys:', Object.keys(post));
+  console.log('Post post_image:', post.post_image);
+  console.log('Post post_images:', post.post_images);
+  console.log('Post images:', post.images);
+  console.log('Extracted images:', images);
+  console.log('Images count:', images.length);
+  console.log('First image URL:', imageUrl);
+  console.log('=== END DONATION POST CARD IMAGE DEBUG ===');
+
 
   const handleLike = async () => {
     try {
@@ -163,6 +175,13 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     }
   }, [currentUserId, post.user.user_id]);
 
+  // Sync like state when post data changes
+  useEffect(() => {
+    setIsLiked(post.is_liked || false);
+    setLikeCount(post.likes_count || 0);
+    setRepostCount(post.reposts_count || 0);
+  }, [post.is_liked, post.likes_count, post.reposts_count]);
+
   return (
     <View style={styles.card}>
       {/* Header */}
@@ -175,7 +194,12 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
           style={styles.avatar}
         />
         <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{userName}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name}>{userName}</Text>
+            <View style={styles.donationBadge}>
+              <Text style={styles.donationBadgeText}>DONATION</Text>
+            </View>
+          </View>
           <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
         </View>
         {currentUserId === post.user.user_id && (
@@ -197,7 +221,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
         })}
       </Text>
       
-      {/* Images - Facebook-style grid layout like web */}
+      {/* Images - Facebook-style grid layout like dashboard */}
       {images.length > 0 && (
         <View style={styles.imagesContainer}>
           {images.length === 1 ? (
@@ -205,40 +229,33 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
             <TouchableOpacity 
               onPress={() => setImageViewerVisible(true)}
             >
-              <Image source={{ uri: imageUrl }} style={styles.singleImage} resizeMode="contain" />
+              <Image source={{ uri: imageUrl || '' }} style={styles.singleImage} resizeMode="contain" />
             </TouchableOpacity>
           ) : (
-            // Multiple images - grid layout like web
-            <View style={[
-              styles.imagesGrid,
-              images.length === 2 && styles.twoImagesGrid,
-              images.length === 3 && styles.threeImagesGrid,
-              images.length === 4 && styles.fourImagesGrid,
-              images.length >= 5 && styles.fivePlusImagesGrid
-            ]}>
-              {images.slice(0, 6).map((image, index) => (
-                <TouchableOpacity 
-                  key={index}
-                  style={[
-                    styles.gridImageContainer,
-                    images.length === 3 && index === 0 && styles.threeImagesFirst,
-                    images.length === 3 && index > 0 && styles.threeImagesRest
-                  ]}
-                  onPress={() => setImageViewerVisible(true)}
-                >
-                  <Image 
-                    source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
-                    style={styles.gridImage} 
-                    resizeMode="cover" 
-                  />
-                  {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
-                  {index === 5 && images.length > 6 && (
-                    <View style={styles.moreImagesOverlay}>
-                      <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
+            // Multiple images - Facebook-style grid layout (2x2 max 4 images)
+            <View style={styles.imagesGrid}>
+              {images.slice(0, 4).map((image, index) => {
+                const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+                return (
+                  <TouchableOpacity 
+                    key={index}
+                    style={styles.fourImagesGrid}
+                    onPress={() => setImageViewerVisible(true)}
+                  >
+                    <Image 
+                      source={{ uri: imageUri }} 
+                      style={styles.gridImage} 
+                      resizeMode="cover" 
+                    />
+                    {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+                    {index === 3 && images.length > 4 && (
+                      <View style={styles.moreImagesOverlay}>
+                        <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </View>
@@ -346,7 +363,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
           </TouchableOpacity>
           <View style={styles.imageViewerContainer}>
             <Image
-              source={{ uri: imageUrl }}
+              source={{ uri: imageUrl || '' }}
               style={styles.imageViewerImage}
               resizeMode="contain"
             />
@@ -389,6 +406,7 @@ const styles = StyleSheet.create({
   postTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, color: '#333' },
   content: { fontSize: 14, marginTop: 10, color: '#333' },
   postImage: { width: 200, height: 200, borderRadius: 10, marginTop: 10, marginRight: 10, backgroundColor: '#ccc' },
+  // Image grid styles - matching dashboard layout
   imagesContainer: {
     marginTop: 10,
     borderRadius: 8,
@@ -403,35 +421,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2,
-  },
-  twoImagesGrid: {
-    height: 200,
-  },
-  threeImagesGrid: {
-    height: 200,
+    justifyContent: 'space-between',
   },
   fourImagesGrid: {
-    height: 200,
-  },
-  fivePlusImagesGrid: {
-    height: 200,
-  },
-  gridImageContainer: {
+    width: '49%',
+    height: 150,
     position: 'relative',
     overflow: 'hidden',
-  },
-  threeImagesFirst: {
-    width: '50%',
-    height: '100%',
-  },
-  threeImagesRest: {
-    width: '50%',
-    height: '50%',
+    borderRadius: 4,
   },
   gridImage: {
     width: '100%',
     height: '100%',
-    minHeight: 100,
+    borderRadius: 4,
   },
   moreImagesOverlay: {
     position: 'absolute',
@@ -637,6 +639,24 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: 400,
     height: 400,
+  },
+  
+  // Donation Badge Styles
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  donationBadge: {
+    backgroundColor: '#059669', // Green color for donation
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  donationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
 

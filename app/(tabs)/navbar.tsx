@@ -1,17 +1,54 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
 import { FontAwesome, MaterialIcons, Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router'; // ✅ Use useRouter from expo-router
+import { getUserInfo } from '../../services/api';
 
 const NavBar = () => {
   const router = useRouter(); // ✅ This replaces useNavigation()
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const userInfo = await getUserInfo();
+        setUser(userInfo);
+      } catch (err) {
+        // Fallback to localStorage for OJT users
+        try {
+          const userStr = localStorage.getItem('user');
+          if (userStr) {
+            setUser(JSON.parse(userStr));
+          }
+        } catch (localErr) {
+          console.error('Error loading user:', localErr);
+        }
+      }
+    };
+    loadUser();
+  }, []);
+
+  const handleHomePress = () => {
+    // Check if user is OJT and redirect accordingly
+    const isOJT = user?.account_type?.ojt || user?.role === 'ojt' || user?.user_type === 'ojt';
+    console.log('🔍 NAVBAR DEBUG: User object:', user);
+    console.log('🔍 NAVBAR DEBUG: Is OJT:', isOJT);
+    
+    if (isOJT) {
+      console.log('🔍 NAVBAR DEBUG: Navigating to OJT dashboard');
+      router.push('/ojt/ojtpage');
+    } else {
+      console.log('🔍 NAVBAR DEBUG: Navigating to regular home');
+      router.push('/homepage/home');
+    }
+  };
 
   return (
     <View style={styles.navBarContainer}>
 
       {/* Navigation Icons */}
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={() => router.push('/homepage/home')}>
+        <TouchableOpacity onPress={handleHomePress}>
           <FontAwesome name="home" size={24} color="white" />
         </TouchableOpacity>
 

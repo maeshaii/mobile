@@ -2,9 +2,34 @@ import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } fro
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
 
 // Platform-specific storage utility
 const isWeb = Platform.OS === 'web';
+
+/** Image compression helper */
+const compressImage = async (imageUri: string, quality: number = 0.8): Promise<string> => {
+  try {
+    if (isWeb) {
+      // For web, return original URI (compression handled by browser)
+      return imageUri;
+    }
+    
+    const result = await ImageManipulator.manipulateAsync(
+      imageUri,
+      [{ resize: { width: 1920, height: 1920 } }], // Max dimensions
+      { 
+        compress: quality,
+        format: ImageManipulator.SaveFormat.JPEG,
+      }
+    );
+    return result.uri;
+  } catch (error) {
+    console.warn('Image compression failed, using original:', error);
+    return imageUri;
+  }
+};
 
 const Storage = {
   setItem: async (key: string, value: string) => {
@@ -47,14 +72,19 @@ const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
 // Ngrok URL for production - this line will be updated by the ngrok script
 const ngrokUrl = 'https://fcd335ee6e94.ngrok-free.app'; // This will be replaced by ngrok script
-export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
+// Use ngrok for production, localhost for development
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
+console.log('Raw from Expo:', rawFromExpo);
+console.log('Raw from Env:', rawFromEnv);
+console.log('Ngrok URL:', ngrokUrl);
+console.log('Localhost URL:', localhostUrl);
 
 /** Axios instance */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 180000, // Increased to 180 seconds for compressed image uploads
   withCredentials: true, // Enable for session-based WebSocket auth
   headers: { 
     Accept: 'application/json',
@@ -236,6 +266,7 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
   const trimmedPassword = acc_password.trim();
   
   console.log('Mobile: Sending login request:', { acc_username: trimmedUsername, acc_password: trimmedPassword });
+  console.log('Mobile: API Base URL:', API_BASE_URL);
   try {
     const response = await api.post('/api/token/', { acc_username: trimmedUsername, acc_password: trimmedPassword });
     console.log('Mobile: Login response received:', response.data);
@@ -404,10 +435,23 @@ export const checkFollowStatus = async (userId: number) => {
 /** Suggested Users */
 // Mobile -> Backend: GET /api/users_list_view/?current_user_id={userId}
 export const fetchSuggestedUsers = async () => {
-  const user = await getUserInfo();
-  const currentUserId = user?.user_id || user?.id;
-  const { data } = await api.get(`/api/users_list_view/?current_user_id=${currentUserId}`);
-  return data;
+  try {
+    const user = await getUserInfo();
+    const currentUserId = user?.user_id || user?.id;
+    
+    // Only make the request if we have a valid user ID
+    if (!currentUserId) {
+      console.warn('No current user ID available for suggested users');
+      return { success: false, users: [], message: 'User not authenticated' };
+    }
+    
+    const { data } = await api.get(`/api/users_list_view/?current_user_id=${currentUserId}`);
+    return data;
+  } catch (error) {
+    console.error('Error fetching suggested users:', error);
+    // Return empty result instead of throwing to prevent app crashes
+    return { success: false, users: [], message: 'Failed to load suggested users' };
+  }
 };
 
 // Mobile -> Backend: GET /api/admin-peso-users/
@@ -554,15 +598,75 @@ export const sendReminder = async () => (await api.post('/api/send-reminder/')).
 // Mobile -> Backend: GET /api/posts/
 export const getPosts = async () => {
   try {
+    console.log('Mobile getPosts: Starting API call...');
+    
+    // Check if we have a valid token before making the request
+    const token = await getAccessToken();
+    if (!token) {
+      console.error('Mobile getPosts: No access token available');
+      throw new Error('No access token available');
+    }
+    
+    console.log('Mobile getPosts: Making API request with token:', token.substring(0, 20) + '...');
+    
     const response = await api.get('/api/posts/');
     console.log('Mobile getPosts API Response:', response.data);
     console.log('Posts array:', response.data?.posts);
     console.log('Posts count:', response.data?.posts?.length);
     return response.data?.posts || [];
-  } catch (error) {
+  } catch (error: any) {
     console.error('Mobile getPosts API Error:', error);
+    
+    // Check if it's a 403 error specifically
+    if (error.response?.status === 403) {
+      console.error('Mobile getPosts: 403 Forbidden - Authentication issue');
+      console.error('Response data:', error.response?.data);
+      
+      // Try to refresh the token and retry once
+      try {
+        console.log('Mobile getPosts: Attempting token refresh...');
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          console.log('Mobile getPosts: Token refreshed, retrying request...');
+          const retryResponse = await api.get('/api/posts/');
+          return retryResponse.data?.posts || [];
+        }
+      } catch (refreshError) {
+        console.error('Mobile getPosts: Token refresh failed:', refreshError);
+      }
+    }
+    
     throw error;
   }
+};
+
+// Helper function to sort feed with admin/peso priority
+const sortFeedWithPriority = (items: any[]) => {
+  return items.sort((a, b) => {
+    // Get user account types
+    const aUserType = a.user?.account_type || a.user?.user_type || 'user';
+    const bUserType = b.user?.account_type || b.user?.user_type || 'user';
+    
+    // Priority order: admin > peso > others
+    const getPriority = (userType: string) => {
+      if (userType === 'admin') return 3;
+      if (userType === 'peso') return 2;
+      return 1;
+    };
+    
+    const aPriority = getPriority(aUserType);
+    const bPriority = getPriority(bUserType);
+    
+    // First sort by priority (admin/peso first)
+    if (aPriority !== bPriority) {
+      return bPriority - aPriority;
+    }
+    
+    // Then sort by date within same priority
+    const aDate = new Date(a.created_at || a.repost_date || 0).getTime();
+    const bDate = new Date(b.created_at || b.repost_date || 0).getTime();
+    return bDate - aDate;
+  });
 };
 
 // Get combined feed of posts and reposts (including donation reposts)
@@ -572,9 +676,35 @@ export const getFeed = async () => {
     const postsResponse = await api.get('/api/posts/');
     const posts = postsResponse.data?.posts || [];
     
+    console.log('=== GETFEED DEBUG ===');
+    console.log('Posts response:', postsResponse.data);
+    console.log('Posts count:', posts.length);
+    if (posts.length > 0) {
+      console.log('First post:', JSON.stringify(posts[0], null, 2));
+      console.log('First post post_images:', posts[0].post_images);
+    }
+    console.log('=== END GETFEED DEBUG ===');
+    
     // Get donation posts (which includes donation reposts)
     const donationsResponse = await api.get('/api/donations/');
     const donations = donationsResponse.data?.donations || [];
+    
+    // Convert donation posts to feed format
+    const donationPosts = donations.map((donation: any) => ({
+      post_id: donation.donation_id,
+      post_title: donation.title,
+      post_content: donation.description,
+      post_image: donation.images?.[0]?.image_url || null,
+      post_images: donation.images || [],
+      type: 'donation',
+      created_at: donation.created_at,
+      likes_count: donation.likes_count || 0,
+      comments_count: donation.comments_count || 0,
+      reposts_count: donation.reposts_count || 0,
+      is_liked: donation.is_liked || false,
+      user: donation.user,
+      item_type: 'donation_post'
+    }));
     
     // Extract reposts from donations
     const donationReposts: any[] = [];
@@ -601,21 +731,65 @@ export const getFeed = async () => {
     });
     
     // Combine all feed items
-    const feedItems = [
+    const allItems = [
       ...posts.map((post: any) => ({ ...post, item_type: post.item_type || 'post' })),
+      ...donationPosts,
       ...donationReposts
-    ].sort((a, b) => new Date(b.created_at || b.repost_date).getTime() - new Date(a.created_at || a.repost_date).getTime());
+    ];
+    
+    // Sort with admin/peso priority
+    const feedItems = sortFeedWithPriority(allItems);
     
     return feedItems;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Mobile getFeed API Error:', error);
+    
+    // Check if it's a 403 error specifically
+    if (error.response?.status === 403) {
+      console.error('Mobile getFeed: 403 Forbidden - Authentication issue');
+      console.error('Response data:', error.response?.data);
+      
+      // Try to refresh token and retry
+      try {
+        console.log('Mobile getFeed: Attempting token refresh...');
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          console.log('Mobile getFeed: Token refreshed, retrying feed request...');
+          // Retry the posts request
+          const postsResponse = await api.get('/api/posts/');
+          const posts = postsResponse.data?.posts || [];
+          return sortFeedWithPriority(posts.map((post: any) => ({ ...post, item_type: 'post' })));
+        }
+      } catch (refreshError) {
+        console.error('Mobile getFeed: Token refresh failed:', refreshError);
+      }
+    }
+    
     // Fallback to just posts if donations endpoint doesn't exist
     return getPosts().then(posts => posts.map((post: any) => ({ ...post, item_type: 'post' })));
   }
 };
 // Mobile -> Backend: GET /api/posts/by-user-type/?user_type={peso|admin}
-export const getPostsByUserType = async (userType: 'peso' | 'admin') =>
-  (await api.get(`/api/posts/by-user-type/?user_type=${userType}`)).data.posts || [];
+export const getPostsByUserType = async (userType: 'peso' | 'admin') => {
+  try {
+    const response = await api.get(`/api/posts/by-user-type/?user_type=${userType}`);
+    console.log('API Response for userType:', userType, response.data);
+    
+    // Handle different response formats
+    if (response.data && response.data.posts) {
+      return response.data.posts;
+    } else if (Array.isArray(response.data)) {
+      return response.data;
+    } else {
+      console.warn('Unexpected API response format:', response.data);
+      return [];
+    }
+  } catch (error) {
+    console.error('Error fetching posts by user type:', error);
+    throw error;
+  }
+};
+
 // Mobile -> Backend: POST /api/posts/
 export const createPost = async (postData: {
   post_content: string;
@@ -628,48 +802,25 @@ export const createPost = async (postData: {
   try {
     console.log('Mobile createPost sending:', postData);
     
-    // If we have images, upload them using FormData
-    if (postData.post_images && postData.post_images.length > 0) {
-      const formData = new FormData();
-      formData.append('post_content', postData.post_content);
-      if (postData.type) formData.append('type', postData.type);
-      if (postData.post_title) formData.append('post_title', postData.post_title);
-      if (postData.post_cat_id) formData.append('post_cat_id', postData.post_cat_id.toString());
-      
-      // Add each image as a file
-      postData.post_images.forEach((imageData, index) => {
-        if (imageData.startsWith('data:image/')) {
-          // Handle base64 data
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
-          // Handle file URIs directly
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        }
-      });
-      
-      const response = await api.post('/api/posts/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      console.log('Mobile createPost response:', response.data);
-      return response.data;
-    } else {
-      // No images, send as JSON
-      const response = await api.post('/api/posts/', postData);
-      console.log('Mobile createPost response:', response.data);
-      return response.data;
-    }
+    // Send as JSON (images should already be base64 from mobile app)
+    console.log('Sending JSON request with', postData.post_images?.length || 0, 'images');
+    const response = await api.post('/api/posts/', postData);
+    console.log('Mobile createPost response:', response.data);
+    return response.data;
   } catch (error) {
     console.error('Mobile createPost error:', error);
+    
+    // Provide more specific error messages
+    if (error instanceof AxiosError) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Upload timeout - images may be too large. Please try with smaller images.');
+      } else if (error.response?.status === 413) {
+        throw new Error('Images are too large. Please try with smaller images.');
+      } else if (error.response?.status === 400) {
+        throw new Error('Invalid image format. Please try with different images.');
+      }
+    }
+    
     throw error;
   }
 };
@@ -685,6 +836,19 @@ export const commentOnPost = async (postId: number, comment: string) =>
 // Mobile -> Backend: GET /api/posts/{post_id}/comments/
 export const getPostComments = async (postId: number) =>
   (await api.get(`/api/posts/${postId}/comments/`)).data;
+
+// Mobile -> Backend: Comment Reply APIs
+// Mobile -> Backend: GET /api/comments/{comment_id}/replies/
+export const getCommentReplies = async (commentId: number) => (await api.get(`/api/comments/${commentId}/replies/`)).data;
+// Mobile -> Backend: POST /api/comments/{comment_id}/replies/
+export const createCommentReply = async (commentId: number, replyContent: string) => 
+  (await api.post(`/api/comments/${commentId}/replies/`, { reply_content: replyContent })).data;
+// Mobile -> Backend: PUT /api/comments/{comment_id}/replies/{reply_id}/
+export const updateCommentReply = async (commentId: number, replyId: number, replyContent: string) => 
+  (await api.put(`/api/comments/${commentId}/replies/${replyId}/`, { reply_content: replyContent })).data;
+// Mobile -> Backend: DELETE /api/comments/{comment_id}/replies/{reply_id}/
+export const deleteCommentReply = async (commentId: number, replyId: number) => 
+  (await api.delete(`/api/comments/${commentId}/replies/${replyId}/`)).data;
 // Some screens expect a dedicated likes endpoint. Provide a flexible helper.
 // Mobile -> Backend: GET /api/posts/{post_id}/likes/
 export const getPostLikes = async (postId: number) => {
@@ -938,50 +1102,83 @@ export const createForumPost = async (payload: { title?: string; content: string
   try {
     console.log('Mobile createForumPost sending:', payload);
     
-    // If we have images, upload them using FormData
+    // Convert file URIs to base64 and send as JSON (same as web frontend)
     if (payload.images && payload.images.length > 0) {
-      const formData = new FormData();
-      formData.append('post_content', payload.content);
-      if (payload.title) formData.append('post_title', payload.title);
+      console.log('Converting forum images to base64 for JSON request:', payload.images.length);
       
-      // Add each image as a file
-      payload.images.forEach((imageData, index) => {
+      const processedImages: string[] = [];
+      
+      for (let index = 0; index < payload.images.length; index++) {
+        const imageData = payload.images[index];
+        
         if (imageData.startsWith('data:image/')) {
-          // Handle base64 data
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
-          // Handle file URIs directly
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
+          // Already base64, use as is
+          processedImages.push(imageData);
+        } else {
+          // Convert file URI to base64
+          try {
+            let processedImageUri = imageData;
+            
+            // Compress image if it's a file URI (not base64)
+            if (!imageData.startsWith('data:image/')) {
+              try {
+                processedImageUri = await compressImage(imageData, 0.8);
+                console.log(`Compressed forum image ${index + 1}/${payload.images.length}`);
+              } catch (compressionError) {
+                console.warn(`Image compression failed for forum image ${index}, using original:`, compressionError);
+              }
+            }
+            
+            // Convert to base64
+            const base64 = await FileSystem.readAsStringAsync(processedImageUri, {
+              encoding: 'base64',
+            });
+            const base64Data = `data:image/jpeg;base64,${base64}`;
+            processedImages.push(base64Data);
+            console.log(`Converted forum image ${index + 1} to base64`);
+          } catch (error) {
+            console.error(`Error converting forum image ${index + 1} to base64:`, error);
+            // Skip this image and continue with others
+            continue;
+          }
         }
-      });
+      }
       
-      const response = await api.post('/api/forum/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      // Send as JSON with base64 images (same as web frontend)
+      const jsonData = {
+        content: payload.content,
+        title: payload.title,
+        images: processedImages
+      };
+      
+      console.log('Sending forum JSON request with', processedImages.length, 'base64 images');
+      const response = await api.post('/api/forum/', jsonData);
       console.log('Mobile createForumPost response:', response.data);
       return response.data;
     } else {
       // No images, send as JSON (backward compatibility)
       const response = await api.post('/api/forum/', { 
-        post_title: payload.title, 
-        post_content: payload.content, 
-        post_image: payload.image 
+        title: payload.title, 
+        content: payload.content, 
+        image: payload.image 
       });
       console.log('Mobile createForumPost response:', response.data);
       return response.data;
     }
   } catch (error) {
     console.error('Mobile createForumPost error:', error);
+    
+    // Provide more specific error messages
+    if (error instanceof AxiosError) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Upload timeout - images may be too large. Please try with smaller images.');
+      } else if (error.response?.status === 413) {
+        throw new Error('Images are too large. Please try with smaller images.');
+      } else if (error.response?.status === 400) {
+        throw new Error('Invalid image format. Please try with different images.');
+      }
+    }
+    
     throw error;
   }
 };
@@ -1040,35 +1237,57 @@ export const createDonationPost = async (payload: { description: string; images?
   try {
     console.log('Mobile createDonationPost sending:', payload);
     
-    // If we have images, upload them using FormData
+    // Convert file URIs to base64 and send as JSON (same as web frontend)
     if (payload.images && payload.images.length > 0) {
-      const formData = new FormData();
-      formData.append('description', payload.description);
+      console.log('Converting donation images to base64 for JSON request:', payload.images.length);
       
-      // Add each image as a file
-      payload.images.forEach((imageData, index) => {
+      const processedImages: string[] = [];
+      
+      for (let index = 0; index < payload.images.length; index++) {
+        const imageData = payload.images[index];
+        console.log('Processing donation image:', imageData, 'Type:', typeof imageData);
+        
         if (imageData.startsWith('data:image/')) {
-          // Handle base64 data
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
-        } else if (imageData.startsWith('file://') || imageData.startsWith('content://')) {
-          // Handle file URIs directly
-          const blob = {
-            uri: imageData,
-            type: 'image/jpeg',
-            name: `image_${index}.jpg`
-          } as any;
-          formData.append(`images`, blob);
+          // Already base64, use as is
+          processedImages.push(imageData);
+        } else {
+          // Convert file URI to base64
+          try {
+            let processedImageUri = imageData;
+            
+            // Compress image if it's a file URI (not base64)
+            if (!imageData.startsWith('data:image/')) {
+              try {
+                processedImageUri = await compressImage(imageData, 0.8);
+                console.log(`Compressed donation image ${index + 1}/${payload.images.length}`);
+              } catch (compressionError) {
+                console.warn(`Image compression failed for donation image ${index}, using original:`, compressionError);
+              }
+            }
+            
+            // Convert to base64
+            const base64 = await FileSystem.readAsStringAsync(processedImageUri, {
+              encoding: 'base64',
+            });
+            const base64Data = `data:image/jpeg;base64,${base64}`;
+            processedImages.push(base64Data);
+            console.log(`Converted donation image ${index + 1} to base64`);
+          } catch (error) {
+            console.error(`Error converting donation image ${index + 1} to base64:`, error);
+            // Skip this image and continue with others
+            continue;
+          }
         }
-      });
+      }
       
-      const response = await api.post('/api/donations/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      // Send as JSON with base64 images (same as web frontend)
+      const jsonData = {
+        description: payload.description,
+        images: processedImages
+      };
+      
+      console.log('Sending donation JSON request with', processedImages.length, 'base64 images');
+      const response = await api.post('/api/donations/', jsonData);
       console.log('Mobile createDonationPost response:', response.data);
       return response.data;
     } else {
@@ -1079,6 +1298,18 @@ export const createDonationPost = async (payload: { description: string; images?
     }
   } catch (error) {
     console.error('Mobile createDonationPost error:', error);
+    
+    // Provide more specific error messages
+    if (error instanceof AxiosError) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Upload timeout - images may be too large. Please try with smaller images.');
+      } else if (error.response?.status === 413) {
+        throw new Error('Images are too large. Please try with smaller images.');
+      } else if (error.response?.status === 400) {
+        throw new Error('Invalid image format. Please try with different images.');
+      }
+    }
+    
     throw error;
   }
 };
@@ -1230,6 +1461,7 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
     const form = new FormData();
     if (typeof params.bio === 'string') form.append('bio', params.bio);
     if (params.imageUri) {
+      console.log('Adding image to FormData:', params.imageUri);
       form.append('profile_pic', { uri: params.imageUri, name: 'profile.jpg', type: 'image/jpeg' } as any);
     }
 
@@ -1240,9 +1472,14 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
     // Fire requests; keep references by name to avoid index math
     const bioPromise = (params.bio || params.imageUri)
       ? api.put(`/api/alumni/profile/update/?user_id=${userId}`, form, {
-          headers: { 'Content-Type': 'multipart/form-data' },
+          headers: { 
+            'Content-Type': 'multipart/form-data',
+          },
         })
       : null;
+    
+    console.log('Making API request to:', `/api/alumni/profile/update/?user_id=${userId}`);
+    console.log('FormData contents:', form);
 
     const socialPromise = (typeof normalizedSocial !== 'undefined')
       ? api.put(
@@ -1261,7 +1498,11 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
       : null;
 
     const [bioRes, socialRes, emailRes] = await Promise.all([
-      bioPromise?.catch((e) => { console.error('Update bio/photo failed:', e?.response?.data || e?.message); return null; }),
+      bioPromise?.catch((e) => { 
+        console.error('Update bio/photo failed:', e?.response?.data || e?.message);
+        console.error('Full error:', e);
+        return null; 
+      }),
       socialPromise?.catch((e) => { console.error('Update social media failed:', e?.response?.data || e?.message); return null; }),
       emailPromise?.catch((e) => { console.error('Update email failed:', e?.response?.data || e?.message); return null; }),
     ]);
@@ -1273,7 +1514,13 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
       if (bioRes?.data?.user) {
         const bioResult = bioRes.data.user;
         merged.profile_bio = bioResult.bio ?? merged.profile_bio;
-        merged.profile_pic = bioResult.profile_pic ?? merged.profile_pic;
+        // Handle profile picture URL properly
+        if (bioResult.profile_pic) {
+          // If it's a full URL, use it directly, otherwise prepend API_BASE_URL
+          merged.profile_pic = bioResult.profile_pic.startsWith('http') 
+            ? bioResult.profile_pic 
+            : `${API_BASE_URL}${bioResult.profile_pic}`;
+        }
         merged.name = bioResult.name ?? merged.name;
       }
 

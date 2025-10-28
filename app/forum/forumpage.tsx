@@ -1,11 +1,13 @@
-import { FontAwesome } from '@expo/vector-icons';
+import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
-import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
-import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch } from '../../services/api';
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch, getPostLikes, getPostReposts, getRepostComments, commentOnRepost, getRepostDetail, API_BASE_URL } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import ForumPostCard from './ForumPostCard';
 import RepostCard from '../repost/RepostCard';
+import MentionInput from '../../components/MentionInput';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 const forumLogo = require('../../assets/images/wny_logo.jpg');
 
@@ -47,6 +49,14 @@ export default function CCICTPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [membersYear, setMembersYear] = useState<string | null>(null);
 
+  // Repost comment modal state (dashboard-style)
+  const [repostCommentModalVisible, setRepostCommentModalVisible] = useState(false);
+  const [selectedRepost, setSelectedRepost] = useState<any>(null);
+  const [repostCommentText, setRepostCommentText] = useState('');
+  const [submittingRepostComment, setSubmittingRepostComment] = useState(false);
+  const [repostComments, setRepostComments] = useState<any[]>([]);
+  const [repostCommentsLoading, setRepostCommentsLoading] = useState(false);
+
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
     try {
@@ -70,6 +80,13 @@ export default function CCICTPage() {
       return '';
     }
   };
+
+  const renderAvatar = (src: string | null | undefined) => {
+    if (!src) return require('../../assets/images/sample_pic.jpg');
+    const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
+    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+  };
+
 
   async function loadForumPosts() {
       try {
@@ -96,7 +113,23 @@ export default function CCICTPage() {
           // include forum reposts as separate feed items (forum-only)
           const reposts = Array.isArray(f.reposts) ? f.reposts : [];
           reposts.forEach((r: any) => {
-            feedItems.push({ ...r, item_type: 'repost' });
+            feedItems.push({
+              ...r,
+              item_type: 'repost',
+              original_post: {
+                post_id: f.post_id,
+                post_title: f.post_title,
+                post_content: f.post_content,
+                post_image: f.post_image,
+                post_images: f.post_images,
+                user: f.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
+                created_at: f.created_at,
+                likes_count: f.likes_count || 0,
+                comments_count: f.comments_count || 0,
+                reposts_count: f.reposts_count || 0,
+                is_liked: f.is_liked || false,
+              }
+            });
           });
         });
         const sorted = feedItems.sort((a, b) =>
@@ -112,9 +145,72 @@ export default function CCICTPage() {
       }
   }
 
+  // Repost comment functions (dashboard-style)
+  const loadRepostComments = async (repostId: number) => {
+    try {
+      setRepostCommentsLoading(true);
+      const data = await getRepostComments(repostId);
+      setRepostComments(Array.isArray(data?.comments) ? data.comments : []);
+    } catch (error) {
+      console.error('Error loading repost comments:', error);
+      setRepostComments([]);
+    } finally {
+      setRepostCommentsLoading(false);
+    }
+  };
+
+  const handleRepostComment = async () => {
+    const message = (repostCommentText || '').trim();
+    if (!message || !selectedRepost) return;
+    try {
+      setSubmittingRepostComment(true);
+      await commentOnRepost(selectedRepost.repost_id, message);
+      const data = await getRepostComments(selectedRepost.repost_id);
+      const newComments = data?.comments || [];
+      setRepostComments(newComments);
+      setRepostCommentText('');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to add comment');
+    } finally {
+      setSubmittingRepostComment(false);
+    }
+  };
+
+  const openRepostCommentModal = async (repost: any) => {
+    try {
+      setRepostCommentModalVisible(true);
+      setRepostCommentsLoading(true);
+      
+      // Fetch both repost details and comments
+      const [repostData, commentsData] = await Promise.all([
+        getRepostDetail(repost.repost_id),
+        getRepostComments(repost.repost_id)
+      ]);
+      
+      console.log('Repost details:', repostData);
+      console.log('Repost comments:', commentsData);
+      console.log('Repost user data:', repostData?.user);
+      console.log('Repost original data:', repostData?.original);
+      
+      // Set the detailed repost data
+      setSelectedRepost(repostData);
+      
+      // Set comments
+      const commentsArray = Array.isArray(commentsData?.comments) ? commentsData.comments : [];
+      setRepostComments(commentsArray);
+      
+    } catch (error) {
+      console.error('Error loading repost data:', error);
+      Alert.alert('Error', 'Failed to load repost data');
+      setRepostCommentModalVisible(false);
+    } finally {
+      setRepostCommentsLoading(false);
+    }
+  };
+
   useEffect(() => { loadForumPosts(); }, []);
 
-  // Refresh forum posts when user returns to this screen (e.g., from comments)
+  // Refresh forum posts when user returns to this screen (e.g., from comments, reposts)
   useFocusEffect(
     useCallback(() => {
       loadForumPosts();
@@ -222,7 +318,30 @@ export default function CCICTPage() {
               onLikeToggle={(repostId: number, liked: boolean) => {
                 setPosts(prev => prev.map(p => (p.repost_id === repostId ? { ...p, is_liked: liked, likes_count: Math.max(0, (p.likes_count || 0) + (liked ? 1 : -1)) } : p)));
               }}
-              onOpenViewer={() => { /* viewer not wired for forum reposts */ }}
+              onOpenViewer={async (repost, type) => {
+                try {
+                  if (type === 'comments') {
+                    // Open repost comments modal (dashboard-style)
+                    await openRepostCommentModal(repost);
+                  } else if (type === 'likes' || type === 'reposts') {
+                    setSelectedPostStats(repost);
+                    setViewerType(type);
+                    setViewerVisible(true);
+
+                    // Fetch fresh data for the viewer
+                    if (type === 'likes') {
+                      const likesData = await getPostLikes(repost.repost_id);
+                      setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                    } else if (type === 'reposts') {
+                      const repostsData = await getPostReposts(repost.repost_id);
+                      setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error fetching viewer data:', error);
+                  Alert.alert('Error', 'Failed to load data');
+                }
+              }}
               onEdited={(repostId: number, newCaption: string) => {
                 setPosts(prev => prev.map(p => (p.repost_id === repostId ? { ...p, repost_caption: newCaption } : p)));
               }}
@@ -244,11 +363,39 @@ export default function CCICTPage() {
                   ? { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) }
                   : p
               ));
+              // Auto-refresh forum posts after like/unlike
+              setTimeout(() => loadForumPosts(), 500);
             }}
-            onOpenViewer={(post, type) => {
-              setSelectedPostStats(post);
-              setViewerType(type);
-              setViewerVisible(true);
+            onOpenViewer={async (post, type) => {
+              try {
+                if (type === 'comments') {
+                  // Navigate to full-screen comments page for forum posts
+                  router.push({
+                    pathname: '/posts/comments',
+                    params: {
+                      postId: post.post_id,
+                      isForumPost: 'true'
+                    }
+                  });
+                } else {
+                  // Keep modal for likes and reposts
+                  setSelectedPostStats(post);
+                  setViewerType(type);
+                  setViewerVisible(true);
+
+                  // Fetch fresh data for the viewer
+                  if (type === 'likes') {
+                    const likesData = await getPostLikes(post.post_id);
+                    setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                  } else if (type === 'reposts') {
+                    const repostsData = await getPostReposts(post.post_id);
+                    setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                  }
+                }
+              } catch (error) {
+                console.error('Error fetching viewer data:', error);
+                Alert.alert('Error', 'Failed to load data');
+              }
             }}
             onEdited={(postId, newContent) => {
               setPosts(prev => prev.map(p =>
@@ -256,16 +403,22 @@ export default function CCICTPage() {
                   ? { ...p, post_content: newContent }
                   : p
               ));
+              // Auto-refresh forum posts after edit
+              setTimeout(() => loadForumPosts(), 500);
             }}
             onDeleted={(postId) => {
               setPosts(prev => prev.filter(p => p.post_id !== postId));
+              // Auto-refresh forum posts after delete
+              setTimeout(() => loadForumPosts(), 500);
             }}
-            onCommentCountUpdate={(postId, newCount) => {
+            onRepostToggle={(postId, reposted) => {
               setPosts(prev => prev.map(p =>
                 p.post_id === postId
-                  ? { ...p, comments_count: newCount }
+                  ? { ...p, reposts_count: Math.max(0, (p.reposts_count || 0) + (reposted ? 1 : -1)) }
                   : p
               ));
+              // Auto-refresh forum posts after repost
+              setTimeout(() => loadForumPosts(), 500);
             }}
           />
         );
@@ -277,46 +430,179 @@ export default function CCICTPage() {
           <View style={styles.viewerModal}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.modalTitle}>
-                {viewerType === 'likes' ? 'Likes' : viewerType === 'reposts' ? 'Reposts' : 'Comments'}
+                {viewerType === 'likes' ? 'Likes' : 'Reposts'}
               </Text>
               <TouchableOpacity onPress={() => setViewerVisible(false)}>
                 <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 320 }}>
-              {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
+            <ScrollView 
+              style={{ maxHeight: 320 }}
+              contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
+            >
+              {viewerType === 'likes' && Array.isArray(selectedPostStats?.likes) && selectedPostStats.likes.map((u: any, idx: number) => (
                 <View key={idx} style={styles.listItemRow}>
                   <UserAvatar 
                     profilePic={u.profile_pic}
                     firstName={u.f_name}
                     lastName={u.l_name}
-                    size={36}
+                    size={32}
                     style={styles.listAvatar}
                   />
                   <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
                 </View>
               ))}
 
-              {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
+              {viewerType === 'reposts' && Array.isArray(selectedPostStats?.reposts) && selectedPostStats.reposts.map((r: any) => (
                 <View key={r.repost_id} style={styles.listItemRow}>
                   <UserAvatar 
                     profilePic={r.user?.profile_pic}
                     firstName={r.user?.f_name}
                     lastName={r.user?.l_name}
-                    size={36}
+                    size={32}
                     style={styles.listAvatar}
                   />
                   <View>
                     <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
-                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
+                    <Text style={styles.listSubText}>{new Date(r.repost_date || r.created_at).toLocaleString()}</Text>
                   </View>
                 </View>
               ))}
             </ScrollView>
+
           </View>
         </View>
       </Modal>
+
+      {/* Repost Comments Modal (Dashboard-style) */}
+      <Modal
+        visible={repostCommentModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setRepostCommentModalVisible(false)}
+      >
+        <View style={styles.repostModalOverlay}>
+          <View style={styles.viewerModal}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.repostModalTitle}>Comments</Text>
+              <TouchableOpacity onPress={() => setRepostCommentModalVisible(false)}>
+                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320 }}>
+              {/* Repost Details */}
+              {selectedRepost && (
+                <View style={styles.repostDetails}>
+                  <View style={styles.repostHeader}>
+                    <UserAvatar
+                      profilePic={selectedRepost.user?.profile_pic}
+                      firstName={selectedRepost.user?.f_name}
+                      lastName={selectedRepost.user?.l_name}
+                      size={32}
+                      style={styles.commentAvatar}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.commentName}>
+                        {`${selectedRepost.user?.f_name || ''} ${selectedRepost.user?.l_name || ''}`.trim() || 'User'}
+                      </Text>
+                      <Text style={styles.commentMeta}>
+                        {selectedRepost.repost_date ? new Date(selectedRepost.repost_date).toLocaleString() : ''}
+                      </Text>
+                    </View>
+                  </View>
+                  {selectedRepost.caption && (
+                    <View style={styles.commentBubble}>
+                      <Text style={{ color: '#111827' }}>{selectedRepost.caption}</Text>
+                    </View>
+                  )}
+                  {selectedRepost.original && (
+                    <TouchableOpacity 
+                      style={styles.originalPostPreview}
+                      onPress={() => {
+                        // Navigate to the original post detail page
+                        if (selectedRepost.original?.post_id) {
+                          console.log('Navigating to original post detail:', selectedRepost.original.post_id);
+                          router.push(`/posts/detail?postId=${selectedRepost.original.post_id}`);
+                        } else if (selectedRepost.original?.forum_id) {
+                          console.log('Navigating to original forum detail:', selectedRepost.original.forum_id);
+                          router.push(`/posts/detail?postId=${selectedRepost.original.forum_id}`);
+                        } else if (selectedRepost.original?.donation_id) {
+                          console.log('Navigating to original donation detail:', selectedRepost.original.donation_id);
+                          router.push(`/posts/detail?postId=${selectedRepost.original.donation_id}`);
+                        }
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.originalPostLabel}>Reposted:</Text>
+                        <Text style={styles.originalPostContent}>
+                          {selectedRepost.original.content || selectedRepost.original.post_content || 'Original post content unavailable'}
+                        </Text>
+                      </View>
+                      <View style={styles.originalPostArrow}>
+                        <Ionicons name="chevron-forward" size={16} color="#174f84" />
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {repostCommentsLoading ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color="#1e3a8a" />
+                </View>
+              ) : repostComments.length === 0 ? (
+                <View style={{ padding: 20 }}>
+                  <Text style={{ color: '#666', textAlign: 'center' }}>No comments yet</Text>
+                </View>
+              ) : (
+                repostComments.map((comment) => (
+                  <View key={comment.comment_id} style={styles.commentRow}>
+                    <Image source={{ uri: comment.user?.profile_pic || 'https://randomuser.me/api/portraits/women/46.jpg' }} style={styles.commentAvatar} />
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.commentHeaderRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.commentName}>{comment.user?.f_name} {comment.user?.l_name}</Text>
+                          <Text style={styles.commentMeta}>{new Date(comment.date_created).toLocaleString()}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.commentBubble}>
+                        {renderTextWithMentions(comment.comment_content, [], (userId) => {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        })}
+                      </View>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            {selectedRepost && (
+              <View style={styles.commentInputRow}>
+                <MentionInput
+                  value={repostCommentText}
+                  onChange={setRepostCommentText}
+                  placeholder="Write a comment..."
+                  style={styles.commentInput}
+                />
+                <TouchableOpacity
+                  style={styles.sendBtn}
+                  onPress={handleRepostComment}
+                  disabled={!repostCommentText.trim() || submittingRepostComment}
+                >
+                  {submittingRepostComment ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={{ color: 'white', fontWeight: 'bold' }}>Send</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
     </ScrollView>
   );
 }
@@ -513,5 +799,112 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#333',
     textAlign: 'center',
+  },
+  // Repost comment modal styles
+  repostModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  repostModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  commentRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
+  },
+  commentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  commentName: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  commentMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  commentBubble: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  commentInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#f9f9f9',
+  },
+  sendBtn: {
+    backgroundColor: '#174f84',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginLeft: 8,
+  },
+  // Repost details styles
+  repostDetails: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    backgroundColor: '#f9f9f9',
+  },
+  repostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  originalPostPreview: {
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#174f84',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  originalPostLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#174f84',
+    marginBottom: 4,
+  },
+  originalPostContent: {
+    fontSize: 14,
+    color: '#374151',
+    fontStyle: 'italic',
+    flex: 1,
+  },
+  originalPostArrow: {
+    marginLeft: 8,
   },
 });

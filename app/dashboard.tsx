@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getUserInfo, logoutUser, getPosts } from '../services/api';
+import { getUserInfo, logoutUser, getFeed, API_BASE_URL } from '../services/api';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
   repostPost, deleteRepost, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus
 } from '../services/api';
 import UserAvatar from '../components/UserAvatar';
+import { renderTextWithMentions } from '../utils/mentionUtils';
+import MentionInput from '../components/MentionInput';
 import TrackerReminderModal from '../components/TrackerReminderModal';
+import { getImagesFromContent, getFirstImageUrl, hasImages } from '../utils/imageUtils';
 
 export default function DashboardScreen() {
   const [user, setUser] = useState<any>(null);
@@ -36,39 +39,63 @@ export default function DashboardScreen() {
     loadUserInfo();
   }, []);
 
+  const loadPosts = async () => {
+    try {
+      console.log('Loading posts...');
+      const postsData = await getFeed();
+      setPosts(postsData || []);
+      console.log('Posts loaded successfully:', postsData?.length || 0);
+    } catch (err: any) {
+      console.error('Error loading posts:', err);
+      setError('Failed to load posts');
+    }
+  };
+
   const loadUserInfo = async () => {
     try {
       setLoading(true);
-      const [userInfo, postsData] = await Promise.all([
-        getUserInfo(),
-        getPosts()
-      ]);
       
-      if (userInfo) {
-        setUser(userInfo);
-        setEditData({
-          name: userInfo.name || '',
-          course: userInfo.course || '',
-          year_graduated: userInfo.year_graduated ? String(userInfo.year_graduated) : '',
-          profile_pic: userInfo.profile_pic || '',
-        });
-
-        // Check tracker status for alumni users
-        console.log('👤 User account type:', userInfo.account_type);
-        if (userInfo.account_type === 'alumni') {
-          console.log('🎓 User is alumni, checking tracker status...');
-          await checkTrackerStatus();
-        } else {
-          console.log('❌ User is not alumni, skipping tracker check');
-        }
-      } else {
+      // First check if user is authenticated
+      const userInfo = await getUserInfo();
+      if (!userInfo) {
+        console.log('No user info found, redirecting to login');
         router.replace('/login/login');
+        return;
+      }
+      
+      console.log('User authenticated, loading feed...');
+      const postsData = await getFeed();
+      
+      setUser(userInfo);
+      setEditData({
+        name: userInfo.name || '',
+        course: userInfo.course || '',
+        year_graduated: userInfo.year_graduated ? String(userInfo.year_graduated) : '',
+        profile_pic: userInfo.profile_pic || '',
+      });
+
+      // Check tracker status for alumni users
+      console.log('👤 User account type:', userInfo.account_type);
+      if (userInfo.account_type === 'alumni') {
+        console.log('🎓 User is alumni, checking tracker status...');
+        await checkTrackerStatus();
+      } else {
+        console.log('❌ User is not alumni, skipping tracker check');
       }
       
       setPosts(postsData || []);
-    } catch (err) {
-      setError('Failed to load user information');
+    } catch (err: any) {
       console.error('Error loading user info:', err);
+      
+      // If it's a 403 error, the user might not be properly authenticated
+      if (err.response?.status === 403) {
+        console.log('403 error - user not authenticated, redirecting to login');
+        setError('Session expired. Please log in again.');
+        router.replace('/login/login');
+        return;
+      }
+      
+      setError('Failed to load user information');
     } finally {
       setLoading(false);
     }
@@ -320,9 +347,16 @@ export default function DashboardScreen() {
                   style={styles.postAuthorPic}
                 />
                 <View style={styles.postAuthorInfo}>
-                  <Text style={styles.postAuthor}>
-                    {post.user?.f_name} {post.user?.l_name}
-                  </Text>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.postAuthor}>
+                      {post.user?.f_name} {post.user?.l_name}
+                    </Text>
+                    {post.item_type === 'donation_post' && (
+                      <View style={styles.donationBadge}>
+                        <Text style={styles.donationBadgeText}>DONATION</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.postDate}>
                     {new Date(post.created_at).toLocaleDateString()}
                   </Text>
@@ -332,9 +366,51 @@ export default function DashboardScreen() {
                 <Text style={styles.postTitle}>{post.post_title}</Text>
               )}
               <Text style={styles.postContent}>{post.post_content}</Text>
-              {post.post_image && (
-                <Image source={{ uri: post.post_image }} style={styles.postImage} />
-              )}
+              
+              {/* Images - Facebook-style grid layout like web */}
+              {(() => {
+                console.log('=== DASHBOARD IMAGE DEBUG ===');
+                console.log('Post data:', JSON.stringify(post, null, 2));
+                console.log('Post post_images:', post.post_images);
+                console.log('Post post_image:', post.post_image);
+                
+                // Use the proper image utility function to avoid duplicates
+                const images = getImagesFromContent(post);
+                
+                console.log('Dashboard - Images to display:', images);
+                console.log('Dashboard - Images length:', images.length);
+                console.log('=== END DASHBOARD IMAGE DEBUG ===');
+                
+                if (images.length === 0) return null;
+                
+                return (
+                  <View style={styles.imagesContainer}>
+                    {images.length === 1 ? (
+                      // Single image - full width
+                      <TouchableOpacity>
+                        <Image source={{ uri: images[0].image_url }} style={styles.singleImage} resizeMode="contain" />
+                      </TouchableOpacity>
+                    ) : (
+                      // Multiple images - Facebook-style grid layout
+                      <View style={styles.imagesGrid}>
+                        {images.slice(0, 4).map((image, index) => {
+                          const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+                          return (
+                            <TouchableOpacity key={index} style={styles.fourImagesGrid}>
+                              <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                              {index === 3 && images.length > 4 && (
+                                <View style={styles.moreImagesOverlay}>
+                                  <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
               <View style={styles.postFooter}>
                 <Text style={styles.postCategory}>
                   {post.category?.personal ? 'Personal' : 
@@ -360,12 +436,26 @@ export default function DashboardScreen() {
                   onPress={async () => {
                     try {
                       if (post.is_liked) {
-                        await unlikePost(post.post_id);
+                        if (post.item_type === 'donation_post') {
+                          // Handle donation post unlike
+                          const { unlikeDonationPost } = await import('../services/api');
+                          await unlikeDonationPost(post.post_id);
+                        } else {
+                          await unlikePost(post.post_id);
+                        }
                         setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p));
                       } else {
-                        await likePost(post.post_id);
+                        if (post.item_type === 'donation_post') {
+                          // Handle donation post like
+                          const { likeDonationPost } = await import('../services/api');
+                          await likeDonationPost(post.post_id);
+                        } else {
+                          await likePost(post.post_id);
+                        }
                         setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p));
                       }
+                      // Auto-refresh feed after like/unlike
+                      setTimeout(() => loadPosts(), 500);
                     } catch (e) {
                       Alert.alert('Error', 'Failed to update like');
                     }
@@ -377,7 +467,7 @@ export default function DashboardScreen() {
 
                 <TouchableOpacity 
                   style={styles.actionBtn}
-                  onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}
+                  onPress={() => router.push(`/posts/comments?postId=${post.post_id}${post.item_type === 'donation_post' ? '&isDonationPost=true' : ''}`)}
                 >
                   <FontAwesome name="comment-o" size={16} color="#888" />
                   <Text style={styles.actionText}>Comment</Text>
@@ -387,9 +477,18 @@ export default function DashboardScreen() {
                   style={styles.actionBtn}
                   onPress={async () => {
                     try {
-                      await repostPost(post.post_id);
-                      setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: (p.reposts_count||0)+1 } : p));
-                      Alert.alert('Reposted');
+                      if (post.item_type === 'donation_post') {
+                        // Handle donation post repost
+                        const { repostDonationPost } = await import('../services/api');
+                        await repostDonationPost(post.post_id);
+                        router.push(`/donation/donation-repost?postId=${post.post_id}`);
+                      } else {
+                        await repostPost(post.post_id);
+                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, reposts_count: (p.reposts_count||0)+1 } : p));
+                        Alert.alert('Reposted');
+                        // Auto-refresh feed after repost
+                        setTimeout(() => loadPosts(), 500);
+                      }
                     } catch (e) {
                       Alert.alert('Error', 'Failed to repost');
                     }
@@ -462,7 +561,9 @@ export default function DashboardScreen() {
                       </View>
                     </View>
                     <View style={styles.commentBubble}>
-                    <Text style={styles.commentBody}>{c.comment_content}</Text>
+                      {renderTextWithMentions(c.comment_content, [], (userId) => {
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                      })}
                     </View>
                   </View>
                 </View>
@@ -471,11 +572,11 @@ export default function DashboardScreen() {
 
             {viewerType === 'comments' && selectedPost ? (
               <View style={styles.commentInputRow}>
-                <TextInput
-                  style={styles.commentInput}
-                  placeholder="Write a comment..."
+                <MentionInput
                   value={commentText}
-                  onChangeText={setCommentText}
+                  onChange={setCommentText}
+                  placeholder="Write a comment..."
+                  style={styles.commentInput}
                 />
                 <TouchableOpacity
                   style={styles.sendBtn}
@@ -730,6 +831,22 @@ const styles = StyleSheet.create({
   postAuthorInfo: {
     flex: 1,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  donationBadge: {
+    backgroundColor: '#059669', // Green color for donation
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  donationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
   postDate: {
     fontSize: 12,
     color: '#666',
@@ -939,4 +1056,48 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-}); 
+  // Image grid styles
+  imagesContainer: {
+    marginTop: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  singleImage: {
+    width: '100%',
+    height: 300,
+    borderRadius: 8,
+  },
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+    justifyContent: 'space-between',
+  },
+  fourImagesGrid: {
+    width: '49%',
+    height: 150,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 4,
+  },
+  moreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreImagesText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+});

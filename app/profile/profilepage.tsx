@@ -24,6 +24,10 @@ import {
   unfollowUser,
   updateAlumniProfile,
   getPostDetail,
+  getPostLikes,
+  getPostReposts,
+  getRepostLikes,
+  getRepostDetail,
 } from '../../services/api';
 import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
@@ -145,6 +149,9 @@ export default function ProfilePage() {
   const [currentProfilePicUri, setCurrentProfilePicUri] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [isSelectingPhoto, setIsSelectingPhoto] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<string>('');
 
   // viewer (likes/reposts)
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -159,9 +166,12 @@ export default function ProfilePage() {
       setIsOwnProfile(!!viewingOwn);
 
       if (viewingOwn) {
-        const postsData = await getAllUserPosts(me.id || me.user_id);
+        const postsData = await getAllUserPosts(me.id || me.user_id).catch(error => {
+          console.error('Error loading own posts:', error);
+          return { posts: [] };
+        });
         // Get full profile data including email and social_media
-        const [profileData, socialMediaData, emailData] = await Promise.all([
+        const [profileData, socialMediaData, emailData] = await Promise.allSettled([
           getAlumniProfile(me.id || me.user_id),
           getUserProfileSocialMedia(me.id || me.user_id),
           getUserProfileEmail(me.id || me.user_id)
@@ -171,12 +181,17 @@ export default function ProfilePage() {
         console.log('Social Media API Response:', socialMediaData);
         console.log('Email API Response:', emailData);
         
+        // Handle Promise.allSettled results for own profile
+        const profileResult = profileData.status === 'fulfilled' ? profileData.value : null;
+        const socialMediaResult = socialMediaData.status === 'fulfilled' ? socialMediaData.value : null;
+        const emailResult = emailData.status === 'fulfilled' ? emailData.value : null;
+        
         const profile: UserProfile = {
           name: me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim(),
           username: me?.acc_username || '@user',
-          bio: profileData?.profile_bio || me?.profile_bio || 'Bio',
-          socialMedia: socialMediaData?.social_media || '',
-          email: emailData?.email || '',
+          bio: profileResult?.profile_bio || me?.profile_bio || 'Bio',
+          socialMedia: socialMediaResult?.social_media || '',
+          email: emailResult?.email || '',
           profile_pic: me?.profile_pic ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}` } : null,
           followers_count: me?.followers_count || 0,
           following_count: me?.following_count || 0,
@@ -258,7 +273,7 @@ export default function ProfilePage() {
             l_name: a.last_name || '',
           };
           setUser(profile);
-          const [postsData, followersRes, followingRes, statusRes] = await Promise.all([
+          const [postsData, followersRes, followingRes, statusRes] = await Promise.allSettled([
             getAllUserPosts(viewUserId),
             fetchFollowers(viewUserId),
             fetchFollowing(viewUserId),
@@ -266,14 +281,21 @@ export default function ProfilePage() {
           ]);
           console.log('Other user followers response:', followersRes);
           console.log('Other user following response:', followingRes);
-          setFollowers(followersRes?.followers || []);
-          setFollowing(followingRes?.following || []);
-          setIsFollowing(!!statusRes?.is_following);
+          
+          // Handle Promise.allSettled results
+          const postsResult = postsData.status === 'fulfilled' ? postsData.value : null;
+          const followersResult = followersRes.status === 'fulfilled' ? followersRes.value : null;
+          const followingResult = followingRes.status === 'fulfilled' ? followingRes.value : null;
+          const statusResult = statusRes.status === 'fulfilled' ? statusRes.value : null;
+          
+          setFollowers(followersResult?.followers || []);
+          setFollowing(followingResult?.following || []);
+          setIsFollowing(!!statusResult?.is_following);
           setProfileUserId(viewUserId);
           
           // Create feed items that include both posts and reposts for other user
           const feedItems: FeedItem[] = [];
-          const userPostsData = postsData?.posts || postsData || [];
+          const userPostsData = postsResult?.posts || postsResult || [];
           
           userPostsData.forEach((item: any) => {
             if (item.item_type === 'post') {
@@ -433,7 +455,7 @@ export default function ProfilePage() {
           {isOwnProfile && (
             <TouchableOpacity
               style={styles.profilePhotoEditBtn}
-              onPress={() => { setEditMode('photo'); setShowEditTabs(false); setEditModalVisible(true); }}
+              onPress={() => setShowPhotoOptions(true)}
               accessibilityLabel="Change profile picture"
             >
               <FontAwesome name="camera" size={14} color="#fff" />
@@ -600,10 +622,24 @@ export default function ProfilePage() {
                         : p
                     ));
                   }}
-                  onOpenViewer={(repost, type) => {
-                    setSelectedPostStats(repost);
-                    setViewerType(type);
-                    setViewerVisible(true);
+                  onOpenViewer={async (repost, type) => {
+                    try {
+                      setSelectedPostStats(repost);
+                      setViewerType(type);
+                      setViewerVisible(true);
+                      
+                      // Fetch likes or reposts data based on type
+                      if (type === 'likes') {
+                        const likesData = await getRepostLikes(repost.repost_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                      } else if (type === 'reposts') {
+                        const repostDetail = await getRepostDetail(repost.repost_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostDetail?.reposts || [] }));
+                      }
+                    } catch (error) {
+                      console.error('Error fetching repost viewer data:', error);
+                      Alert.alert('Error', 'Failed to load data');
+                    }
                   }}
                   onEdited={(repostId, newCaption) => {
                     setPosts(prev => prev.map(p => 
@@ -642,14 +678,24 @@ export default function ProfilePage() {
                         : p
                     ));
                   }}
-                  onOpenViewer={(post, type) => {
-                    console.log('Profile: Opening viewer for type:', type);
-                    console.log('Profile: Post data:', post);
-                    console.log('Profile: Likes data:', post.likes);
-                    console.log('Profile: Likes count:', post.likes?.length);
-                    setSelectedPostStats(post);
-                    setViewerType(type);
-                    setViewerVisible(true);
+                  onOpenViewer={async (post, type) => {
+                    try {
+                      setSelectedPostStats(post);
+                      setViewerType(type);
+                      setViewerVisible(true);
+                      
+                      // Fetch likes or reposts data based on type
+                      if (type === 'likes') {
+                        const likesData = await getPostLikes(post.post_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
+                      } else if (type === 'reposts') {
+                        const repostsData = await getPostReposts(post.post_id);
+                        setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                      }
+                    } catch (error) {
+                      console.error('Error fetching viewer data:', error);
+                      Alert.alert('Error', 'Failed to load data');
+                    }
                   }}
                   onEdited={(postId, newContent) => {
                     setPosts(prev => prev.map(p => 
@@ -681,78 +727,108 @@ export default function ProfilePage() {
       </View>
 
 
-      {/* Edit profile modal */}
-      <Modal visible={editModalVisible} transparent animationType="fade">
+      {/* Edit profile modal - Photo Mode */}
+      <Modal visible={editModalVisible && editMode === 'photo'} transparent animationType="slide" onRequestClose={() => setEditModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            {showEditTabs && (
-              <View style={styles.editTabs}>
-                <TouchableOpacity style={[styles.editTabBtn, editMode === 'bio' && styles.editTabBtnActive]} onPress={() => setEditMode('bio')}>
-                  <Text style={[styles.editTabText, editMode === 'bio' && styles.editTabTextActive]}>Edit Bio</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.editTabBtn, editMode === 'photo' && styles.editTabBtnActive]} onPress={() => setEditMode('photo')}>
-                  <Text style={[styles.editTabText, editMode === 'photo' && styles.editTabTextActive]}>Change Photo</Text>
-                </TouchableOpacity>
+          <View style={styles.photoOptionsModal}>
+            <Text style={styles.photoOptionsTitle}>Update Profile Picture</Text>
+            
+            {newPhotoUri ? (
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <Image source={{ uri: newPhotoUri }} style={{ width: 120, height: 120, borderRadius: 60, marginBottom: 12 }} />
+                <Text style={{ fontSize: 14, color: '#666', textAlign: 'center' }}>
+                  Preview of your new profile picture
+                </Text>
+              </View>
+            ) : (
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <Text style={{ fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 12 }}>
+                  No photo selected
+                </Text>
               </View>
             )}
 
-            {editMode === 'bio' ? (
-              <>
-                <Text style={styles.modalTitle}>Edit Bio</Text>
-                <TextInput style={styles.modalInput} value={editBio} onChangeText={setEditBio} placeholder="Enter your bio" />
-              </>
-            ) : (
-              <>
-                <Text style={styles.modalTitle}>Update Profile Picture</Text>
-                <TouchableOpacity
-                  style={[styles.modalBtn, { backgroundColor: '#174f84', width: '100%', alignItems: 'center' }]}
-                  onPress={async () => {
-                    try {
-                      const result = await ImagePicker.launchImageLibraryAsync({
-                        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                        allowsEditing: true,
-                        aspect: [1, 1],
-                        quality: 0.8,
-                      });
-                      if (!result.canceled && result.assets && result.assets.length > 0) {
-                        setNewPhotoUri(result.assets[0].uri);
-                      }
-                    } catch (e) {
-                      Alert.alert('Error', 'Failed to pick image');
-                    }
-                  }}
-                >
-                  <Text style={{ color: '#fff' }}>Choose Photo</Text>
-                </TouchableOpacity>
-                {newPhotoUri && <Image source={{ uri: newPhotoUri }} style={{ width: 140, height: 140, borderRadius: 70, marginTop: 12 }} />}
-              </>
-            )}
+            <TouchableOpacity
+              style={styles.photoOptionBtn}
+              onPress={async () => {
+                setEditModalVisible(false);
+                setShowPhotoOptions(true);
+              }}
+            >
+              <FontAwesome name="camera" size={20} color="#174f84" />
+              <Text style={styles.photoOptionText}>Choose Different Photo</Text>
+            </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[styles.photoOptionBtn, { backgroundColor: '#174f84' }]}
+              onPress={async () => {
+                try {
+                  setSaving(true);
+                  if (!newPhotoUri) {
+                    Alert.alert('Select Photo', 'Please choose a photo to upload');
+                    setSaving(false);
+                    return;
+                  }
+                  console.log('Uploading profile picture:', newPhotoUri);
+                  console.log('Current user ID:', profileUserId);
+                  console.log('Current bio:', editBio);
+                  const result = await updateAlumniProfile({ bio: editBio, imageUri: newPhotoUri });
+                  console.log('Upload result:', result);
+                  
+                  await loadUser(); // Reload user data to get the updated profile picture URL from server
+                  setNewPhotoUri(null);
+                  setEditModalVisible(false);
+                  Alert.alert('Profile picture updated!');
+                } catch (error: any) {
+                  console.error('Profile update error:', error);
+                  Alert.alert('Error', 'Failed to update profile: ' + (error?.message || 'Unknown error'));
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+            >
+              <FontAwesome name="check" size={20} color="#fff" />
+              <Text style={[styles.photoOptionText, { color: '#fff' }]}>
+                {saving ? 'Saving...' : 'Save Profile Picture'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.photoOptionBtn, styles.cancelPhotoOptionBtn]}
+              onPress={() => {
+                setEditModalVisible(false);
+                setNewPhotoUri(null);
+              }}
+              disabled={saving}
+            >
+              <FontAwesome name="times" size={20} color="#666" />
+              <Text style={[styles.photoOptionText, styles.cancelPhotoOptionText]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit profile modal - Bio Mode */}
+      <Modal visible={editModalVisible && editMode === 'bio'} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Edit Bio</Text>
+            <TextInput style={styles.modalInput} value={editBio} onChangeText={setEditBio} placeholder="Enter your bio" />
+            
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 16 }}>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: '#174f84' }]}
                 onPress={async () => {
                   try {
                     setSaving(true);
-                    if (editMode === 'bio') {
-                      await updateAlumniProfile({ bio: editBio });
-                      setUser((prev) => prev ? { ...prev, bio: editBio } : prev);
-                      Alert.alert('Profile updated!');
-                    } else {
-                      if (!newPhotoUri) {
-                        Alert.alert('Select Photo', 'Please choose a photo to upload');
-                        setSaving(false);
-                        return;
-                      }
-                      await updateAlumniProfile({ bio: editBio, imageUri: newPhotoUri });
-                      setUser((prev) => prev ? { ...prev, profile_pic: { uri: newPhotoUri } } : prev);
-                      setCurrentProfilePicUri(newPhotoUri);
-                      setNewPhotoUri(null);
-                      Alert.alert('Profile picture updated!');
-                    }
+                    await updateAlumniProfile({ bio: editBio });
+                    setUser((prev) => prev ? { ...prev, bio: editBio } : prev);
                     setEditModalVisible(false);
-                  } catch (error) {
-                    Alert.alert('Error', 'Failed to update profile');
+                    Alert.alert('Profile updated!');
+                  } catch (error: any) {
+                    console.error('Profile update error:', error);
+                    Alert.alert('Error', 'Failed to update profile: ' + (error?.message || 'Unknown error'));
                   } finally {
                     setSaving(false);
                   }
@@ -762,10 +838,172 @@ export default function ProfilePage() {
                 <Text style={{ color: '#fff' }}>{saving ? 'Saving...' : 'Save'}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#eee' }]} onPress={() => { setEditModalVisible(false); setNewPhotoUri(null); }} disabled={saving}>
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#eee' }]} onPress={() => setEditModalVisible(false)} disabled={saving}>
                 <Text style={{ color: '#174f84' }}>Cancel</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Photo Options Popup */}
+      <Modal visible={showPhotoOptions} transparent animationType="slide" onRequestClose={() => setShowPhotoOptions(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.photoOptionsModal}>
+            <Text style={styles.photoOptionsTitle}>Choose Profile Picture</Text>
+            {cameraStatus && (
+              <Text style={{ fontSize: 12, color: '#666', textAlign: 'center', marginBottom: 10 }}>
+                {cameraStatus}
+              </Text>
+            )}
+            
+            <TouchableOpacity
+              style={styles.photoOptionBtn}
+              onPress={async () => {
+                if (isSelectingPhoto) return;
+                
+                try {
+                  setIsSelectingPhoto(true);
+                  setCameraStatus('Requesting permissions...');
+                  console.log('Camera button pressed');
+                  
+                  // Request camera permissions first
+                  const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+                  if (cameraPermission.status !== 'granted') {
+                    Alert.alert('Permission Required', 'Camera permission is required to take photos');
+                    setCameraStatus('');
+                    return;
+                  }
+
+                  setCameraStatus('Opening camera...');
+                  console.log('Launching camera...');
+                  
+                  // Create a timeout promise
+                  const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Camera operation timed out')), 15000);
+                  });
+                  
+                  // Create camera promise with minimal configuration
+                  const cameraPromise = ImagePicker.launchCameraAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    allowsEditing: false,
+                    quality: 0.1, // Extremely low quality to prevent memory issues
+                    exif: false,
+                    base64: false, // Disable base64 to reduce memory usage
+                    allowsMultipleSelection: false, // Ensure single selection
+                    // presentationStyle: 'fullScreen', // Force full screen to prevent modal issues
+                  });
+                  
+                  setCameraStatus('Waiting for photo...');
+                  
+                  // Race between camera and timeout
+                  const result = await Promise.race([cameraPromise, timeoutPromise]) as any;
+                  
+                  setCameraStatus('Processing photo...');
+                  console.log('Camera result:', result);
+                  
+                  // Check if result is valid
+                  if (result && !result.canceled && result.assets && result.assets.length > 0) {
+                    console.log('Camera photo selected:', result.assets[0].uri);
+                    setCameraStatus('Photo selected successfully');
+                    setNewPhotoUri(result.assets[0].uri);
+                    setShowPhotoOptions(false);
+                    setEditMode('photo');
+                    setShowEditTabs(false);
+                    setEditModalVisible(true);
+                  } else {
+                    console.log('Camera selection canceled or no assets');
+                    setCameraStatus('Selection canceled');
+                  }
+                } catch (e: any) {
+                  console.error('Camera error:', e);
+                  setCameraStatus('Error: ' + (e?.message || 'Unknown error'));
+                  if (e.message === 'Camera operation timed out') {
+                    Alert.alert('Timeout', 'Camera took too long to respond. Please try again.');
+                  } else if (e.message && e.message.includes('timeout')) {
+                    Alert.alert('Timeout', 'Camera operation timed out. Please try again.');
+                  } else {
+                    Alert.alert('Error', 'Failed to take photo: ' + (e?.message || 'Unknown error'));
+                  }
+                } finally {
+                  setIsSelectingPhoto(false);
+                  setCameraStatus('');
+                }
+              }}
+            >
+              <FontAwesome name="camera" size={20} color="#174f84" />
+              <Text style={styles.photoOptionText}>
+                {isSelectingPhoto ? 'Opening Camera...' : 'Take Photo'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.photoOptionBtn}
+              onPress={async () => {
+                if (isSelectingPhoto) return;
+                
+                try {
+                  setIsSelectingPhoto(true);
+                  console.log('Gallery button pressed');
+                  
+                  // Simplified gallery configuration to prevent freezing
+                  const result = await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    allowsEditing: false, // Disable editing to prevent freezing
+                    quality: 0.5, // Further reduce quality for stability
+                    exif: false, // Disable EXIF data to reduce processing
+                  });
+                  
+                  console.log('Gallery result:', result);
+                  if (!result.canceled && result.assets && result.assets.length > 0) {
+                    console.log('Gallery photo selected:', result.assets[0].uri);
+                    setNewPhotoUri(result.assets[0].uri);
+                    setShowPhotoOptions(false);
+                    setEditMode('photo');
+                    setShowEditTabs(false);
+                    setEditModalVisible(true);
+                  } else {
+                    console.log('Gallery selection canceled');
+                  }
+                } catch (e: any) {
+                  console.error('Gallery selection error:', e);
+                  if (e.message === 'Gallery timeout') {
+                    Alert.alert('Timeout', 'Gallery took too long to respond. Please try again.');
+                  } else {
+                    Alert.alert('Error', 'Failed to pick image: ' + (e?.message || 'Unknown error'));
+                  }
+                } finally {
+                  setIsSelectingPhoto(false);
+                }
+              }}
+            >
+              <FontAwesome name="photo" size={20} color="#174f84" />
+              <Text style={styles.photoOptionText}>
+                {isSelectingPhoto ? 'Opening Gallery...' : 'Choose from Gallery'}
+              </Text>
+            </TouchableOpacity>
+
+            {isSelectingPhoto && (
+              <TouchableOpacity
+                style={[styles.photoOptionBtn, { backgroundColor: '#ff6b6b' }]}
+                onPress={() => {
+                  setIsSelectingPhoto(false);
+                  setCameraStatus('');
+                  Alert.alert('Camera Cancelled', 'Camera operation was cancelled manually.');
+                }}
+              >
+                <FontAwesome name="stop" size={20} color="#fff" />
+                <Text style={[styles.photoOptionText, { color: '#fff' }]}>Cancel Camera</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.photoOptionBtn, styles.cancelPhotoOptionBtn]}
+              onPress={() => setShowPhotoOptions(false)}
+            >
+              <FontAwesome name="times" size={20} color="#666" />
+              <Text style={[styles.photoOptionText, styles.cancelPhotoOptionText]}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -781,19 +1019,7 @@ export default function ProfilePage() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 320 }}>
-              {/* Debug info */}
-              {viewerType === 'likes' && (
-                <View style={{ padding: 10, backgroundColor: '#f0f0f0', margin: 5, borderRadius: 5 }}>
-                  <Text style={{ fontSize: 12, color: '#666' }}>
-                    Debug: Likes count: {selectedPostStats?.likes?.length || 0}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: '#666' }}>
-                    Debug: Likes data: {JSON.stringify(selectedPostStats?.likes?.slice(0, 2) || [])}
-                  </Text>
-                </View>
-              )}
-              
+            <ScrollView style={{ maxHeight: 320, paddingHorizontal: 16 }}>
               {viewerType === 'likes' && selectedPostStats?.likes?.length > 0 && selectedPostStats?.likes?.map((u: any, idx: number) => {
                 console.log('Profile: Rendering like user:', u);
                 return (
@@ -816,7 +1042,7 @@ export default function ProfilePage() {
                 </View>
               )}
 
-              {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
+              {viewerType === 'reposts' && selectedPostStats?.reposts?.length > 0 && selectedPostStats?.reposts?.map((r: any) => (
                 <View key={r.repost_id} style={styles.listItemRow}>
                   <UserAvatar 
                     profilePic={r.user?.profile_pic}
@@ -831,6 +1057,12 @@ export default function ProfilePage() {
                   </View>
                 </View>
               ))}
+
+              {viewerType === 'reposts' && (!selectedPostStats?.reposts || selectedPostStats?.reposts?.length === 0) && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 16 }}>No reposts yet</Text>
+                </View>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -1355,7 +1587,8 @@ const styles = StyleSheet.create({
   listItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
   },
   listAvatar: {
     width: 36,
@@ -1371,7 +1604,8 @@ const styles = StyleSheet.create({
   },
   listSubText: {
     fontSize: 12,
-    color: '#888',
+    color: '#666',
+    marginTop: 2,
   },
 
   editTabs: {
@@ -1470,5 +1704,46 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 10,
   },
-
+  // Photo Options Modal Styles
+  photoOptionsModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '85%',
+    maxWidth: 300,
+    alignItems: 'center',
+  },
+  photoOptionsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  photoOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  photoOptionText: {
+    fontSize: 16,
+    color: '#174f84',
+    fontWeight: '500',
+    marginLeft: 10,
+  },
+  cancelPhotoOptionBtn: {
+    backgroundColor: '#f8f9fa',
+    borderColor: '#dee2e6',
+  },
+  cancelPhotoOptionText: {
+    color: '#666',
+  },
 });

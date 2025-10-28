@@ -40,6 +40,11 @@ export default function RootLayout() {
             <Stack.Screen name="ccict/ccictpage" options={{ title: 'ccict', headerShown: false }} />
             <Stack.Screen name="peso/pesopage" options={{ title: 'peso', headerShown: false }} />
             <Stack.Screen name="forum/forumpage" options={{ title: 'forum', headerShown: false }} />
+            <Stack.Screen name="ojt/ojtpage" options={{ title: 'ojt', headerShown: false }} />
+            <Stack.Screen name="ojt/ojtforum" options={{ title: 'ojt-forum', headerShown: false }} />
+            <Stack.Screen name="ojt/ojtdonation" options={{ title: 'ojt-donation', headerShown: false }} />
+            <Stack.Screen name="ojt/ojtprofile" options={{ title: 'ojt-profile', headerShown: false }} />
+            <Stack.Screen name="ojt/ojtsettings" options={{ title: 'ojt-settings', headerShown: false }} />
             <Stack.Screen name="settings/settings" options={{ title: 'settings', headerShown: false }} />
             <Stack.Screen name="search/search" options={{ title: 'search', headerShown: false }} />
             <Stack.Screen name="forms/forms" options={{ title: 'forms', headerShown: false }} />
@@ -49,6 +54,7 @@ export default function RootLayout() {
             <Stack.Screen name="donation/donationpage" options={{ title: 'donation', headerShown: false }} />
             <Stack.Screen name="repost/repost" options={{ title: 'repost', headerShown: false }} />
             <Stack.Screen name="repost/repost-comments" options={{ title: 'repost-comments', headerShown: false }} />
+            <Stack.Screen name="donation/donation-repost" options={{ title: 'donation-repost', headerShown: false }} />
           </Stack>
           <StatusBar style="auto" />
         </ThemeProvider>

@@ -27,7 +27,9 @@ interface Post {
     user_id: number; 
     f_name: string; 
     l_name: string; 
-    profile_pic?: string | null 
+    profile_pic?: string | null;
+    account_type?: string;
+    user_type?: string;
   };
 }
 
@@ -60,7 +62,20 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     setEditContent(post.post_content);
   }, [post.post_content]);
 
+  // Sync like state and repost count when post data changes
+  useEffect(() => {
+    setIsLiked(post.is_liked || false);
+    setLikeCount(post.likes_count || 0);
+    setRepostCount(post.reposts_count || 0);
+  }, [post.is_liked, post.likes_count, post.reposts_count]);
+
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
+  
+  // Check if user is admin or peso for priority display
+  const userType = post.user?.account_type || post.user?.user_type || 'user';
+  const isAdmin = userType === 'admin';
+  const isPeso = userType === 'peso';
+  const isPriorityUser = isAdmin || isPeso;
 
   // Use utility functions for image handling
   const images = getImagesFromContent(post);
@@ -202,17 +217,43 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     <View style={styles.card}>
       {/* Header */}
       <View style={styles.cardHeader}>
-        <UserAvatar 
-          profilePic={post.user?.profile_pic}
-          firstName={post.user?.f_name}
-          lastName={post.user?.l_name}
-          size={40}
-          style={styles.avatar}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{userName}</Text>
-          <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
-        </View>
+        <TouchableOpacity
+          onPress={() => {
+            const uid = post.user?.user_id;
+            if (uid) {
+              router.push(`/profile/profilepage?viewUserId=${uid}`);
+            }
+          }}
+          disabled={!post.user?.user_id}
+          style={styles.userContainer}
+        >
+          <UserAvatar 
+            profilePic={post.user?.profile_pic}
+            firstName={post.user?.f_name}
+            lastName={post.user?.l_name}
+            size={40}
+            style={styles.avatar}
+          />
+          <View style={{ flex: 1 }}>
+            <View style={styles.nameContainer}>
+              <Text style={[
+                styles.name,
+                (post.user?.user_id && post.user?.user_id !== currentUserId) ? styles.clickableName : null
+              ]}>{userName}</Text>
+              {isPriorityUser && (
+                <View style={[
+                  styles.priorityBadge,
+                  isAdmin ? styles.adminBadge : styles.pesoBadge
+                ]}>
+                  <Text style={styles.priorityBadgeText}>
+                    {isAdmin ? 'ADMIN' : 'PESO'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
+          </View>
+        </TouchableOpacity>
         {currentUserId === post.user?.user_id && (
           <TouchableOpacity
             onPress={() => setShowActions(true)}
@@ -243,33 +284,36 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
               }}
             >
               <Image 
-                source={{ uri: imageUrl }} 
+                source={{ uri: imageUrl || '' }} 
                 style={styles.singleImage} 
                 resizeMode="contain" 
               />
             </TouchableOpacity>
           ) : (
-            // Multiple images - grid layout like web
-            <View style={[
-              styles.imagesGrid,
-              images.length === 2 && styles.twoImagesGrid,
-              images.length === 3 && styles.threeImagesGrid,
-              images.length === 4 && styles.fourImagesGrid,
-              images.length >= 5 && styles.fivePlusImagesGrid
-            ]}>
-              {images.slice(0, 6).map((image, index) => (
-                <TouchableOpacity 
-                  key={index}
-                  style={[
-                    styles.gridImageContainer,
-                    images.length === 3 && index === 0 && styles.threeImagesFirst,
-                    images.length === 3 && index > 0 && styles.threeImagesRest
-                  ]}
-                  onPress={() => {
-                    setSelectedImageIndex(index);
-                    setImageViewerVisible(true);
-                  }}
-                >
+            // Multiple images - Facebook-style grid layout
+            <View style={styles.imagesGrid}>
+              {images.slice(0, 6).map((image, index) => {
+                // Determine grid style based on image count and position
+                let gridStyle = styles.gridImageContainer;
+                if (images.length === 2) {
+                  gridStyle = styles.twoImagesGrid;
+                } else if (images.length === 3) {
+                  gridStyle = index === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
+                } else if (images.length === 4) {
+                  gridStyle = styles.fourImagesGrid;
+                } else if (images.length >= 5) {
+                  gridStyle = styles.fivePlusImagesGrid;
+                }
+                
+                return (
+                  <TouchableOpacity 
+                    key={index}
+                    style={[gridStyle, { marginBottom: 2 }]}
+                    onPress={() => {
+                      setSelectedImageIndex(index);
+                      setImageViewerVisible(true);
+                    }}
+                  >
                   <Image 
                     source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
                     style={styles.gridImage} 
@@ -282,7 +326,8 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                     </View>
                   )}
                 </TouchableOpacity>
-              ))}
+                );
+              })}
             </View>
           )}
         </View>
@@ -476,30 +521,51 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2,
+    justifyContent: 'space-between',
   },
+  // Facebook-style grid layouts
   twoImagesGrid: {
+    width: '49%',
     height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesGrid: {
-    height: 200,
+    // Container style - individual images have their own styles
   },
   fourImagesGrid: {
-    height: 200,
+    width: '49%',
+    height: 150,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   fivePlusImagesGrid: {
-    height: 200,
+    width: '49%',
+    height: 120,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImageContainer: {
     position: 'relative',
     overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesFirst: {
-    width: '50%',
-    height: '100%',
+    width: '49%',
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   threeImagesRest: {
-    width: '50%',
-    height: '50%',
+    width: '49%',
+    height: 100,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
   },
   gridImage: {
     width: '100%',
@@ -644,5 +710,35 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: 400,
     height: 400,
+  },
+  userContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  clickableName: {
+    color: '#1e3a8a',
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  priorityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  adminBadge: {
+    backgroundColor: '#dc2626', // Red for admin
+  },
+  pesoBadge: {
+    backgroundColor: '#059669', // Green for peso
+  },
+  priorityBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
