@@ -292,7 +292,7 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
           ) : (
             // Multiple images - Facebook-style grid layout
             <View style={styles.imagesGrid}>
-              {images.slice(0, 6).map((image, index) => {
+              {images.slice(0, 4).map((image, index) => {
                 // Determine grid style based on image count and position
                 let gridStyle = styles.gridImageContainer;
                 if (images.length === 2) {
@@ -302,7 +302,7 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                 } else if (images.length === 4) {
                   gridStyle = styles.fourImagesGrid;
                 } else if (images.length >= 5) {
-                  gridStyle = styles.fivePlusImagesGrid;
+                  gridStyle = styles.fourImagesGrid;
                 }
                 
                 return (
@@ -319,10 +319,10 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                     style={styles.gridImage} 
                     resizeMode="cover" 
                   />
-                  {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
-                  {index === 5 && images.length > 6 && (
+                  {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+                  {index === 3 && images.length > 4 && (
                     <View style={styles.moreImagesOverlay}>
-                      <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                      <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
                     </View>
                   )}
                 </TouchableOpacity>

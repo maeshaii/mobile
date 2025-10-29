@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, ActivityIndicator, ScrollView, TextInput } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, ActivityIndicator, ScrollView, TextInput, Dimensions } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
@@ -62,9 +62,10 @@ interface Props {
   onEdited?: (repostId: number, newCaption: string) => void;
   onDeleted?: (repostId: number) => void;
   onOriginalPostReposted?: (originalPostId: number) => void;
+  origin?: 'forum' | 'donation' | 'feed';
 }
 
-const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted }) => {
+const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted, origin }) => {
   const router = useRouter();
 
   console.log('RepostCard - repost data:', repost);
@@ -88,6 +89,9 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   const [likesUsers, setLikesUsers] = useState<any[]>([]);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const imageScrollRef = useRef<ScrollView>(null);
   
   // Comment system
   const [commentModalVisible, setCommentModalVisible] = useState(false);
@@ -179,10 +183,16 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   };
 
   const handleOriginalPostPress = () => {
-    console.log('RepostCard - Original post data:', repost.original_post);
-    console.log('RepostCard - Original post ID:', repost.original_post.post_id);
-    console.log('RepostCard - Navigating to:', `/posts/detail?postId=${repost.original_post.post_id}`);
-    router.push(`/posts/detail?postId=${repost.original_post.post_id}`);
+    const postId = repost.original_post?.post_id;
+    if (!postId) return;
+    const route: any = { pathname: '/posts/detail', params: { postId: String(postId) } };
+    if (origin === 'forum') {
+      route.params.isForumPost = 'true';
+    } else if (origin === 'donation') {
+      route.params.isDonationPost = 'true';
+    }
+    console.log('RepostCard - Original press route:', route);
+    router.push(route);
   };
 
   const handleDelete = async () => {
@@ -465,26 +475,33 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                   setImageViewerVisible(true);
                 }}
               >
-                <Image source={{ uri: originalImageUrl || '' }} style={styles.originalImage} resizeMode="cover" />
+                <Image source={{ uri: originalImageUrl || '' }} style={styles.originalImage} resizeMode="contain" />
               </TouchableOpacity>
             ) : (
-              <ScrollView horizontal style={styles.originalImagesScroll} showsHorizontalScrollIndicator={false}>
-                {originalImages.map((image, index) => (
+              <View style={styles.originalImagesGrid}>
+                {originalImages.slice(0, 4).map((image, index) => (
                   <TouchableOpacity 
                     key={index}
                     onPress={() => {
                       setSelectedImageIndex(index);
                       setImageViewerVisible(true);
                     }}
+                    style={styles.originalGridImage}
                   >
                     <Image 
                       source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
-                      style={styles.originalImage} 
+                      style={styles.originalGridImageContent} 
                       resizeMode="cover" 
                     />
+                    {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+                    {index === 3 && originalImages.length > 4 && (
+                      <View style={styles.originalMoreImagesOverlay}>
+                        <Text style={styles.originalMoreImagesText}>+{originalImages.length - 4}</Text>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
             )}
           </View>
         )}
@@ -667,22 +684,30 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                 </Text>
               </View>
             )}
-            <ScrollView 
-              horizontal 
-              pagingEnabled 
+            <ScrollView
+              ref={imageScrollRef}
+              horizontal
+              pagingEnabled
               showsHorizontalScrollIndicator={false}
+              contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+              onLayout={() => {
+                if (imageScrollRef.current) {
+                  imageScrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                }
+              }}
               onMomentumScrollEnd={(event) => {
-                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
+                const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
                 setSelectedImageIndex(index);
               }}
             >
               {originalImages.map((image, index) => (
-                <Image
-                  key={index}
-                  source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }}
-                  style={styles.imageViewerImage}
-                  resizeMode="contain"
-                />
+                <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                  <Image
+                    source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }}
+                    style={[styles.imageViewerImage, { width: screenWidth, height: screenHeight * 0.8 }]}
+                    resizeMode="contain"
+                  />
+                </View>
               ))}
             </ScrollView>
           </View>
@@ -774,17 +799,46 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   originalImage: {
-    width: 200,
-    height: 150,
+    width: '100%',
+    height: 300,
     borderRadius: 8,
     backgroundColor: '#ccc',
-    marginRight: 8,
   },
   originalImagesContainer: {
     marginTop: 8,
   },
-  originalImagesScroll: {
-    maxHeight: 150,
+  originalImagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+    justifyContent: 'space-between',
+  },
+  originalGridImage: {
+    width: '49%',
+    height: 150,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  originalGridImageContent: {
+    width: '100%',
+    height: '100%',
+  },
+  originalMoreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  originalMoreImagesText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   actionsCountsRow: {
     flexDirection: 'row',

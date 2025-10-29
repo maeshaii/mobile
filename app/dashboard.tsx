@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { getUserInfo, logoutUser, getFeed, API_BASE_URL } from '../services/api';
@@ -27,6 +27,42 @@ export default function DashboardScreen() {
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPost, setSelectedPost] = useState<any | null>(null);
   const [commentText, setCommentText] = useState('');
+
+  // Dashboard image viewer state
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [viewerImages, setViewerImages] = useState<any[]>([]);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const imageScrollRef = useRef<ScrollView>(null);
+
+  // Helpers: open original post detail for repost items
+  const openOriginalPostIfAvailable = (post: any) => {
+    try {
+      const original = post?.original_post || {};
+      // Determine possible id fields
+      let rawId: any = original.post_id ?? original.donation_id ?? original.id;
+      if (rawId == null) return false;
+      // Coerce to numeric id when possible
+      let idNum: number | null = null;
+      if (typeof rawId === 'number') {
+        idNum = rawId;
+      } else if (typeof rawId === 'string') {
+        const match = rawId.match(/\d+/);
+        if (match) idNum = parseInt(match[0], 10);
+      }
+      if (!idNum || Number.isNaN(idNum)) return false;
+      const originalType = String(original.type || post.item_type || '').toLowerCase();
+      const isDonation = Boolean(original.donation_id || originalType.includes('donation'));
+      const query = [`postId=${idNum}`];
+      if (isDonation) query.push('isDonationPost=true');
+      console.log('Navigating to original detail with query:', query.join('&'), 'original:', original);
+      router.push(`/posts/detail?${query.join('&')}`);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
 
   // Tracker reminder state
   const [showTrackerModal, setShowTrackerModal] = useState(false);
@@ -366,6 +402,31 @@ export default function DashboardScreen() {
                 <Text style={styles.postTitle}>{post.post_title}</Text>
               )}
               <Text style={styles.postContent}>{post.post_content}</Text>
+              {post.original_post && (
+                <TouchableOpacity
+                  style={{ alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 }}
+                  onPress={() => {
+                    try {
+                      const original = post.original_post || {};
+                      const originalId = original.post_id || original.donation_id || original.id;
+                      const originalType = (original.type || post.item_type || '').toString().toLowerCase();
+                      const isDonation = Boolean(
+                        original.donation_id ||
+                        originalType.includes('donation')
+                      );
+                      if (originalId) {
+                        const query = [`postId=${originalId}`];
+                        if (isDonation) query.push('isDonationPost=true');
+                        router.push(`/posts/detail?${query.join('&')}`);
+                      } else {
+                        console.warn('Original post id not found on repost item:', post);
+                      }
+                    } catch (e) {}
+                  }}
+                >
+                  <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>View original post</Text>
+                </TouchableOpacity>
+              )}
               
               {/* Images - Facebook-style grid layout like web */}
               {(() => {
@@ -375,7 +436,32 @@ export default function DashboardScreen() {
                 console.log('Post post_image:', post.post_image);
                 
                 // Use the proper image utility function to avoid duplicates
-                const images = getImagesFromContent(post);
+                // Prefer original post images for repost items
+                const sourceForImages = post?.original_post ? post.original_post : post;
+                // Robust extraction for donation/original posts that may use `images` field
+                // Gather images from multiple potential fields on repost originals (defensive)
+                const tryArrays: any[] = [];
+                const s: any = sourceForImages as any;
+                if (Array.isArray(s.images)) tryArrays.push(s.images);
+                if (Array.isArray(s.post_images)) tryArrays.push(s.post_images);
+                if (Array.isArray(s.content_images)) tryArrays.push(s.content_images);
+                // Some backends nest images further
+                if (s.original && Array.isArray(s.original.images)) tryArrays.push(s.original.images);
+                if (s.original && Array.isArray(s.original.post_images)) tryArrays.push(s.original.post_images);
+                // Flatten and normalize
+                let images = tryArrays.length
+                  ? ([] as any[]).concat(...tryArrays).map((img: any) => ({ image_url: img?.image_url || img?.url || img }))
+                  : getImagesFromContent(sourceForImages);
+                // Deduplicate by URL
+                const seen = new Set<string>();
+                images = images.filter((im: any) => {
+                  const u = String(im?.image_url || '').trim();
+                  if (!u) return false;
+                  const key = u.toLowerCase().split('?')[0];
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
                 
                 console.log('Dashboard - Images to display:', images);
                 console.log('Dashboard - Images length:', images.length);
@@ -387,16 +473,22 @@ export default function DashboardScreen() {
                   <View style={styles.imagesContainer}>
                     {images.length === 1 ? (
                       // Single image - full width
-                      <TouchableOpacity>
+                      <TouchableOpacity onPress={() => {
+                        if (post.original_post && openOriginalPostIfAvailable(post)) return;
+                        setViewerImages(images); setViewerIndex(0); setImageViewerVisible(true);
+                      }}>
                         <Image source={{ uri: images[0].image_url }} style={styles.singleImage} resizeMode="contain" />
                       </TouchableOpacity>
                     ) : (
                       // Multiple images - Facebook-style grid layout
                       <View style={styles.imagesGrid}>
-                        {images.slice(0, 4).map((image, index) => {
+                        {images.slice(0, 4).map((image: any, index: number) => {
                           const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
                           return (
-                            <TouchableOpacity key={index} style={styles.fourImagesGrid}>
+                            <TouchableOpacity key={index} style={styles.fourImagesGrid} onPress={() => {
+                              if (post.original_post && openOriginalPostIfAvailable(post)) return;
+                              setViewerImages(images); setViewerIndex(index); setImageViewerVisible(true);
+                            }}>
                               <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
                               {index === 3 && images.length > 4 && (
                                 <View style={styles.moreImagesOverlay}>
@@ -498,6 +590,49 @@ export default function DashboardScreen() {
                   <Text style={styles.actionText}>Repost</Text>
                 </TouchableOpacity>
               </View>
+
+      {/* Image Viewer Modal for dashboard */}
+      <Modal visible={imageViewerVisible} transparent animationType="fade" onRequestClose={() => setImageViewerVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)' }}>
+          <TouchableOpacity
+            onPress={() => setImageViewerVisible(false)}
+            style={{ position: 'absolute', top: 50, right: 20, zIndex: 1, backgroundColor: 'rgba(0,0,0,0.6)', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>✕</Text>
+          </TouchableOpacity>
+          {viewerImages.length > 1 && (
+            <View style={{ position: 'absolute', top: 50, left: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, zIndex: 1 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{viewerIndex + 1} of {viewerImages.length}</Text>
+            </View>
+          )}
+          <ScrollView
+            ref={imageScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: viewerIndex * screenWidth, y: 0 }}
+            onLayout={() => {
+              if (imageScrollRef.current) {
+                imageScrollRef.current.scrollTo({ x: viewerIndex * screenWidth, y: 0, animated: false });
+              }
+            }}
+            onMomentumScrollEnd={(event) => {
+              const idx = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+              setViewerIndex(idx);
+            }}
+          >
+            {viewerImages.map((img, idx) => (
+              <View key={idx} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                <Image
+                  source={{ uri: String(img.image_url).startsWith('http') ? img.image_url : `${API_BASE_URL}${img.image_url}` }}
+                  style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                  resizeMode="contain"
+                />
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
             </View>
           ))
         )}

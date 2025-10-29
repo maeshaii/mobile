@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Image } from 'react-native';
+import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Image, Dimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
+import { getPostDetail, getForumDetail, getDonationDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, getForumComments, getDonationComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import MentionInput from '../../components/MentionInput';
@@ -18,6 +18,12 @@ export default function PostDetailScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
+  const isForumPost = Array.isArray((params as any).isForumPost)
+    ? (params as any).isForumPost[0] === 'true'
+    : (params as any).isForumPost === 'true';
+  const isDonationPost = Array.isArray((params as any).isDonationPost)
+    ? (params as any).isDonationPost[0] === 'true'
+    : (params as any).isDonationPost === 'true';
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -51,11 +57,34 @@ export default function PostDetailScreen() {
     if (!postId) return;
     try {
       setLoading(true);
-      console.log('Loading post detail for postId:', postId);
-      const [detail, user] = await Promise.all([
-        getPostDetail(postId),
-        getUserInfo()
-      ]);
+      console.log('Loading post detail for postId:', postId, 'isForumPost:', isForumPost, 'isDonationPost:', isDonationPost);
+      let detail;
+      if (isForumPost) {
+        detail = await getForumDetail(postId);
+      } else if (isDonationPost) {
+        detail = await getDonationDetail(postId);
+        // Normalize donation data to match post structure
+        detail = {
+          ...detail,
+          post_content: detail.description || detail.post_content || '',
+          post_title: detail.post_title || '',
+          post_image: detail.post_image || (detail.images && detail.images[0]?.image_url) || null,
+          post_images: detail.images || [],
+          likes_count: detail.likes_count || 0,
+          comments_count: detail.comments_count || 0,
+          reposts_count: detail.reposts_count || 0,
+          is_liked: detail.is_liked || false,
+          likes: detail.likes || [],
+          comments: detail.comments || [],
+          reposts: detail.reposts || [],
+          user: detail.user || {},
+          created_at: detail.created_at || detail.donation_date || detail.date_created
+        };
+      } else {
+        detail = await getPostDetail(postId);
+      }
+      
+      const user = await getUserInfo();
       console.log('Post detail loaded:', detail);
       setPost(detail);
       setMe(user);
@@ -90,7 +119,7 @@ export default function PostDetailScreen() {
   const loadComments = async () => {
     if (!postId) return;
     try {
-      const data = await getPostComments(postId);
+      const data = isForumPost ? await getForumComments(postId) : isDonationPost ? await getDonationComments(postId) : await getPostComments(postId);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
     } catch (error) {
       console.error('Error loading comments:', error);
@@ -552,19 +581,7 @@ export default function PostDetailScreen() {
             }
             return (
               <View style={styles.imagesGrid}>
-                {images.slice(0, 6).map((img, idx) => {
-                  // Determine grid style based on image count and position
-                  let gridStyle = styles.gridImageContainer;
-                  if (images.length === 2) {
-                    gridStyle = styles.twoImagesGrid;
-                  } else if (images.length === 3) {
-                    gridStyle = idx === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
-                  } else if (images.length === 4) {
-                    gridStyle = styles.fourImagesGrid;
-                  } else if (images.length >= 5) {
-                    gridStyle = styles.fivePlusImagesGrid;
-                  }
-                  
+                {images.slice(0, 4).map((img, idx) => {
                   return (
                     <TouchableOpacity 
                       key={idx}
@@ -572,16 +589,16 @@ export default function PostDetailScreen() {
                         setSelectedImageIndex(idx);
                         setImageViewerVisible(true);
                       }}
-                      style={[gridStyle, { marginBottom: 2 }]}
+                      style={styles.fourGridImage}
                     >
-                    <Image source={renderImage(img.image_url)!} style={styles.gridImage} resizeMode="cover" />
-                    {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
-                    {idx === 5 && images.length > 6 && (
-                      <View style={styles.moreImagesOverlay}>
-                        <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
+                      <Image source={renderImage(img.image_url)!} style={styles.gridImage} resizeMode="cover" />
+                      {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+                      {idx === 3 && images.length > 4 && (
+                        <View style={styles.moreImagesOverlay}>
+                          <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -1148,26 +1165,41 @@ export default function PostDetailScreen() {
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              style={styles.imageViewerScroll}
-              onMomentumScrollEnd={(event) => {
-                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
-                setSelectedImageIndex(index);
-              }}
-            >
-              {getPostImages(post).map((image, index) => (
-                <View key={index} style={styles.imageViewerItem}>
-                  <Image
-                    source={renderImage(image.image_url)!}
-                    style={styles.imageViewerImage}
-                    resizeMode="contain"
-                  />
-                </View>
-              ))}
-            </ScrollView>
+            {(() => {
+              const screenWidth = Dimensions.get('window').width;
+              const screenHeight = Dimensions.get('window').height;
+              const scrollRef = React.createRef<ScrollView>();
+              const images = getPostImages(post);
+              return (
+                <ScrollView
+                  ref={scrollRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.imageViewerScroll}
+                  contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+                  onLayout={() => {
+                    if (scrollRef.current) {
+                      scrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                    }
+                  }}
+                  onMomentumScrollEnd={(event) => {
+                    const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                    setSelectedImageIndex(index);
+                  }}
+                >
+                  {images.map((image, index) => (
+                    <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                      <Image
+                        source={renderImage(image.image_url)!}
+                        style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  ))}
+                </ScrollView>
+              );
+            })()}
             {getPostImages(post).length > 1 && (
               <View style={styles.imageViewerPagination}>
                 <Text style={styles.imageViewerPaginationText}>
@@ -1849,49 +1881,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 12,
   },
-  // Facebook-style grid layouts
-  twoImagesGrid: {
-    width: '49%',
-    height: 200,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesGrid: {
-    // Container style - individual images have their own styles
-  },
-  fourImagesGrid: {
+  fourGridImage: {
     width: '49%',
     height: 150,
     position: 'relative',
     overflow: 'hidden',
     borderRadius: 4,
-  },
-  fivePlusImagesGrid: {
-    width: '49%',
-    height: 120,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  gridImageContainer: {
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesFirst: {
-    width: '49%',
-    height: 200,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesRest: {
-    width: '49%',
-    height: 100,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
+    marginBottom: 2,
   },
   gridImage: {
     width: '100%',

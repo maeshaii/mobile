@@ -421,6 +421,7 @@ export default function DonationPage() {
               key={`donation-repost-${item.repost_id}`}
               repost={item}
               currentUserId={currentUserId || undefined}
+              origin="donation"
               onLikeToggle={(repostId, liked) => {
                 setPosts((prev) => prev.map((p: any) => {
                   if (p.item_type === 'repost' && p.repost_id === repostId) {
