@@ -7,10 +7,13 @@ import {
   ImageBackground,
   Alert,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
+import { validatePassword } from '../../utils/passwordValidator';
 
 export default function TemporaryPasswordScreen() {
   const router = useRouter();
@@ -22,6 +25,7 @@ export default function TemporaryPasswordScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [showOld, setShowOld] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -41,34 +45,61 @@ export default function TemporaryPasswordScreen() {
     router.replace('/login/login');
   };
 
-  const strength = useMemo(() => {
-    const val = newPassword || '';
-    let score = 0;
-    if (val.length >= 16) score++;
-    if (/[A-Z]/.test(val)) score++;
-    if (/[a-z]/.test(val)) score++;
-    if (/\d/.test(val)) score++;
-    if (/[^A-Za-z0-9]/.test(val)) score++;
-    return score;
+  const passwordValidation = useMemo(() => {
+    return validatePassword(newPassword || '');
   }, [newPassword]);
+
+  const handlePasswordSubmit = () => {
+    if (newPassword && !passwordValidation.isValid) {
+      const missing = passwordValidation.missingRequirements;
+      Alert.alert(
+        'Password Requirements Missing',
+        `Please add the following:\n• ${missing.join('\n• ')}`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
 
   const onConfirmFirstLogin = async () => {
     setError('');
     setSuccess('');
-    if (strength < 5 || newPassword !== confirmPassword) {
-      setError('Use a strong password and ensure both new passwords match.');
+    
+    if (!passwordValidation.isValid) {
+      const missing = passwordValidation.missingRequirements;
+      Alert.alert(
+        'Password Requirements Missing',
+        `Please add the following:\n• ${missing.join('\n• ')}`,
+        [{ text: 'OK' }]
+      );
       return;
     }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Password Mismatch', 'Passwords do not match. Please ensure both password fields match.', [{ text: 'OK' }]);
+      return;
+    }
+
+    if (!oldPassword) {
+      Alert.alert('Required Field', 'Please enter your old password.', [{ text: 'OK' }]);
+      return;
+    }
+
+    setIsLoading(true);
     try {
       const { changePassword } = await import('../../services/api');
       const resp = await changePassword(oldPassword, newPassword);
       if (resp.success) {
         setSuccess('Password changed. Please login again.');
-        setTimeout(() => handleGoToLogin(), 800);
+        setTimeout(() => {
+          setIsLoading(false);
+          handleGoToLogin();
+        }, 1000);
       } else {
+        setIsLoading(false);
         setError(resp.message || 'Failed to change password');
       }
     } catch (e: any) {
+      setIsLoading(false);
       setError('Network error. Please try again.');
     }
   };
@@ -98,9 +129,10 @@ export default function TemporaryPasswordScreen() {
                     value={oldPassword}
                     onChangeText={setOldPassword}
                     secureTextEntry={!showOld}
+                    editable={!isLoading}
                   />
                   <TouchableOpacity style={styles.eyeButton} onPress={() => setShowOld((s) => !s)}>
-                    <Ionicons name={showOld ? 'eye-off' : 'eye'} size={24} color="black" />
+                    <PasswordVisibilityIcon show={showOld} size={24} color="#000000" />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.instructionsTitle}>New Password</Text>
@@ -110,9 +142,11 @@ export default function TemporaryPasswordScreen() {
                     value={newPassword}
                     onChangeText={setNewPassword}
                     secureTextEntry={!showNew}
+                    onSubmitEditing={handlePasswordSubmit}
+                    editable={!isLoading}
                   />
                   <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNew((s) => !s)}>
-                    <Ionicons name={showNew ? 'eye-off' : 'eye'} size={24} color="black" />
+                    <PasswordVisibilityIcon show={showNew} size={24} color="#000000" />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.instructionsTitle}>Confirm Password</Text>
@@ -122,12 +156,14 @@ export default function TemporaryPasswordScreen() {
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     secureTextEntry={!showConfirm}
+                    onSubmitEditing={onConfirmFirstLogin}
+                    editable={!isLoading}
                   />
                   <TouchableOpacity
                     style={styles.eyeButton}
                     onPress={() => setShowConfirm((s) => !s)}
                   >
-                    <Ionicons name={showConfirm ? 'eye-off' : 'eye'} size={24} color="black" />
+                    <PasswordVisibilityIcon show={showConfirm} size={24} color="#000000" />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.instructionText}>
@@ -137,8 +173,19 @@ export default function TemporaryPasswordScreen() {
                 {success ? (
                   <Text style={{ color: '#b2f2bb', marginBottom: 8 }}>{success}</Text>
                 ) : null}
-                <TouchableOpacity style={styles.loginButton} onPress={onConfirmFirstLogin}>
-                  <Text style={styles.loginButtonText}>Confirm</Text>
+                <TouchableOpacity 
+                  style={[styles.loginButton, isLoading && styles.loginButtonDisabled]} 
+                  onPress={onConfirmFirstLogin}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <ActivityIndicator size="small" color="#1e3a8a" style={{ marginRight: 8 }} />
+                      <Text style={styles.loginButtonText}>Changing Password...</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.loginButtonText}>Confirm</Text>
+                  )}
                 </TouchableOpacity>
               </>
             ) : (
@@ -317,16 +364,21 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   loginButton: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  loginButtonDisabled: {
+    opacity: 0.7,
   },
   loginButtonText: {
     fontSize: 16,
