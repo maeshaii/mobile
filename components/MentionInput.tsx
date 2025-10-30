@@ -39,6 +39,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
   const [mentionStart, setMentionStart] = useState(-1);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mentionQuery, setMentionQuery] = useState('');
+  const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const textInputRef = useRef<TextInput>(null);
 
   // Load following users on component mount
@@ -46,8 +47,22 @@ const MentionInput: React.FC<MentionInputProps> = ({
     const loadFollowing = async () => {
       try {
         const response = await getFollowingForMentions();
-        if (response.success) {
-          setFollowing(response.following);
+        if (response && typeof response === 'object' && 'success' in response) {
+          if ((response as any).success) {
+            setFollowing((response as any).following || []);
+            return;
+          }
+        }
+        if (Array.isArray(response)) {
+          setFollowing(response as any);
+          return;
+        }
+        if (response && typeof response === 'object') {
+          const maybeUsers = (response as any).following || (response as any).users || (response as any).results;
+          if (Array.isArray(maybeUsers)) {
+            setFollowing(maybeUsers);
+            return;
+          }
         }
       } catch (error) {
         console.error('Error loading following users:', error);
@@ -60,50 +75,59 @@ const MentionInput: React.FC<MentionInputProps> = ({
   const handleTextChange = (text: string) => {
     onChange(text);
 
-    // Find the last @ symbol before cursor
-    const lastAtIndex = text.lastIndexOf('@');
-    
+    // Use current cursor position to detect the right mention segment
+    const caret = selection?.start ?? text.length;
+    const lastAtIndex = text.lastIndexOf('@', Math.max(0, caret - 1));
+
     if (lastAtIndex !== -1) {
-      const textAfterAt = text.substring(lastAtIndex + 1);
-      
-      // Check if there's no space after @ (meaning we're typing a mention)
-      if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
-        setMentionStart(lastAtIndex);
-        setMentionQuery(textAfterAt);
-        setShowSuggestions(true);
-        
-        // Filter suggestions based on what's typed after @
-        const filteredSuggestions = following.filter(user =>
-          user.name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-          user.f_name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-          user.l_name.toLowerCase().includes(textAfterAt.toLowerCase())
-        );
-        setSuggestions(filteredSuggestions);
-        setSelectedIndex(0);
-      } else {
+      const textFromAtToCaret = text.substring(lastAtIndex + 1, caret);
+      // If there is a space/newline before caret, we're not in a mention token
+      if (textFromAtToCaret.includes(' ') || textFromAtToCaret.includes('\n')) {
         setShowSuggestions(false);
         setMentionQuery('');
+        setMentionStart(-1);
+        return;
       }
+
+      setMentionStart(lastAtIndex);
+      setMentionQuery(textFromAtToCaret);
+      setShowSuggestions(true);
+      const queryLower = textFromAtToCaret.toLowerCase();
+      const filteredSuggestions = following.filter(user =>
+        (user.name || '').toLowerCase().includes(queryLower) ||
+        (user.f_name || '').toLowerCase().includes(queryLower) ||
+        (user.l_name || '').toLowerCase().includes(queryLower)
+      );
+      setSuggestions(filteredSuggestions);
+      setSelectedIndex(0);
     } else {
       setShowSuggestions(false);
       setMentionQuery('');
+      setMentionStart(-1);
     }
   };
 
   // Handle suggestion selection
   const selectSuggestion = (user: User) => {
     if (mentionStart === -1) return;
+    const caretStart = selection?.start ?? value.length;
+    const caretEnd = selection?.end ?? caretStart;
 
+    // Replace the mention token from '@' to caret with selected user name
     const beforeMention = value.substring(0, mentionStart);
-    const afterMention = value.substring(value.length);
-    
-    const newValue = beforeMention + `@${user.name} ` + afterMention;
+    const afterCaret = value.substring(caretEnd);
+    const insert = `@${user.name} `;
+    const newValue = beforeMention + insert + afterCaret;
     onChange(newValue);
-    
+
+    // Move cursor right after the inserted mention
+    const newCaret = beforeMention.length + insert.length;
+    setSelection({ start: newCaret, end: newCaret });
+
     setShowSuggestions(false);
     setMentionStart(-1);
     setMentionQuery('');
-    
+
     // Focus back to text input
     setTimeout(() => {
       if (textInputRef.current) {
@@ -150,6 +174,8 @@ const MentionInput: React.FC<MentionInputProps> = ({
         ref={textInputRef}
         value={value}
         onChangeText={handleTextChange}
+        selection={selection}
+        onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
         onKeyPress={handleKeyPress}
         placeholder={placeholder}
         editable={!disabled}
@@ -188,7 +214,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
       {/* Mention Suggestions Dropdown */}
       {showSuggestions && suggestions.length > 0 && (
         <View style={styles.suggestionsContainer}>
-          <ScrollView style={styles.suggestionsScroll} keyboardShouldPersistTaps="handled">
+          <ScrollView style={styles.suggestionsScroll} keyboardShouldPersistTaps="always">
             {/* Header */}
             <View style={styles.suggestionsHeader}>
               <Text style={styles.suggestionsHeaderText}>Mention someone</Text>

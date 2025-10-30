@@ -125,11 +125,12 @@ export const getImagesFromContent = (content: any): ContentImage[] => {
             image_url: img,
             order: index
           });
-        } else if (img && img.image_url) {
-          // Object with image_url property
+        } else if (img && (img.image_url || img.url || img.path)) {
+          // Object with various possible url keys from backend
+          const url = img.image_url || img.url || img.path;
           addImageIfUnique({
             image_id: img.image_id || index,
-            image_url: img.image_url,
+            image_url: url,
             order: img.order || index
           });
         }

@@ -169,6 +169,13 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   };
 
   useEffect(() => {
+    // Ensure initial like reflects either backend flag or likes array if available
+    let liked: any = post.is_liked;
+    if ((liked === undefined || liked === null) && currentUserId && Array.isArray((post as any).likes)) {
+      liked = (post as any).likes.some((l: any) => (l?.user_id || l?.user?.user_id) === currentUserId);
+    }
+    setIsLiked(Boolean(liked));
+
     if (currentUserId && post.user.user_id !== currentUserId) {
       setShowFollowButton(true);
       checkFollowStatus(post.user.user_id).then(status => {

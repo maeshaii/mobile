@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -388,6 +388,15 @@ export default function PostCommentsScreen() {
     if (postId) load();
 
   }, [postId, load]);
+
+  // Auto-refresh comments and post header on focus (after caption edits/reposts/deletes)
+  useFocusEffect(
+    useCallback(() => {
+      if (postId) {
+        load();
+      }
+    }, [postId, load])
+  );
 
 
 

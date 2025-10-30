@@ -143,8 +143,11 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   // Sync like state when post data changes
 
   useEffect(() => {
-
-    setIsLiked(post.is_liked || false);
+    let liked: any = post.is_liked;
+    if ((liked === undefined || liked === null) && currentUserId && Array.isArray((post as any).likes)) {
+      liked = (post as any).likes.some((l: any) => (l?.user_id || l?.user?.user_id) === currentUserId);
+    }
+    setIsLiked(Boolean(liked));
 
     setLikeCount(post.likes_count || 0);
 
@@ -152,7 +155,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
     setCommentCount(post.comments_count || 0);
 
-  }, [post.is_liked, post.likes_count, post.reposts_count, post.comments_count]);
+  }, [post.is_liked, post.likes_count, post.reposts_count, post.comments_count, (post as any).likes, currentUserId]);
 
 
 

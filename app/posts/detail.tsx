@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Image, Dimensions } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { getPostDetail, getForumDetail, getDonationDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, getForumComments, getDonationComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
@@ -115,6 +115,15 @@ export default function PostDetailScreen() {
       setLoading(false);
     }
   };
+
+  // Refresh detail and comments when screen regains focus (after edits/reposts/deletes)
+  useFocusEffect(
+    useCallback(() => {
+      if (postId) {
+        load();
+      }
+    }, [postId, isForumPost, isDonationPost])
+  );
 
   const loadComments = async () => {
     if (!postId) return;

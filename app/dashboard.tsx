@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { getUserInfo, logoutUser, getFeed, API_BASE_URL } from '../services/api';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
@@ -74,6 +74,13 @@ export default function DashboardScreen() {
   useEffect(() => {
     loadUserInfo();
   }, []);
+
+  // Auto-refresh feed whenever dashboard regains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadPosts();
+    }, [])
+  );
 
   const loadPosts = async () => {
     try {

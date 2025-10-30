@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -337,6 +337,15 @@ export default function RepostCommentsScreen() {
     if (repostId) load();
 
   }, [repostId, load]);
+
+  // Refresh when screen regains focus
+  useFocusEffect(
+    useCallback(() => {
+      if (repostId) {
+        load();
+      }
+    }, [repostId, load])
+  );
 
 
 
@@ -932,27 +941,21 @@ export default function RepostCommentsScreen() {
 
 
 
-                {/* Show replies count and toggle */}
-
-                {(c.replies_count || 0) > 0 && (
-
-                  <TouchableOpacity 
-
-                    style={styles.repliesToggle}
-
-                    onPress={() => toggleReplies(c.comment_id)}
-
-                  >
-
-                    <Text style={styles.repliesToggleText}>
-
-                      {showReplies[c.comment_id] ? 'Hide' : 'View'} {c.replies_count || 0} {(c.replies_count || 0) === 1 ? 'reply' : 'replies'}
-
-                    </Text>
-
-                  </TouchableOpacity>
-
-                )}
+                {/* Show/Hide replies toggle (always visible) */}
+                <TouchableOpacity 
+                  style={styles.repliesToggle}
+                  onPress={() => toggleReplies(c.comment_id)}
+                >
+                  <Text style={styles.repliesToggleText}>
+                    {(() => {
+                      const loadedCount = Array.isArray(commentReplies[c.comment_id]) ? commentReplies[c.comment_id].length : null;
+                      const count = loadedCount !== null ? loadedCount : (c.replies_count || 0);
+                      const label = showReplies[c.comment_id] ? 'Hide' : 'View';
+                      const noun = count === 1 ? 'reply' : 'replies';
+                      return `${label} ${count} ${noun}`;
+                    })()}
+                  </Text>
+                </TouchableOpacity>
 
 
 

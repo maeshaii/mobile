@@ -115,10 +115,14 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
   // Sync like state and repost count when repost data changes
   useEffect(() => {
-    setIsLiked(repost.is_liked || false);
+    let liked: any = repost.is_liked;
+    if ((liked === undefined || liked === null) && currentUserId && Array.isArray(repost.likes)) {
+      liked = repost.likes.some((l: any) => (l?.user_id || l?.user?.user_id) === currentUserId);
+    }
+    setIsLiked(Boolean(liked));
     setLikeCount(repost.likes_count || 0);
     setRepostCount(repost.reposts_count || 0);
-  }, [repost.is_liked, repost.likes_count, repost.reposts_count]);
+  }, [repost.is_liked, repost.likes_count, repost.reposts_count, repost.likes, currentUserId]);
   const repostTimeFromNow = (() => {
     const t = (repost as any)?.created_at || (repost as any)?.repost_date;
     return t ? dayjs(t).fromNow() : '';
@@ -129,7 +133,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   })();
 
   // Use centralized image utility with deduplication
-  const originalImages = repost.original_post ? getImagesFromContent(repost.original_post) : [];
+  // Also support backends that nest the original under `original` or different arrays
+  let originalImages = repost.original_post ? getImagesFromContent(repost.original_post) : [];
+  if (originalImages.length === 0 && (repost as any)?.original_post?.original) {
+    originalImages = getImagesFromContent((repost as any).original_post.original);
+  }
   const originalImageUrl = originalImages.length > 0 
     ? (String(originalImages[0].image_url).startsWith('http') ? originalImages[0].image_url : `${API_BASE_URL}${originalImages[0].image_url}`)
     : null;
@@ -183,12 +191,28 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   };
 
   const handleOriginalPostPress = () => {
-    const postId = repost.original_post?.post_id;
-    if (!postId) return;
-    const route: any = { pathname: '/posts/detail', params: { postId: String(postId) } };
-    if (origin === 'forum') {
+    const original: any = repost.original_post || {};
+    // Accept multiple possible id fields from backend
+    const idCandidate = original.post_id ?? original.donation_id ?? original.forum_id ?? original.id;
+    if (idCandidate == null) return;
+    const postId = String(idCandidate);
+    const route: any = { pathname: '/posts/detail', params: { postId } };
+    // Decide content type for proper detail rendering
+    const typeStr = String(original.type || original.post_type || original.content_type || '').toLowerCase();
+    if (origin === 'forum' || original.forum_id || typeStr.includes('forum')) {
       route.params.isForumPost = 'true';
-    } else if (origin === 'donation') {
+    }
+    // Heuristics to detect donation content across inconsistent payloads
+    const looksLikeDonation = (
+      origin === 'donation' ||
+      !!original.donation_id ||
+      typeStr.includes('donation') ||
+      typeof original.goal_amount !== 'undefined' ||
+      typeof original.raised_amount !== 'undefined' ||
+      typeof original.beneficiary !== 'undefined' ||
+      typeof original.donor_count !== 'undefined'
+    );
+    if (looksLikeDonation) {
       route.params.isDonationPost = 'true';
     }
     console.log('RepostCard - Original press route:', route);
