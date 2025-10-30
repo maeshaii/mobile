@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions } from 'react-native';
+import CachedImage from '../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { getUserInfo, logoutUser, getFeed, API_BASE_URL } from '../services/api';
+import { getUserInfo, logoutUser, getFeed, API_BASE_URL, likeRepost, unlikeRepost } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
   repostPost, deleteRepost, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus
@@ -86,7 +88,24 @@ export default function DashboardScreen() {
     try {
       console.log('Loading posts...');
       const postsData = await getFeed();
-      setPosts(postsData || []);
+      // Merge backend liked state with locally persisted repost likes
+      let likedRepostsSet = new Set<number>();
+      try {
+        const raw = await AsyncStorage.getItem('likedReposts');
+        likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
+      } catch {}
+      const me: any = await getUserInfo().catch(() => null);
+      const meId = me?.user_id || me?.id;
+      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+        if (it?.item_type === 'repost') {
+          const likesArr = Array.isArray(it.likes) ? it.likes : [];
+          const backendLiked = meId ? likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId) : false;
+          const locallyLiked = likedRepostsSet.has(it.repost_id);
+          return { ...it, is_liked: backendLiked || locallyLiked };
+        }
+        return it;
+      }) : [];
+      setPosts(normalized || []);
       console.log('Posts loaded successfully:', postsData?.length || 0);
     } catch (err: any) {
       console.error('Error loading posts:', err);
@@ -126,7 +145,23 @@ export default function DashboardScreen() {
         console.log('❌ User is not alumni, skipping tracker check');
       }
       
-      setPosts(postsData || []);
+      // Merge backend liked state with locally persisted repost likes
+      let likedRepostsSet = new Set<number>();
+      try {
+        const raw = await AsyncStorage.getItem('likedReposts');
+        likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
+      } catch {}
+      const meId = userInfo?.user_id || userInfo?.id;
+      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+        if (it?.item_type === 'repost') {
+          const likesArr = Array.isArray(it.likes) ? it.likes : [];
+          const backendLiked = meId ? likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId) : false;
+          const locallyLiked = likedRepostsSet.has(it.repost_id);
+          return { ...it, is_liked: backendLiked || locallyLiked };
+        }
+        return it;
+      }) : [];
+      setPosts(normalized || []);
     } catch (err: any) {
       console.error('Error loading user info:', err);
       
@@ -383,7 +418,7 @@ export default function DashboardScreen() {
           </View>
         ) : (
           posts.map((post) => (
-            <View key={post.post_id} style={styles.postCard}>
+            <View key={post.repost_id || post.post_id} style={styles.postCard}>
               <View style={styles.postHeader}>
                 <Image
                   source={{ uri: post.user?.profile_pic || 'https://randomuser.me/api/portraits/women/44.jpg' }}
@@ -484,7 +519,7 @@ export default function DashboardScreen() {
                         if (post.original_post && openOriginalPostIfAvailable(post)) return;
                         setViewerImages(images); setViewerIndex(0); setImageViewerVisible(true);
                       }}>
-                        <Image source={{ uri: images[0].image_url }} style={styles.singleImage} resizeMode="contain" />
+                        <CachedImage uri={images[0].image_url} style={styles.singleImage} contentFit="cover" />
                       </TouchableOpacity>
                     ) : (
                       // Multiple images - Facebook-style grid layout
@@ -496,7 +531,7 @@ export default function DashboardScreen() {
                               if (post.original_post && openOriginalPostIfAvailable(post)) return;
                               setViewerImages(images); setViewerIndex(index); setImageViewerVisible(true);
                             }}>
-                              <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                              <CachedImage uri={imageUri} style={styles.gridImage} contentFit="cover" />
                               {index === 3 && images.length > 4 && (
                                 <View style={styles.moreImagesOverlay}>
                                   <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
@@ -534,24 +569,51 @@ export default function DashboardScreen() {
                   style={styles.actionBtn}
                   onPress={async () => {
                     try {
+                      const isRepost = post?.item_type === 'repost' || typeof post?.repost_id === 'number';
                       if (post.is_liked) {
                         if (post.item_type === 'donation_post') {
                           // Handle donation post unlike
                           const { unlikeDonationPost } = await import('../services/api');
                           await unlikeDonationPost(post.post_id);
+                        } else if (isRepost) {
+                          await unlikeRepost(post.repost_id);
+                          try {
+                            const key = 'likedReposts';
+                            const raw = await AsyncStorage.getItem(key);
+                            const set = new Set<number>(raw ? JSON.parse(raw) : []);
+                            set.delete(post.repost_id);
+                            await AsyncStorage.setItem(key, JSON.stringify(Array.from(set)));
+                          } catch {}
                         } else {
                           await unlikePost(post.post_id);
                         }
-                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p));
+                        setPosts(prev => prev.map(p => {
+                          const pIsRepost = p?.item_type === 'repost' || typeof p?.repost_id === 'number';
+                          const match = pIsRepost && isRepost ? (p.repost_id === post.repost_id) : (p.post_id === post.post_id);
+                          return match ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p;
+                        }));
                       } else {
                         if (post.item_type === 'donation_post') {
                           // Handle donation post like
                           const { likeDonationPost } = await import('../services/api');
                           await likeDonationPost(post.post_id);
+                        } else if (isRepost) {
+                          await likeRepost(post.repost_id);
+                          try {
+                            const key = 'likedReposts';
+                            const raw = await AsyncStorage.getItem(key);
+                            const set = new Set<number>(raw ? JSON.parse(raw) : []);
+                            set.add(post.repost_id);
+                            await AsyncStorage.setItem(key, JSON.stringify(Array.from(set)));
+                          } catch {}
                         } else {
                           await likePost(post.post_id);
                         }
-                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p));
+                        setPosts(prev => prev.map(p => {
+                          const pIsRepost = p?.item_type === 'repost' || typeof p?.repost_id === 'number';
+                          const match = pIsRepost && isRepost ? (p.repost_id === post.repost_id) : (p.post_id === post.post_id);
+                          return match ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p;
+                        }));
                       }
                       // Auto-refresh feed after like/unlike
                       setTimeout(() => loadPosts(), 500);
@@ -630,10 +692,10 @@ export default function DashboardScreen() {
           >
             {viewerImages.map((img, idx) => (
               <View key={idx} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
-                <Image
-                  source={{ uri: String(img.image_url).startsWith('http') ? img.image_url : `${API_BASE_URL}${img.image_url}` }}
+                <CachedImage
+                  uri={String(img.image_url).startsWith('http') ? img.image_url : `${API_BASE_URL}${img.image_url}`}
                   style={{ width: screenWidth, height: screenHeight * 0.8 }}
-                  resizeMode="contain"
+                  contentFit="contain"
                 />
               </View>
             ))}
@@ -1203,11 +1265,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 8,
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   singleImage: {
     width: '100%',
-    height: 300,
+    aspectRatio: 1,
     borderRadius: 8,
+    alignSelf: 'center',
   },
   imagesGrid: {
     flexDirection: 'row',

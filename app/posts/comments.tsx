@@ -1478,15 +1478,16 @@ export default function PostCommentsScreen() {
 
                 maxLength={500}
 
+                disabled={!!editingReplyId}
               />
 
               <TouchableOpacity
 
-                disabled={!canSend}
+                disabled={!!editingReplyId || !canSend}
 
                 onPress={handleSend}
 
-                style={[styles.sendBtn, !canSend && { opacity: 0.5 }]}
+                style={[styles.sendBtn, (!!editingReplyId || !canSend) && { opacity: 0.5 }]}
 
               >
 

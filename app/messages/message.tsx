@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, TextInput } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import type { Href } from 'expo-router';
 import { listConversations, ConversationSummary, getOnlineUsers, createConversation } from '../../services/api';
@@ -23,6 +24,7 @@ type Row = {
 };
 
 const MessageScreen = () => {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [filteredRows, setFilteredRows] = useState<Row[]>([]);
@@ -196,7 +198,7 @@ const MessageScreen = () => {
     <View style={styles.container}>
      
       <NavBar />
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Messages</Text>
       </View>
       
@@ -333,14 +335,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 18,
     marginBottom: 0,
     paddingLeft: 5,
     justifyContent: 'space-between',
   },
   headerTitle: {
     fontWeight: 'bold',
-    fontSize: 22,
+    fontSize: 27,
     color: '#222',
     paddingLeft: 5,
   },

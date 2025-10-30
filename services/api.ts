@@ -84,7 +84,7 @@ const devDefault = Platform.select({
   default: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
 });
 // Production fallback (override with expo.extra.API_BASE_URL for real deployments)
-const ngrokUrl = 'https://beatrice-feldspathic-khadijah.ngrok-free.dev';
+const ngrokUrl = 'https://biogenetic-crissy-askew.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
 export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || (defaultUrl as string));
 
@@ -919,12 +919,18 @@ export const getAllUserPosts = async (userId: number) => {
                 post_id: donation.donation_id,
                 post_content: donation.description,
                 post_image: donation.images?.[0]?.image_url || null,
+                // Provide full image arrays so the embedded grid can render multiple images
+                post_images: Array.isArray(donation.images) ? donation.images : [],
+                images: Array.isArray(donation.images) ? donation.images : [],
                 user: donation.user,
                 created_at: donation.created_at,
                 likes_count: donation.likes_count || 0,
                 comments_count: donation.comments_count || 0,
                 reposts_count: donation.reposts_count || 0,
                 is_liked: donation.is_liked || false,
+                // Mark as donation for proper navigation
+                type: 'donation',
+                donation_id: donation.donation_id,
               }
             });
           }

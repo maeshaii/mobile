@@ -9,6 +9,22 @@ type CachedImageProps = {
   blurhash?: string;
 };
 
+const appendNgrokBypass = (input?: string | null): string | undefined => {
+  if (!input) return undefined;
+  try {
+    // Only append for ngrok hosts and when parameter is not present yet
+    const url = new URL(input);
+    if (/ngrok/i.test(url.hostname) && !url.searchParams.has('ngrok-skip-browser-warning')) {
+      url.searchParams.set('ngrok-skip-browser-warning', 'true');
+      return url.toString();
+    }
+    return input;
+  } catch {
+    // If input is relative or invalid URL, don't modify
+    return input || undefined;
+  }
+};
+
 const CachedImage: React.FC<CachedImageProps> = ({
   uri,
   style,
@@ -16,7 +32,8 @@ const CachedImage: React.FC<CachedImageProps> = ({
   transitionMs = 150,
   blurhash
 }) => {
-  const source = uri ? { uri, cache: 'force-cache' as const } : undefined;
+  const finalUri = appendNgrokBypass(uri ?? undefined);
+  const source = finalUri ? { uri: finalUri, cache: 'force-cache' as const } : undefined;
 
   return (
     <Image

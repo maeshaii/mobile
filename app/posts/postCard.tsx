@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
+import CachedImage from '../../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
@@ -56,6 +57,9 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   const [editLoading, setEditLoading] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const imageScrollRef = React.useRef<ScrollView>(null);
 
   // Update edit content when post content changes
   useEffect(() => {
@@ -287,11 +291,11 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                 setImageViewerVisible(true);
               }}
             >
-              <Image 
-                source={{ uri: imageUrl || '' }} 
-                style={styles.singleImage} 
-                resizeMode="contain" 
-              />
+          <CachedImage 
+            uri={imageUrl || ''} 
+            style={styles.singleImage} 
+            contentFit="cover" 
+          />
             </TouchableOpacity>
           ) : (
             // Multiple images - Facebook-style grid layout
@@ -318,10 +322,10 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                       setImageViewerVisible(true);
                     }}
                   >
-                  <Image 
-                    source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                  <CachedImage 
+                    uri={String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`} 
                     style={styles.gridImage} 
-                    resizeMode="cover" 
+                    contentFit="cover" 
                   />
                   {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
                   {index === 3 && images.length > 4 && (
@@ -377,29 +381,34 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
 
       {/* Action Sheet Modal */}
       <Modal visible={showActions} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPressOut={() => setShowActions(false)}
-        >
-          <View style={styles.modalContent}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.sheet}>
             <TouchableOpacity
-              style={styles.modalButton}
+              style={styles.sheetRow}
               onPress={() => {
                 setEditModal(true);
                 setShowActions(false);
               }}
             >
-              <Text style={styles.modalButtonText}>Edit</Text>
+              <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+              <Text style={styles.sheetRowText}>Edit Post</Text>
             </TouchableOpacity>
+            <View style={styles.sheetDivider} />
             <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: 'red' }]}
-              onPress={handleDelete}
+              style={styles.sheetRow}
+              onPress={() => {
+                setShowActions(false);
+                handleDelete();
+              }}
             >
-              <Text style={styles.modalButtonText}>Delete</Text>
+              <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+              <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete Post</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.sheetCancel} onPress={() => setShowActions(false)}>
+            <Text style={styles.sheetCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
       </Modal>
 
       {/* Edit Modal */}
@@ -453,21 +462,29 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
               </View>
             )}
             <ScrollView 
+              ref={imageScrollRef}
               horizontal 
               pagingEnabled 
               showsHorizontalScrollIndicator={false}
+              contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+              onLayout={() => {
+                if (imageScrollRef.current) {
+                  imageScrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                }
+              }}
               onMomentumScrollEnd={(event) => {
-                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
+                const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
                 setSelectedImageIndex(index);
               }}
             >
               {images.map((image, index) => (
-                <Image
-                  key={index}
-                  source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }}
-                  style={styles.imageViewerImage}
-                  resizeMode="contain"
-                />
+                <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                  <CachedImage
+                    uri={String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`}
+                    style={styles.imageViewerImage}
+                    contentFit="contain"
+                  />
+                </View>
               ))}
             </ScrollView>
           </View>
@@ -515,11 +532,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 8,
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   singleImage: {
     width: '100%',
-    height: 300,
+    aspectRatio: 1,
     borderRadius: 8,
+    alignSelf: 'center',
   },
   imagesGrid: {
     flexDirection: 'row',
@@ -620,6 +640,40 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' },
   button: { backgroundColor: '#1e3a8a', borderRadius: 8, padding: 12, marginVertical: 6 },
   buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
+  // Unified Action Sheet styles
+  sheet: {
+    backgroundColor: '#fff',
+    width: '88%',
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  sheetRowText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  sheetCancel: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '88%',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  sheetCancelText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
   
   // Standardized Edit Modal Styles
   editModalContent: {
@@ -712,8 +766,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   imageViewerImage: {
-    width: 400,
-    height: 400,
+    width: '100%',
+    height: '80%',
   },
   userContainer: {
     flexDirection: 'row',

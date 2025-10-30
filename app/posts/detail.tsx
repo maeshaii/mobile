@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Image, Dimensions } from 'react-native';
+import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Dimensions, Image } from 'react-native';
+import CachedImage from '../../components/CachedImage';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
@@ -52,6 +53,9 @@ export default function PostDetailScreen() {
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Hide/disable composer in certain edit states for consistency
+  const hideComposer = !!actionFor || editingId !== null || editingReplyId !== null;
 
   const load = async () => {
     if (!postId) return;
@@ -764,7 +768,13 @@ export default function PostDetailScreen() {
                   activeOpacity={1}
                 >
                   <View style={styles.commentRow}>
-                    <Image source={renderAvatar(c.user?.profile_pic)} style={styles.commentAvatar} />
+                    <UserAvatar
+                      profilePic={c.user?.profile_pic}
+                      firstName={c.user?.f_name}
+                      lastName={c.user?.l_name}
+                      size={32}
+                      style={styles.commentAvatar}
+                    />
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
                         <View style={{ flex: 1 }}>
@@ -842,7 +852,7 @@ export default function PostDetailScreen() {
                             onPress={() => toggleReplies(c.comment_id)}
                           >
                             <Text style={styles.showRepliesText}>
-                              {showReplies[c.comment_id] ? 'Hide' : 'Show'} {c.replies_count} {c.replies_count === 1 ? 'reply' : 'replies'}
+                              {showReplies[c.comment_id] ? 'Hide' : 'View'} {c.replies_count} {c.replies_count === 1 ? 'reply' : 'replies'}
                             </Text>
                           </TouchableOpacity>
                           
@@ -854,7 +864,13 @@ export default function PostDetailScreen() {
                                 
                                 return (
                                   <View key={replyIndex} style={styles.replyItem}>
-                                    <Image source={renderAvatar(reply.user?.profile_pic)} style={styles.replyAvatar} />
+                                    <UserAvatar
+                                      profilePic={reply.user?.profile_pic}
+                                      firstName={reply.user?.f_name}
+                                      lastName={reply.user?.l_name}
+                                      size={24}
+                                      style={styles.replyAvatar}
+                                    />
                                     <View style={styles.replyContent}>
                                       <TouchableOpacity 
                                         onPress={() => {
@@ -958,48 +974,50 @@ export default function PostDetailScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Comment Input - Hide when editing a comment or reply */}
-      {editingId === null && editingReplyId === null && (
+      {/* Comment Input - hide while editing a comment or reply */}
+      {!hideComposer && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.commentInputContainer}
         >
-        {replyingTo && (
-          <View style={styles.replyingToContainer}>
-            <Text style={styles.replyingToText}>
-              Replying to comment
-            </Text>
-            <TouchableOpacity onPress={() => setReplyingTo(null)}>
-              <Ionicons name="close" size={16} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
-        )}
-          <View style={styles.commentInputRow}>
-            <MentionInput
-              value={replyingTo ? replyText : commentText}
-              onChange={replyingTo ? setReplyText : setCommentText}
-              placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
-              style={styles.commentInput}
-              multiline
-              maxLength={500}
-            />
-            <TouchableOpacity
-              disabled={replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment)}
-              onPress={replyingTo ? handleSendReply : handleSendComment}
-              style={[
-                styles.sendButton, 
-                (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment)) && { opacity: 0.5 }
-              ]}
-            >
-              {(replyingTo ? submittingReply : submittingComment) ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="send" size={18} color="#fff" />
-              )}
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
+          {replyingTo && (
+            <View style={styles.replyingToContainer}>
+              <Text style={styles.replyingToText}>
+                Replying to comment
+              </Text>
+              <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                <Ionicons name="close" size={16} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+          )}
+            <View style={styles.commentInputRow}>
+              <MentionInput
+                value={replyingTo ? replyText : commentText}
+                onChange={replyingTo ? setReplyText : setCommentText}
+                placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
+                style={styles.commentInput}
+                multiline
+                maxLength={500}
+                disabled={!!editingReplyId || !!editingId}
+              />
+              <TouchableOpacity
+                disabled={!!editingReplyId || !!editingId || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))}
+                onPress={replyingTo ? handleSendReply : handleSendComment}
+                style={[
+                  styles.sendButton, 
+                  ((!!editingReplyId) || (!!editingId) || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))) ? { opacity: 0.5 } : undefined
+                ]}
+              >
+                {(replyingTo ? submittingReply : submittingComment) ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
       )}
+      
 
       {/* Viewer Modal */}
       {viewerVisible && selectedPost && (
@@ -1019,7 +1037,13 @@ export default function PostDetailScreen() {
                   {selectedPost.likes && selectedPost.likes.length > 0 ? (
                     selectedPost.likes.map((like: any, index: number) => (
                       <View key={index} style={styles.viewerItem}>
-                        <Image source={renderAvatar(like.profile_pic)} style={styles.viewerAvatar} />
+                        <UserAvatar
+                          profilePic={like.profile_pic}
+                          firstName={like.f_name}
+                          lastName={like.l_name}
+                          size={36}
+                          style={styles.viewerAvatar}
+                        />
                         <Text style={styles.viewerItemText}>
                           {like.f_name} {like.l_name}
                         </Text>
@@ -1038,7 +1062,13 @@ export default function PostDetailScreen() {
                   {selectedPost.reposts && selectedPost.reposts.length > 0 ? (
                     selectedPost.reposts.map((repost: any, index: number) => (
                       <View key={index} style={styles.viewerItem}>
-                        <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.viewerAvatar} />
+                        <UserAvatar
+                          profilePic={repost.user?.profile_pic}
+                          firstName={repost.user?.f_name}
+                          lastName={repost.user?.l_name}
+                          size={36}
+                          style={styles.viewerAvatar}
+                        />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.viewerItemText}>
                             {repost.user?.f_name} {repost.user?.l_name}
@@ -1199,10 +1229,10 @@ export default function PostDetailScreen() {
                 >
                   {images.map((image, index) => (
                     <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
-                      <Image
-                        source={renderImage(image.image_url)!}
+                      <CachedImage
+                        uri={String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`}
                         style={{ width: screenWidth, height: screenHeight * 0.8 }}
-                        resizeMode="contain"
+                        contentFit="contain"
                       />
                     </View>
                   ))}

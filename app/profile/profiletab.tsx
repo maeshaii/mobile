@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView, Alert } from 'react-native';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { API_BASE_URL, getUserInfo } from '../../services/api';
 import { useFocusEffect } from '@react-navigation/native';
@@ -24,6 +25,8 @@ const allMenuItems = [
 interface UserProfile {
   name?: string;
   username?: string;
+  ctu_id?: string | number;
+  acc_username?: string;
   profile_pic?: string;
   f_name?: string;
   l_name?: string;
@@ -39,6 +42,7 @@ interface UserProfile {
 }
 
 export default function ProfileTab() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [menuItems, setMenuItems] = useState(allMenuItems);
@@ -78,7 +82,10 @@ export default function ProfileTab() {
   return (
     <View style={styles.container}>
       <NavBar />
-      <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
+      <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
+        <Text style={styles.headerTitle}>Menu</Text>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 30, paddingTop: 8 }}>
         {/* Profile Card */}
         <TouchableOpacity style={styles.profileCard} activeOpacity={0.8} onPress={() => router.push('/profile/profilepage')}>
           <UserAvatar
@@ -90,7 +97,11 @@ export default function ProfileTab() {
           />
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={styles.profileName}>{user?.name || 'Your Name'}</Text>
-            <Text style={styles.profileUsername}>{user?.username || '@username'}</Text>
+            <Text style={styles.profileUsername}>{
+              (user?.ctu_id != null && String(user?.ctu_id).trim() !== '')
+                ? String(user?.ctu_id)
+                : (user?.acc_username || user?.username || '@username')
+            }</Text>
           </View>
           {/* <TouchableOpacity style={styles.profileActionBtn}>
             <FontAwesome name="plus" size={18} color="#222" />
@@ -134,6 +145,18 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  headerTitle: {
+    fontSize: 27,
+    fontWeight: 'bold',
+    color: '#222',
   },
   profileCardTouchable: {
     // This style can be used for TouchableOpacity wrapping the profile card

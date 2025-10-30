@@ -1,5 +1,8 @@
 import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import CachedImage from './CachedImage';
+import { API_BASE_URL } from '../services/api';
 
 interface UserAvatarProps {
   profilePic?: string | null;
@@ -10,6 +13,9 @@ interface UserAvatarProps {
 }
 
 const UserAvatar: React.FC<UserAvatarProps> = ({ 
+  profilePic,
+  firstName,
+  lastName,
   size = 40,
   style 
 }) => {
@@ -21,9 +27,37 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
     borderRadius: safeSize / 2,
   } as const;
 
+  const buildUri = (src?: string | null) => {
+    if (!src) return null;
+    const s = String(src);
+    const isAbs = s.startsWith('http') || s.startsWith('data:');
+    return isAbs ? s : `${API_BASE_URL}${s}`;
+  };
+
+  const getInitials = () => {
+    const name = `${firstName || ''} ${lastName || ''}`.trim();
+    if (!name) return '?';
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  };
+
+  const uri = buildUri(profilePic);
+
+  if (uri) {
+    return (
+      <CachedImage
+        uri={uri}
+        style={[avatarStyle, style]}
+        contentFit="cover"
+      />
+    );
+  }
+
+  // Fallback to CTU logo when no profile picture
   return (
-    <CachedImage
-      uri={null}
+    <Image
+      source={require('../assets/images/ctu_logo.png')}
       style={[avatarStyle, style]}
       contentFit="cover"
     />
@@ -31,5 +65,17 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
 };
 
  
+
+const styles = StyleSheet.create({
+  fallback: {
+    backgroundColor: '#174f84',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initials: {
+    color: 'white',
+    fontWeight: '700',
+  },
+});
 
 export default UserAvatar;

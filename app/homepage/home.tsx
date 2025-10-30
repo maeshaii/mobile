@@ -2,6 +2,9 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import TrackerReminderModal from '../../components/TrackerReminderModal';
 import NavBar from '../(tabs)/navbar';
 import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getFeed } from '../../services/api';
 import dayjs from 'dayjs';
@@ -99,6 +102,7 @@ interface UserInfo {
 }
 
 const HomeScreen = () => {
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [posts, setPosts] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -387,6 +391,11 @@ const HomeScreen = () => {
       console.log('Homepage posts data:', postsData); // Debug log
       const me: any = await getUserInfo();
       const meId = me?.user_id || me?.id;
+      let likedRepostsSet = new Set<number>();
+      try {
+        const raw = await AsyncStorage.getItem('likedReposts');
+        likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
+      } catch {}
       
       // The backend returns a flat array of feed items (posts and reposts)
       const feedItems: any[] = [];
@@ -397,7 +406,9 @@ const HomeScreen = () => {
           if (item.item_type === 'repost') {
             // Handle reposts
             const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
-            const repostLikedByMe = meId ? repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+            const backendLiked = meId ? repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+            const locallyLiked = likedRepostsSet.has(item.repost_id);
+            const repostLikedByMe = backendLiked || locallyLiked;
             
             feedItems.push({
               ...item,
@@ -604,7 +615,7 @@ const HomeScreen = () => {
     <View style={styles.container}>
       <NavBar />
       {/* Header with logout button */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Home</Text>
       </View>
 
@@ -836,42 +847,18 @@ const HomeScreen = () => {
         </Modal>
       </ScrollView>
       {/* Tracker reminder modal */}
-      <Modal visible={showTrackerReminder} transparent animationType="fade" onRequestClose={() => setShowTrackerReminder(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.viewerModal}>
-            <Text style={styles.modalTitle}>Reminder</Text>
-            <Text style={{ color: '#555', marginBottom: 16, textAlign: 'center' }}>
-              Please complete your graduate tracer survey to help us improve our programs.
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: '#1e3a8a' }]}
-                onPress={() => { setShowTrackerReminder(false); router.push('/forms/forms'); }}
-              >
-                <Text style={{ color: '#fff' }}>Take Survey</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: '#eee' }]}
-                onPress={() => setShowTrackerReminder(false)}
-              >
-                <Text style={{ color: '#1e3a8a' }}>Dismiss</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <TrackerReminderModal
+        isVisible={showTrackerReminder}
+        onClose={() => setShowTrackerReminder(false)}
+        onTakeSurvey={() => { setShowTrackerReminder(false); router.push('/forms/forms'); }}
+        onRemindLater={() => setShowTrackerReminder(false)}
+      />
       {/* Post actions sheet */}
       <Modal visible={showPostActionSheet} transparent animationType="fade" onRequestClose={() => setShowPostActionSheet(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.viewerModal}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.modalTitle}>Select Action</Text>
-              <TouchableOpacity onPress={() => setShowPostActionSheet(false)}>
-                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.sheet}>
             <TouchableOpacity
-              style={styles.listItemRow}
+              style={styles.sheetRow}
               onPress={() => { 
                 setShowPostActionSheet(false); 
                 if (postActionForId != null) { 
@@ -881,10 +868,12 @@ const HomeScreen = () => {
                 } 
               }}
             >
-              <Text style={styles.listText}>Edit</Text>
+              <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+              <Text style={styles.sheetRowText}>Edit Post</Text>
             </TouchableOpacity>
+            <View style={styles.sheetDivider} />
             <TouchableOpacity
-              style={styles.listItemRow}
+              style={styles.sheetRow}
               onPress={() => { 
                 setShowPostActionSheet(false); 
                 const id = postActionForId; 
@@ -909,9 +898,13 @@ const HomeScreen = () => {
                 }
               }}
             >
-              <Text style={[styles.listText, { color: 'red' }]}>Delete</Text>
+              <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+              <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete Post</Text>
             </TouchableOpacity>
           </View>
+          <TouchableOpacity style={styles.sheetCancel} onPress={() => setShowPostActionSheet(false)}>
+            <Text style={styles.sheetCancelText}>Cancel</Text>
+          </TouchableOpacity>
         </View>
       </Modal>
 
@@ -1031,13 +1024,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingTop: 18,
+    paddingBottom: 10,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 27,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -1259,6 +1253,40 @@ const styles = StyleSheet.create({
     padding: 16,
     width: '92%',
     maxHeight: '80%',
+  },
+  // Unified Action Sheet styles
+  sheet: {
+    backgroundColor: '#fff',
+    width: '88%',
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  sheetRowText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  sheetCancel: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '88%',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  sheetCancelText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   listItemRow: {
     flexDirection: 'row',

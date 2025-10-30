@@ -8,10 +8,12 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
+  FlatList,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { fetchSuggestedUsers, followUser } from '../../services/api';
+import UserAvatar from '../../components/UserAvatar';
 
 interface SuggestedUser {
   id: number;
@@ -56,8 +58,8 @@ export default function PeopleYouMayKnowCard() {
       setLoading(true);
       const response = await fetchSuggestedUsers();
       if (response.success) {
-        // Take only the first 2 users to match the design
-        setSuggestedUsers((response.users || []).slice(0, 2));
+        // Show up to 10 users
+        setSuggestedUsers((response.users || []).slice(0, 10));
       }
     } catch (error) {
       console.error('Error loading suggested users:', error);
@@ -131,55 +133,53 @@ export default function PeopleYouMayKnowCard() {
             <Text style={styles.loadingText}>Loading suggestions...</Text>
           </View>
         ) : (
-          suggestedUsers.map((user) => (
-            <View key={user.id} style={styles.userCard}>
+          <FlatList
+            data={suggestedUsers}
+            keyExtractor={(item) => String(item.id)}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            snapToInterval={Math.round(width * 0.6) + 16}
+            decelerationRate="fast"
+            snapToAlignment="start"
+            renderItem={({ item: user }) => (
+              <View style={styles.userCard}>
               <TouchableOpacity
                 style={styles.userInfo}
                 onPress={() => handleUserPress(user.id)}
                 activeOpacity={0.8}
               >
-                {user.profile_pic && !imageErrors[user.id] ? (
-                  <Image
-                    source={{ uri: user.profile_pic }}
+                  <UserAvatar
+                    profilePic={!imageErrors[user.id] ? user.profile_pic : undefined}
+                    firstName={user.name}
+                    size={50}
                     style={styles.profileImage}
-                    onError={() => {
-                      console.warn('Failed to load profile image for user:', user.id, user.profile_pic);
-                      setImageErrors(prev => ({ ...prev, [user.id]: true }));
-                    }}
                   />
-                ) : (
-                  <View style={[styles.profileImage, styles.initialsContainer]}>
-                    <Text style={styles.initialsText}>
-                      {getInitials(user.name)}
-                    </Text>
-                  </View>
-                )}
-                <Text style={styles.userName} numberOfLines={2}>
-                  {user.name}
-                </Text>
-              </TouchableOpacity>
-              
-              <View style={styles.actionButtons}>
-                <TouchableOpacity
-                  style={styles.followButton}
-                  onPress={() => handleFollow(user.id)}
-                  disabled={followLoading[user.id]}
-                >
-                  <FontAwesome name="plus" size={10} color="white" />
-                  <Text style={styles.followButtonText}>
-                    {followLoading[user.id] ? '...' : 'Follow'}
+                  <Text style={styles.userName} numberOfLines={2}>
+                    {user.name}
                   </Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={styles.removeButton}
-                  onPress={() => handleRemove(user.id)}
-                >
-                  <Text style={styles.removeButtonText}>Remove</Text>
-                </TouchableOpacity>
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={styles.followButton}
+                    onPress={() => handleFollow(user.id)}
+                    disabled={followLoading[user.id]}
+                  >
+                    <FontAwesome name="plus" size={10} color="white" />
+                    <Text style={styles.followButtonText}>
+                      {followLoading[user.id] ? '...' : 'Follow'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.removeButton}
+                    onPress={() => handleRemove(user.id)}
+                  >
+                    <Text style={styles.removeButtonText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          ))
+            )}
+          />
         )}
       </View>
     </View>
@@ -218,13 +218,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   userCardsContainer: {
-    flexDirection: 'row',
     padding: 16,
-    gap: 12,
   },
   userCard: {
-    flex: 1,
+    width: Math.round(width * 0.6),
     alignItems: 'center',
+    marginRight: 16,
   },
   userInfo: {
     alignItems: 'center',
@@ -295,5 +294,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
     color: '#666',
+  },
+  listContent: {
+    paddingRight: 16,
   },
 });

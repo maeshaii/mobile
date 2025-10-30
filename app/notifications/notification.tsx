@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getNotifications, deleteNotifications, getUserInfo } from '../../services/api';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -39,6 +40,7 @@ interface NotificationItem {
 }
 
 const NotificationScreen = () => {
+  const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -602,7 +604,7 @@ const NotificationScreen = () => {
   return (
     <View style={styles.container}>
       <NavBar />
-      <View style={styles.notificationsHeader}>
+      <View style={[styles.notificationsHeader, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.notificationsTitle}>Notifications</Text>
         {selectionMode ? (
           <View style={styles.selectionActions}>
@@ -661,9 +663,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 18,
   },
-  notificationsTitle: { fontWeight: 'bold', fontSize: 22, color: '#222' },
+  notificationsTitle: { fontWeight: 'bold', fontSize: 27, color: '#222' },
   selectionActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cancelText: { color: '#666', fontSize: 14 },
   deleteButton: {
