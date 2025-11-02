@@ -66,20 +66,33 @@ function endpoint(path: string): string {
 const rawFromExpo = (Constants.expoConfig?.extra as any)?.API_BASE_URL as string | undefined;
 const rawFromEnv = process.env.API_BASE_URL as string | undefined;
 
-// Prefer explicit config (Expo extra or env). Fallback to a default ngrok URL only if not provided.
-// To change at runtime without code edits, set expo.extra.API_BASE_URL in app.json/app.config.
-// Use localhost for development, ngrok for production
-const localhostUrl = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
-// Ngrok URL for production - this line will be updated by the ngrok script
-const ngrokUrl = 'http://172.16.59.112:8000'; // Hardcoded IPv4 address
-// Use ngrok for production, localhost for development
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || ngrokUrl || localhostUrl);
+// Prefer explicit config (Expo extra or env). If not provided, derive a sensible dev default:
+// - Physical device: use Metro debugger host IP:8000
+// - Android emulator: 10.0.2.2:8000
+// - iOS simulator: localhost:8000
+const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : true;
+const debuggerHost = (Constants as any)?.manifest2?.extra?.expoClient?.hostUri
+  || (Constants as any)?.expoConfig?.hostUri
+  || (Constants as any)?.manifest?.debuggerHost
+  || '';
+const lanHost = typeof debuggerHost === 'string' && debuggerHost.includes(':')
+  ? debuggerHost.split(':')[0]
+  : '';
+const devDefault = Platform.select({
+  android: lanHost ? `http://${lanHost}:8000` : 'http://10.0.2.2:8000',
+  ios: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
+  default: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
+});
+// Production fallback (override with expo.extra.API_BASE_URL for real deployments)
+const ngrokUrl = 'https://biogenetic-crissy-askew.ngrok-free.dev';
+const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || (defaultUrl as string));
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
 console.log('Raw from Env:', rawFromEnv);
 console.log('Ngrok URL:', ngrokUrl);
-console.log('Localhost URL:', localhostUrl);
+// console.log('Localhost URL:', '(derived dynamically)');
 
 /** Axios instance */
 const api = axios.create({
@@ -715,15 +728,21 @@ export const getFeed = async () => {
             ...repost,
             item_type: 'repost',
             original_post: {
+              // Mark original as a donation so clients can navigate correctly
               post_id: donation.donation_id,
+              donation_id: donation.donation_id,
               post_content: donation.description,
               post_image: donation.images?.[0]?.image_url || null,
+              // Provide full image arrays so the embedded grid can render multiple images
+              post_images: Array.isArray(donation.images) ? donation.images : [],
+              images: Array.isArray(donation.images) ? donation.images : [],
               user: donation.user,
               created_at: donation.created_at,
               likes_count: donation.likes_count || 0,
               comments_count: donation.comments_count || 0,
               reposts_count: donation.reposts_count || 0,
               is_liked: donation.is_liked || false,
+              type: 'donation',
             }
           });
         });
@@ -900,12 +919,18 @@ export const getAllUserPosts = async (userId: number) => {
                 post_id: donation.donation_id,
                 post_content: donation.description,
                 post_image: donation.images?.[0]?.image_url || null,
+                // Provide full image arrays so the embedded grid can render multiple images
+                post_images: Array.isArray(donation.images) ? donation.images : [],
+                images: Array.isArray(donation.images) ? donation.images : [],
                 user: donation.user,
                 created_at: donation.created_at,
                 likes_count: donation.likes_count || 0,
                 comments_count: donation.comments_count || 0,
                 reposts_count: donation.reposts_count || 0,
                 is_liked: donation.is_liked || false,
+                // Mark as donation for proper navigation
+                type: 'donation',
+                donation_id: donation.donation_id,
               }
             });
           }
@@ -1764,10 +1789,17 @@ export const uploadAttachment = async (file: any, conversationId: number) => {
     
     // Use fetch instead of axios for FormData to avoid Content-Type issues
     console.log('Sending fetch request with FormData...');
-    console.log('FormData entries:');
-    for (const [key, value] of formData.entries()) {
-      console.log(`  ${key}:`, value);
-    }
+    // Debug FormData entries when supported (web); RN's FormData may not implement entries()
+    try {
+      const anyForm: any = formData as any;
+      if (typeof anyForm.entries === 'function') {
+        console.log('FormData entries:');
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        for (const [key, value] of anyForm.entries()) {
+          console.log(`  ${key}:`, value);
+        }
+      }
+    } catch {}
     
     const response = await fetch(`${API_BASE_URL}/api/messaging/attachments/`, {
       method: 'POST',
@@ -1788,16 +1820,17 @@ export const uploadAttachment = async (file: any, conversationId: number) => {
     console.log('Mobile uploadAttachment API Response:', data);
     return data;
   } catch (error) {
-    console.error('Mobile uploadAttachment API Error:', error);
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-    } else if (error.request) {
-      console.error('Request error:', error.request);
+    const err: any = error as any;
+    console.error('Mobile uploadAttachment API Error:', err);
+    if (err?.response) {
+      console.error('Response status:', err.response.status);
+      console.error('Response data:', err.response.data);
+    } else if (err?.request) {
+      console.error('Request error:', err.request);
     } else {
-      console.error('Error message:', error.message);
+      console.error('Error message:', err?.message);
     }
-    throw error;
+    throw err;
   }
 };
 

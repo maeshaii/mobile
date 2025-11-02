@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { View, TextInput, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import { usePathname } from 'expo-router';
 import { FontAwesome, MaterialIcons, Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router'; // ✅ Use useRouter from expo-router
 import { getUserInfo } from '../../services/api';
 import { useRealTimeMessages } from '../../hooks/useRealTimeMessages';
 
+const NAV_ICON_SIZE = 24;
+const LABEL_FONT_SIZE = 12;
+const ACTIVE_COLOR = '#FFFFFF';
+const INACTIVE_COLOR = '#FFFFFF';
+
 const NavBar = () => {
   const router = useRouter(); // ✅ This replaces useNavigation()
   const [user, setUser] = useState<any>(null);
+  const pathname = usePathname();
+
+  const isActive = (prefixes: string[]) => {
+    if (!pathname) return false;
+    return prefixes.some((p) => pathname.startsWith(p));
+  };
 
   // Use real-time messages hook
   const { unreadCount: messageUnreadCount } = useRealTimeMessages({
@@ -57,31 +69,51 @@ const NavBar = () => {
       {/* Navigation Icons */}
       <View style={styles.navBar}>
         <TouchableOpacity onPress={handleHomePress}>
-          <FontAwesome name="home" size={24} color="white" />
+          <View style={styles.iconWithLabel}>
+            {isActive(['/homepage', '/ojt/ojtpage']) && <View style={styles.activeIndicator} />}
+            <FontAwesome name="home" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
+            <Text style={[styles.label, isActive(['/homepage', '/ojt/ojtpage']) && styles.activeLabel]}>Home</Text>
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push('/search/search')}>
-        <FontAwesome name="search" size={16} color="white" style={styles.searchIcon} />
-      </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/notifications/notification')}>
-          <FontAwesome name="bell" size={24} color="white" />
+          <View style={styles.iconWithLabel}>
+            {isActive(['/search']) && <View style={styles.activeIndicator} />}
+            <FontAwesome name="search" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} style={styles.searchIcon} />
+            <Text style={[styles.label, isActive(['/search']) && styles.activeLabel]}>Search</Text>
+          </View>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.push('/messages/message')} style={{ position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
-          <MaterialIcons name="email" size={24} color="white" />
-          {messageUnreadCount > 0 && (
-            <View style={styles.messageBadge}>
-              <Text style={styles.messageBadgeText}>
-                {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
-              </Text>
-            </View>
-          )}
+        <TouchableOpacity onPress={() => router.push('/notifications/notification')}>
+          <View style={styles.iconWithLabel}>
+            {isActive(['/notifications']) && <View style={styles.activeIndicator} />}
+            <FontAwesome name="bell" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
+            <Text style={[styles.label, isActive(['/notifications']) && styles.activeLabel]}>Notifications</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => router.push('/messages/message')} style={{ position: 'relative' }}>
+          <View style={styles.iconWithLabel}>
+            {isActive(['/messages']) && <View style={styles.activeIndicator} />}
+            <MaterialIcons name="email" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
+            <Text style={[styles.label, isActive(['/messages']) && styles.activeLabel]}>Messages</Text>
+            {messageUnreadCount > 0 && (
+              <View style={styles.messageBadge}>
+                <Text style={styles.messageBadgeText}>
+                  {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                </Text>
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push('/profile/profiletab')}>
-          <Feather name="user" size={24} color="white" />
-          <View style={styles.badge} />
+          <View style={styles.iconWithLabel}>
+            {isActive(['/profile']) && <View style={styles.activeIndicator} />}
+            <Feather name="user" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
+            <Text style={[styles.label, isActive(['/profile']) && styles.activeLabel]}>Profile</Text>
+            <View style={styles.badge} />
+          </View>
         </TouchableOpacity>
       </View>
     </View>
@@ -91,11 +123,16 @@ const NavBar = () => {
 const styles = StyleSheet.create({
   navBarContainer: {
     backgroundColor: '#1C4E80',
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 15,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingTop: 40,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+    elevation: 10,
   },
   searchIcon: {
     marginRight: 5,
@@ -105,16 +142,36 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     alignItems: 'center',
   },
+  iconWithLabel: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  label: {
+    color: INACTIVE_COLOR,
+    fontSize: LABEL_FONT_SIZE,
+    marginTop: 4,
+  },
+  activeLabel: {
+    color: ACTIVE_COLOR,
+    fontWeight: '600',
+  },
+  activeIndicator: {
+    height: 3,
+    width: 26,
+    borderRadius: 2,
+    backgroundColor: ACTIVE_COLOR,
+    marginBottom: 6,
+  },
   badge: {
     position: 'absolute',
-    bottom: -2,
+    bottom: 12,
     right: -2,
     width: 8,
     height: 8,
     borderRadius: 10,
     backgroundColor: 'black',
     borderWidth: 1,
-    borderColor: 'white',
+    borderColor: '#FFFFFF',
   },
   messageBadge: {
     position: 'absolute',

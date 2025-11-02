@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, ActivityIndicator, ScrollView, TextInput } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Modal, ActivityIndicator, ScrollView, TextInput, Dimensions } from 'react-native';
+import CachedImage from '../../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost, getRepostLikes, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment } from '../../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
 
@@ -62,9 +64,10 @@ interface Props {
   onEdited?: (repostId: number, newCaption: string) => void;
   onDeleted?: (repostId: number) => void;
   onOriginalPostReposted?: (originalPostId: number) => void;
+  origin?: 'forum' | 'donation' | 'feed';
 }
 
-const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted }) => {
+const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted, origin }) => {
   const router = useRouter();
 
   console.log('RepostCard - repost data:', repost);
@@ -88,6 +91,9 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   const [likesUsers, setLikesUsers] = useState<any[]>([]);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const imageScrollRef = useRef<ScrollView>(null);
   
   // Comment system
   const [commentModalVisible, setCommentModalVisible] = useState(false);
@@ -111,10 +117,14 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
   // Sync like state and repost count when repost data changes
   useEffect(() => {
-    setIsLiked(repost.is_liked || false);
+    let liked: any = repost.is_liked;
+    if ((liked === undefined || liked === null) && currentUserId && Array.isArray(repost.likes)) {
+      liked = repost.likes.some((l: any) => (l?.user_id || l?.user?.user_id) === currentUserId);
+    }
+    setIsLiked(Boolean(liked));
     setLikeCount(repost.likes_count || 0);
     setRepostCount(repost.reposts_count || 0);
-  }, [repost.is_liked, repost.likes_count, repost.reposts_count]);
+  }, [repost.is_liked, repost.likes_count, repost.reposts_count, repost.likes, currentUserId]);
   const repostTimeFromNow = (() => {
     const t = (repost as any)?.created_at || (repost as any)?.repost_date;
     return t ? dayjs(t).fromNow() : '';
@@ -124,8 +134,22 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     return t ? dayjs(t).fromNow() : '';
   })();
 
+  // Determine if the original post is unavailable (deleted/removed/private)
+  const isOriginalUnavailable = !repost.original_post || Boolean(
+    (repost as any)?.original_post?.is_deleted ||
+    (repost as any)?.original_post?.deleted_at ||
+    (repost as any)?.original_post?.removed ||
+    (repost as any)?.original_post?.removed_for_policy ||
+    (repost as any)?.original_post?.status === 'deleted' ||
+    (repost as any)?.original_post?.visibility === 'private'
+  );
+
   // Use centralized image utility with deduplication
-  const originalImages = repost.original_post ? getImagesFromContent(repost.original_post) : [];
+  // Also support backends that nest the original under `original` or different arrays
+  let originalImages = repost.original_post ? getImagesFromContent(repost.original_post) : [];
+  if (originalImages.length === 0 && (repost as any)?.original_post?.original) {
+    originalImages = getImagesFromContent((repost as any).original_post.original);
+  }
   const originalImageUrl = originalImages.length > 0 
     ? (String(originalImages[0].image_url).startsWith('http') ? originalImages[0].image_url : `${API_BASE_URL}${originalImages[0].image_url}`)
     : null;
@@ -144,8 +168,22 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       // Try to like/unlike the repost using dedicated repost endpoints
       if (isLiked) {
         await unlikeRepost(repost.repost_id);
+        try {
+          const key = 'likedReposts';
+          const raw = await AsyncStorage.getItem(key);
+          const set = new Set<number>(raw ? JSON.parse(raw) : []);
+          set.delete(repost.repost_id);
+          await AsyncStorage.setItem(key, JSON.stringify(Array.from(set)));
+        } catch {}
       } else {
         await likeRepost(repost.repost_id);
+        try {
+          const key = 'likedReposts';
+          const raw = await AsyncStorage.getItem(key);
+          const set = new Set<number>(raw ? JSON.parse(raw) : []);
+          set.add(repost.repost_id);
+          await AsyncStorage.setItem(key, JSON.stringify(Array.from(set)));
+        } catch {}
       }
       
       console.log('Successfully updated repost like status');
@@ -166,6 +204,10 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   };
 
   const handleRepost = async () => {
+    if (isOriginalUnavailable) {
+      Alert.alert('Unavailable', 'Cannot repost because the original post is unavailable.');
+      return;
+    }
     // Validate original post ID
     if (!repost.original_post?.post_id) {
       Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
@@ -179,10 +221,32 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   };
 
   const handleOriginalPostPress = () => {
-    console.log('RepostCard - Original post data:', repost.original_post);
-    console.log('RepostCard - Original post ID:', repost.original_post.post_id);
-    console.log('RepostCard - Navigating to:', `/posts/detail?postId=${repost.original_post.post_id}`);
-    router.push(`/posts/detail?postId=${repost.original_post.post_id}`);
+    const original: any = repost.original_post || {};
+    // Accept multiple possible id fields from backend
+    const idCandidate = original.post_id ?? original.donation_id ?? original.forum_id ?? original.id;
+    if (idCandidate == null) return;
+    const postId = String(idCandidate);
+    const route: any = { pathname: '/posts/detail', params: { postId } };
+    // Decide content type for proper detail rendering
+    const typeStr = String(original.type || original.post_type || original.content_type || '').toLowerCase();
+    if (origin === 'forum' || original.forum_id || typeStr.includes('forum')) {
+      route.params.isForumPost = 'true';
+    }
+    // Heuristics to detect donation content across inconsistent payloads
+    const looksLikeDonation = (
+      origin === 'donation' ||
+      !!original.donation_id ||
+      typeStr.includes('donation') ||
+      typeof original.goal_amount !== 'undefined' ||
+      typeof original.raised_amount !== 'undefined' ||
+      typeof original.beneficiary !== 'undefined' ||
+      typeof original.donor_count !== 'undefined'
+    );
+    if (looksLikeDonation) {
+      route.params.isDonationPost = 'true';
+    }
+    console.log('RepostCard - Original press route:', route);
+    router.push(route);
   };
 
   const handleDelete = async () => {
@@ -407,88 +471,104 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       ) : null}
 
       {/* Original Post (Embedded) */}
-      {repost.original_post && (
-        <TouchableOpacity style={styles.originalPost} onPress={handleOriginalPostPress} activeOpacity={0.8}>
-          <View style={styles.originalHeader}>
-            <TouchableOpacity
-              onPress={() => {
-                const uid = repost.original_post.user?.user_id;
-                if (uid) {
-                  router.push(`/profile/profilepage?viewUserId=${uid}`);
-                }
-              }}
-              disabled={!repost.original_post.user?.user_id}
-              style={styles.originalUserContainer}
-            >
-              <UserAvatar 
-                profilePic={repost.original_post.user?.profile_pic}
-                firstName={repost.original_post.user?.f_name}
-                lastName={repost.original_post.user?.l_name}
-                size={36}
-                style={styles.originalAvatar}
-              />
-              <View style={{ flex: 1 }}>
-                <View style={styles.nameContainer}>
-                  <Text style={[
-                    styles.originalUserName,
-                    (repost.original_post.user?.user_id && repost.original_post.user?.user_id !== currentUserId) ? styles.clickableName : null
-                  ]}>{originalUserName}</Text>
-                  {(isOriginalAdmin || isOriginalPeso) && (
-                    <View style={[
-                      styles.priorityBadge,
-                      isOriginalAdmin ? styles.adminBadge : styles.pesoBadge
-                    ]}>
-                      <Text style={styles.priorityBadgeText}>
-                        {isOriginalAdmin ? 'ADMIN' : 'PESO'}
-                      </Text>
-                    </View>
+      {isOriginalUnavailable ? (
+        <View style={styles.originalPost}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <FontAwesome name="ban" size={16} color="#6b7280" />
+            <Text style={[styles.originalUserName, { marginLeft: 8 }]}>Original post unavailable</Text>
+          </View>
+          <Text style={styles.originalContent}>This content was deleted, removed, or is no longer available.</Text>
+        </View>
+      ) : (
+        repost.original_post && (
+          <TouchableOpacity style={styles.originalPost} onPress={handleOriginalPostPress} activeOpacity={0.8}>
+            <View style={styles.originalHeader}>
+              <TouchableOpacity
+                onPress={() => {
+                  const uid = repost.original_post.user?.user_id;
+                  if (uid) {
+                    router.push(`/profile/profilepage?viewUserId=${uid}`);
+                  }
+                }}
+                disabled={!repost.original_post.user?.user_id}
+                style={styles.originalUserContainer}
+              >
+                <UserAvatar 
+                  profilePic={repost.original_post.user?.profile_pic}
+                  firstName={repost.original_post.user?.f_name}
+                  lastName={repost.original_post.user?.l_name}
+                  size={36}
+                  style={styles.originalAvatar}
+                />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.nameContainer}>
+                    <Text style={[
+                      styles.originalUserName,
+                      (repost.original_post.user?.user_id && repost.original_post.user?.user_id !== currentUserId) ? styles.clickableName : null
+                    ]}>{originalUserName}</Text>
+                    {(isOriginalAdmin || isOriginalPeso) && (
+                      <View style={[
+                        styles.priorityBadge,
+                        isOriginalAdmin ? styles.adminBadge : styles.pesoBadge
+                      ]}>
+                        <Text style={styles.priorityBadgeText}>
+                          {isOriginalAdmin ? 'ADMIN' : 'PESO'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  {!!originalTimeFromNow && (
+                    <Text style={styles.originalMeta}>{originalTimeFromNow}</Text>
                   )}
                 </View>
-                {!!originalTimeFromNow && (
-                  <Text style={styles.originalMeta}>{originalTimeFromNow}</Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Original Content */}
-          {/* Note: Backend doesn't provide post_title for original post in repost detail */}
-          <Text style={styles.originalContent}>{repost.original_post.post_content}</Text>
-        
-        {/* Original Images - support multiple images */}
-        {originalImages.length > 0 && (
-          <View style={styles.originalImagesContainer}>
-            {originalImages.length === 1 ? (
-              <TouchableOpacity 
-                onPress={() => {
-                  setSelectedImageIndex(0);
-                  setImageViewerVisible(true);
-                }}
-              >
-                <Image source={{ uri: originalImageUrl || '' }} style={styles.originalImage} resizeMode="cover" />
               </TouchableOpacity>
-            ) : (
-              <ScrollView horizontal style={styles.originalImagesScroll} showsHorizontalScrollIndicator={false}>
-                {originalImages.map((image, index) => (
-                  <TouchableOpacity 
-                    key={index}
-                    onPress={() => {
-                      setSelectedImageIndex(index);
-                      setImageViewerVisible(true);
-                    }}
-                  >
-                    <Image 
-                      source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
-                      style={styles.originalImage} 
-                      resizeMode="cover" 
-                    />
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-        </TouchableOpacity>
+            </View>
+
+            {/* Original Content */}
+            {/* Note: Backend doesn't provide post_title for original post in repost detail */}
+            <Text style={styles.originalContent}>{repost.original_post.post_content}</Text>
+          
+          {/* Original Images - support multiple images */}
+          {originalImages.length > 0 && (
+            <View style={styles.originalImagesContainer}>
+              {originalImages.length === 1 ? (
+                <TouchableOpacity 
+                  onPress={() => {
+                    setSelectedImageIndex(0);
+                    setImageViewerVisible(true);
+                  }}
+                >
+                  <CachedImage uri={originalImageUrl || ''} style={styles.originalImage} contentFit="contain" />
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.originalImagesGrid}>
+                  {originalImages.slice(0, 4).map((image, index) => (
+                    <TouchableOpacity 
+                      key={index}
+                      onPress={() => {
+                        setSelectedImageIndex(index);
+                        setImageViewerVisible(true);
+                      }}
+                      style={styles.originalGridImage}
+                    >
+                      <CachedImage 
+                        uri={String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`}
+                        style={styles.originalGridImageContent}
+                        contentFit="cover"
+                      />
+                      {index === 3 && originalImages.length > 4 && (
+                        <View style={styles.originalMoreImagesOverlay}>
+                          <Text style={styles.originalMoreImagesText}>+{originalImages.length - 4}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+          </TouchableOpacity>
+        )
       )}
 
       {/* Repost Stats */}
@@ -536,32 +616,34 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
       {/* Action Sheet Modal */}
       <Modal visible={showActions} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPressOut={() => setShowActions(false)}
-        >
-          <View style={styles.modalContent}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.sheet}>
             <TouchableOpacity
-              style={styles.modalButton}
+              style={styles.sheetRow}
               onPress={() => {
                 setEditModal(true);
                 setShowActions(false);
               }}
             >
-              <Text style={styles.modalButtonText}>Edit Caption</Text>
+              <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+              <Text style={styles.sheetRowText}>Edit Caption</Text>
             </TouchableOpacity>
+            <View style={styles.sheetDivider} />
             <TouchableOpacity
-              style={[styles.modalButton, styles.deleteButton]}
+              style={styles.sheetRow}
               onPress={() => {
                 setShowActions(false);
                 handleDelete();
               }}
             >
-              <Text style={[styles.modalButtonText, styles.deleteButtonText]}>Delete Repost</Text>
+              <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+              <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete Repost</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.sheetCancel} onPress={() => setShowActions(false)}>
+            <Text style={styles.sheetCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
       </Modal>
 
       {/* Edit Caption Modal */}
@@ -667,22 +749,30 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                 </Text>
               </View>
             )}
-            <ScrollView 
-              horizontal 
-              pagingEnabled 
+            <ScrollView
+              ref={imageScrollRef}
+              horizontal
+              pagingEnabled
               showsHorizontalScrollIndicator={false}
+              contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+              onLayout={() => {
+                if (imageScrollRef.current) {
+                  imageScrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                }
+              }}
               onMomentumScrollEnd={(event) => {
-                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
+                const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
                 setSelectedImageIndex(index);
               }}
             >
               {originalImages.map((image, index) => (
-                <Image
-                  key={index}
-                  source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }}
-                  style={styles.imageViewerImage}
-                  resizeMode="contain"
-                />
+                <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                  <CachedImage
+                    uri={String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`}
+                    style={[styles.imageViewerImage, { width: screenWidth, height: screenHeight * 0.8 }]}
+                    contentFit="contain"
+                  />
+                </View>
               ))}
             </ScrollView>
           </View>
@@ -774,17 +864,46 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   originalImage: {
-    width: 200,
-    height: 150,
+    width: '100%',
+    height: 300,
     borderRadius: 8,
     backgroundColor: '#ccc',
-    marginRight: 8,
   },
   originalImagesContainer: {
     marginTop: 8,
   },
-  originalImagesScroll: {
-    maxHeight: 150,
+  originalImagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+    justifyContent: 'space-between',
+  },
+  originalGridImage: {
+    width: '49%',
+    height: 150,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  originalGridImageContent: {
+    width: '100%',
+    height: '100%',
+  },
+  originalMoreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  originalMoreImagesText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   actionsCountsRow: {
     flexDirection: 'row',
@@ -829,6 +948,40 @@ const styles = StyleSheet.create({
     padding: 16,
     width: '80%',
     maxWidth: 300,
+  },
+  // Unified Action Sheet styles
+  sheet: {
+    backgroundColor: '#fff',
+    width: '88%',
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  sheetRowText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  sheetCancel: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '88%',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  sheetCancelText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   viewerModal: {
     backgroundColor: 'white',

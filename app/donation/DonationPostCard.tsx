@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, ScrollView, Dimensions } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
@@ -46,6 +46,10 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowButton, setShowFollowButton] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const imageScrollRef = useRef<ScrollView>(null);
 
   const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
 
@@ -165,6 +169,13 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   };
 
   useEffect(() => {
+    // Ensure initial like reflects either backend flag or likes array if available
+    let liked: any = post.is_liked;
+    if ((liked === undefined || liked === null) && currentUserId && Array.isArray((post as any).likes)) {
+      liked = (post as any).likes.some((l: any) => (l?.user_id || l?.user?.user_id) === currentUserId);
+    }
+    setIsLiked(Boolean(liked));
+
     if (currentUserId && post.user.user_id !== currentUserId) {
       setShowFollowButton(true);
       checkFollowStatus(post.user.user_id).then(status => {
@@ -227,7 +238,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
           {images.length === 1 ? (
             // Single image - full width
             <TouchableOpacity 
-              onPress={() => setImageViewerVisible(true)}
+              onPress={() => { setSelectedImageIndex(0); setImageViewerVisible(true); }}
             >
               <Image source={{ uri: imageUrl || '' }} style={styles.singleImage} resizeMode="contain" />
             </TouchableOpacity>
@@ -240,7 +251,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
                   <TouchableOpacity 
                     key={index}
                     style={styles.fourImagesGrid}
-                    onPress={() => setImageViewerVisible(true)}
+                    onPress={() => { setSelectedImageIndex(index); setImageViewerVisible(true); }}
                   >
                     <Image 
                       source={{ uri: imageUri }} 
@@ -362,11 +373,39 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
             <Text style={styles.imageViewerCloseText}>✕</Text>
           </TouchableOpacity>
           <View style={styles.imageViewerContainer}>
-            <Image
-              source={{ uri: imageUrl || '' }}
-              style={styles.imageViewerImage}
-              resizeMode="contain"
-            />
+            {images.length > 1 && (
+              <View style={styles.imageViewerCounter}>
+                <Text style={styles.imageViewerCounterText}>
+                  {selectedImageIndex + 1} of {images.length}
+                </Text>
+              </View>
+            )}
+            <ScrollView
+              ref={imageScrollRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+              onLayout={() => {
+                if (imageScrollRef.current) {
+                  imageScrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                }
+              }}
+              onMomentumScrollEnd={(event) => {
+                const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                setSelectedImageIndex(index);
+              }}
+            >
+              {images.map((img, idx) => (
+                <View key={idx} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                  <Image
+                    source={{ uri: String(img.image_url).startsWith('http') ? img.image_url : `${API_BASE_URL}${img.image_url}` }}
+                    style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                    resizeMode="contain"
+                  />
+                </View>
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -639,6 +678,19 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     width: 400,
     height: 400,
+  },
+  imageViewerCounter: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 5,
+    borderRadius: 10,
+  },
+  imageViewerCounterText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   
   // Donation Badge Styles

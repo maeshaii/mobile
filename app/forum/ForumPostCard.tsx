@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
 
 import { FontAwesome } from '@expo/vector-icons';
 
@@ -115,6 +115,9 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const imageScrollRef = useRef<ScrollView>(null);
 
 
 
@@ -140,8 +143,11 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   // Sync like state when post data changes
 
   useEffect(() => {
-
-    setIsLiked(post.is_liked || false);
+    let liked: any = post.is_liked;
+    if ((liked === undefined || liked === null) && currentUserId && Array.isArray((post as any).likes)) {
+      liked = (post as any).likes.some((l: any) => (l?.user_id || l?.user?.user_id) === currentUserId);
+    }
+    setIsLiked(Boolean(liked));
 
     setLikeCount(post.likes_count || 0);
 
@@ -149,7 +155,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
     setCommentCount(post.comments_count || 0);
 
-  }, [post.is_liked, post.likes_count, post.reposts_count, post.comments_count]);
+  }, [post.is_liked, post.likes_count, post.reposts_count, post.comments_count, (post as any).likes, currentUserId]);
 
 
 
@@ -535,7 +541,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
               <View style={styles.imagesGrid}>
 
-                {images.slice(0, 6).map((image, index) => {
+                {images.slice(0, 4).map((image, index) => {
 
                   // Determine grid style based on image count and position
 
@@ -555,7 +561,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
                   } else if (images.length >= 5) {
 
-                    gridStyle = styles.fivePlusImagesGrid;
+                    gridStyle = styles.fourImagesGrid;
 
                   }
 
@@ -589,13 +595,13 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
                     />
 
-                    {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                    {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
 
-                    {index === 5 && images.length > 6 && (
+                    {index === 3 && images.length > 4 && (
 
                       <View style={styles.moreImagesOverlay}>
 
-                        <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
+                        <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
 
                       </View>
 
@@ -810,87 +816,45 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
 
       {/* Image Viewer Modal */}
-
       <Modal visible={imageViewerVisible} transparent animationType="fade">
-
         <View style={styles.imageViewerOverlay}>
-
           <TouchableOpacity 
-
             style={styles.imageViewerCloseButton}
-
             onPress={() => setImageViewerVisible(false)}
-
           >
-
             <FontAwesome name="times" size={24} color="#fff" />
-
           </TouchableOpacity>
-
           
-
           <View style={styles.imageViewerContainer}>
-
-            <Image
-
-              source={{ uri: images[selectedImageIndex] ? (String(images[selectedImageIndex].image_url).startsWith('http') ? images[selectedImageIndex].image_url : `${API_BASE_URL}${images[selectedImageIndex].image_url}`) : '' }}
-
-              style={styles.imageViewerImage}
-
-              resizeMode="contain"
-
-            />
-
+            <ScrollView
+              ref={imageScrollRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+              onLayout={() => {
+                if (imageScrollRef.current) {
+                  imageScrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                }
+              }}
+              onMomentumScrollEnd={(event) => {
+                const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                setSelectedImageIndex(index);
+              }}
+            >
+              {images.map((img, idx) => (
+                <View key={idx} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                  <Image
+                    source={{ uri: String(img.image_url).startsWith('http') ? img.image_url : `${API_BASE_URL}${img.image_url}` }}
+                    style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                    resizeMode="contain"
+                  />
+                </View>
+              ))}
+            </ScrollView>
           </View>
-
-          
-
-          {/* Navigation arrows for multiple images */}
-
-          {images.length > 1 && (
-
-            <>
-
-              {selectedImageIndex > 0 && (
-
-                <TouchableOpacity 
-
-                  style={[styles.imageNavButton, styles.imageNavLeft]}
-
-                  onPress={() => setSelectedImageIndex(selectedImageIndex - 1)}
-
-                >
-
-                  <FontAwesome name="chevron-left" size={24} color="#fff" />
-
-                </TouchableOpacity>
-
-              )}
-
-              {selectedImageIndex < images.length - 1 && (
-
-                <TouchableOpacity 
-
-                  style={[styles.imageNavButton, styles.imageNavRight]}
-
-                  onPress={() => setSelectedImageIndex(selectedImageIndex + 1)}
-
-                >
-
-                  <FontAwesome name="chevron-right" size={24} color="#fff" />
-
-                </TouchableOpacity>
-
-              )}
-
-            </>
-
-          )}
-
         </View>
-
       </Modal>
-
     </>
 
   );

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Dimensions, findNodeHandle, UIManager } from 'react-native';
 import { getFollowingForMentions } from '../services/api';
 import UserAvatar from './UserAvatar';
 
@@ -39,15 +39,32 @@ const MentionInput: React.FC<MentionInputProps> = ({
   const [mentionStart, setMentionStart] = useState(-1);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mentionQuery, setMentionQuery] = useState('');
+  const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const textInputRef = useRef<TextInput>(null);
+  const containerRef = useRef<View>(null);
+  const [dropdownAbove, setDropdownAbove] = useState(false);
 
   // Load following users on component mount
   useEffect(() => {
     const loadFollowing = async () => {
       try {
         const response = await getFollowingForMentions();
-        if (response.success) {
-          setFollowing(response.following);
+        if (response && typeof response === 'object' && 'success' in response) {
+          if ((response as any).success) {
+            setFollowing((response as any).following || []);
+            return;
+          }
+        }
+        if (Array.isArray(response)) {
+          setFollowing(response as any);
+          return;
+        }
+        if (response && typeof response === 'object') {
+          const maybeUsers = (response as any).following || (response as any).users || (response as any).results;
+          if (Array.isArray(maybeUsers)) {
+            setFollowing(maybeUsers);
+            return;
+          }
         }
       } catch (error) {
         console.error('Error loading following users:', error);
@@ -60,50 +77,80 @@ const MentionInput: React.FC<MentionInputProps> = ({
   const handleTextChange = (text: string) => {
     onChange(text);
 
-    // Find the last @ symbol before cursor
-    const lastAtIndex = text.lastIndexOf('@');
-    
+    // Use current cursor position to detect the right mention segment
+    const caret = selection?.start ?? text.length;
+    const lastAtIndex = text.lastIndexOf('@', Math.max(0, caret - 1));
+
     if (lastAtIndex !== -1) {
-      const textAfterAt = text.substring(lastAtIndex + 1);
-      
-      // Check if there's no space after @ (meaning we're typing a mention)
-      if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
-        setMentionStart(lastAtIndex);
-        setMentionQuery(textAfterAt);
-        setShowSuggestions(true);
-        
-        // Filter suggestions based on what's typed after @
-        const filteredSuggestions = following.filter(user =>
-          user.name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-          user.f_name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-          user.l_name.toLowerCase().includes(textAfterAt.toLowerCase())
-        );
-        setSuggestions(filteredSuggestions);
-        setSelectedIndex(0);
-      } else {
+      const textFromAtToCaret = text.substring(lastAtIndex + 1, caret);
+      // If there is a space/newline before caret, we're not in a mention token
+      if (textFromAtToCaret.includes(' ') || textFromAtToCaret.includes('\n')) {
         setShowSuggestions(false);
         setMentionQuery('');
+        setMentionStart(-1);
+        return;
       }
+
+      setMentionStart(lastAtIndex);
+      setMentionQuery(textFromAtToCaret);
+      setShowSuggestions(true);
+      const queryLower = textFromAtToCaret.toLowerCase();
+      const filteredSuggestions = following.filter(user =>
+        (user.name || '').toLowerCase().includes(queryLower) ||
+        (user.f_name || '').toLowerCase().includes(queryLower) ||
+        (user.l_name || '').toLowerCase().includes(queryLower)
+      );
+      setSuggestions(filteredSuggestions);
+      setSelectedIndex(0);
     } else {
       setShowSuggestions(false);
       setMentionQuery('');
+      setMentionStart(-1);
     }
   };
+
+  // Measure and decide where to place dropdown to avoid clipping
+  const updateDropdownPosition = () => {
+    try {
+      const handle = findNodeHandle(containerRef.current);
+      if (!handle) return;
+      UIManager.measure(handle, (_x, _y, _w, h, _pageX, pageY) => {
+        const windowHeight = Dimensions.get('window').height;
+        const spaceBelow = windowHeight - (pageY + h);
+        // If less than ~220px below (typical dropdown max height), place above
+        setDropdownAbove(spaceBelow < 220);
+      });
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (showSuggestions) updateDropdownPosition();
+  }, [showSuggestions]);
 
   // Handle suggestion selection
   const selectSuggestion = (user: User) => {
     if (mentionStart === -1) return;
+    const caretStart = selection?.start ?? value.length;
+    const caretEnd = selection?.end ?? caretStart;
 
+    // Replace the mention token from '@' to caret with selected user name
     const beforeMention = value.substring(0, mentionStart);
-    const afterMention = value.substring(value.length);
-    
-    const newValue = beforeMention + `@${user.name} ` + afterMention;
+    const afterCaret = value.substring(caretEnd);
+    // Build a space-free mention token so detection works consistently (@FirstLast)
+    const displayName = (user.name || `${user.f_name || ''} ${user.l_name || ''}`).trim();
+    const token = displayName.replace(/\s+/g, '');
+    const insert = `@${token} `;
+    const newValue = beforeMention + insert + afterCaret;
     onChange(newValue);
-    
+
+    // Move cursor right after the inserted mention
+    const newCaret = beforeMention.length + insert.length;
+    setSelection({ start: newCaret, end: newCaret });
+
     setShowSuggestions(false);
     setMentionStart(-1);
     setMentionQuery('');
-    
+
     // Focus back to text input
     setTimeout(() => {
       if (textInputRef.current) {
@@ -111,6 +158,35 @@ const MentionInput: React.FC<MentionInputProps> = ({
       }
     }, 0);
   };
+
+  // Fallback: if local following filter yields no results, try server search
+  useEffect(() => {
+    let cancelled = false;
+    const runFallbackSearch = async () => {
+      if (!showSuggestions) return;
+      if (!mentionQuery) return;
+      if (suggestions.length > 0) return;
+      try {
+        // Lazy import to avoid circular deps at top
+        const { searchAlumni } = await import('../services/api');
+        const res: any = await searchAlumni(mentionQuery);
+        const results: any[] = (res?.results || res?.users || []);
+        if (!cancelled && Array.isArray(results) && results.length) {
+          const mapped = results.map((u: any) => ({
+            user_id: u.user_id || u.id,
+            name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim(),
+            f_name: u.f_name || u.first_name || '',
+            m_name: u.m_name || u.middle_name || '',
+            l_name: u.l_name || u.last_name || '',
+            profile_pic: u.profile_pic || u.avatar_url || ''
+          })) as User[];
+          setSuggestions(mapped);
+        }
+      } catch {}
+    };
+    runFallbackSearch();
+    return () => { cancelled = true; };
+  }, [showSuggestions, mentionQuery, suggestions.length]);
 
   // Handle keyboard navigation
   const handleKeyPress = (e: any) => {
@@ -145,11 +221,13 @@ const MentionInput: React.FC<MentionInputProps> = ({
   };
 
   return (
-    <View style={[styles.container, style]}>
+    <View ref={containerRef} style={[styles.container, style]}>
       <TextInput
         ref={textInputRef}
         value={value}
         onChangeText={handleTextChange}
+        selection={selection}
+        onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
         onKeyPress={handleKeyPress}
         placeholder={placeholder}
         editable={!disabled}
@@ -178,6 +256,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
               setSelectedIndex(0);
             }
           }
+          updateDropdownPosition();
         }}
         onBlur={() => {
           // Delay hiding suggestions to allow selection
@@ -187,8 +266,8 @@ const MentionInput: React.FC<MentionInputProps> = ({
       
       {/* Mention Suggestions Dropdown */}
       {showSuggestions && suggestions.length > 0 && (
-        <View style={styles.suggestionsContainer}>
-          <ScrollView style={styles.suggestionsScroll} keyboardShouldPersistTaps="handled">
+        <View style={dropdownAbove ? styles.suggestionsContainerAbove : styles.suggestionsContainerBelow}>
+          <ScrollView style={styles.suggestionsScroll} keyboardShouldPersistTaps="always">
             {/* Header */}
             <View style={styles.suggestionsHeader}>
               <Text style={styles.suggestionsHeaderText}>Mention someone</Text>
@@ -253,7 +332,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     color: '#999',
   },
-  suggestionsContainer: {
+  suggestionsContainerBelow: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#e4e6ea',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1000,
+    maxHeight: 300,
+    marginTop: 4,
+  },
+  suggestionsContainerAbove: {
     position: 'absolute',
     bottom: '100%',
     left: 0,

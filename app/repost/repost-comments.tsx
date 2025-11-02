@@ -4,13 +4,15 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { API_BASE_URL, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment, getRepostDetail, getUserInfo, updateRepost, deleteRepost, getPostLikes, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
 
 import UserAvatar from '../../components/UserAvatar';
+
+import CachedImage from '../../components/CachedImage';
 
 import MentionInput from '../../components/MentionInput';
 
@@ -262,7 +264,8 @@ export default function RepostCommentsScreen() {
       
 
       // Extract original post images using centralized utility with deduplication
-      const extractedImages = repostData?.original ? getImagesFromContent(repostData.original) : [];
+      const originalContent = repostData?.original || (repostData as any)?.original_post;
+      const extractedImages = originalContent ? getImagesFromContent(originalContent) : [];
 
       console.log('Extracted images:', extractedImages);
 
@@ -338,6 +341,15 @@ export default function RepostCommentsScreen() {
 
   }, [repostId, load]);
 
+  // Refresh when screen regains focus
+  useFocusEffect(
+    useCallback(() => {
+      if (repostId) {
+        load();
+      }
+    }, [repostId, load])
+  );
+
 
 
   const onRefresh = useCallback(async () => {
@@ -386,7 +398,14 @@ export default function RepostCommentsScreen() {
 
     const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
 
-    const imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
+    let imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
+    try {
+      const url = new URL(imageUrl);
+      if (/ngrok/i.test(url.hostname) && !url.searchParams.has('ngrok-skip-browser-warning')) {
+        url.searchParams.set('ngrok-skip-browser-warning', 'true');
+        imageUrl = url.toString();
+      }
+    } catch {}
 
     console.log('Repost Comments - renderPostImage - src:', src, 'isAbs:', isAbs, 'imageUrl:', imageUrl);
 
@@ -722,7 +741,7 @@ export default function RepostCommentsScreen() {
 
 
 
-  const hideComposer = !!actionFor || editingId !== null || replyingTo !== null;
+  const hideComposer = !!actionFor || editingId !== null || replyingTo !== null || editingReplyId !== null;
 
   
 
@@ -932,27 +951,21 @@ export default function RepostCommentsScreen() {
 
 
 
-                {/* Show replies count and toggle */}
-
-                {(c.replies_count || 0) > 0 && (
-
-                  <TouchableOpacity 
-
-                    style={styles.repliesToggle}
-
-                    onPress={() => toggleReplies(c.comment_id)}
-
-                  >
-
-                    <Text style={styles.repliesToggleText}>
-
-                      {showReplies[c.comment_id] ? 'Hide' : 'View'} {c.replies_count || 0} {(c.replies_count || 0) === 1 ? 'reply' : 'replies'}
-
-                    </Text>
-
-                  </TouchableOpacity>
-
-                )}
+                {/* Show/Hide replies toggle (always visible) */}
+                <TouchableOpacity 
+                  style={styles.repliesToggle}
+                  onPress={() => toggleReplies(c.comment_id)}
+                >
+                  <Text style={styles.repliesToggleText}>
+                    {(() => {
+                      const loadedCount = Array.isArray(commentReplies[c.comment_id]) ? commentReplies[c.comment_id].length : null;
+                      const count = loadedCount !== null ? loadedCount : (c.replies_count || 0);
+                      const label = showReplies[c.comment_id] ? 'Hide' : 'View';
+                      const noun = count === 1 ? 'reply' : 'replies';
+                      return `${label} ${count} ${noun}`;
+                    })()}
+                  </Text>
+                </TouchableOpacity>
 
 
 
@@ -1578,7 +1591,7 @@ export default function RepostCommentsScreen() {
 
           {/* Original Post */}
 
-          {repost.original && (
+          {(repost.original || (repost as any).original_post) && (
 
             <TouchableOpacity 
 
@@ -1586,15 +1599,16 @@ export default function RepostCommentsScreen() {
 
               onPress={() => {
                 // Handle navigation based on the type of original content
-                if (repost.original?.post_id) {
-                  console.log('Navigating to original post detail:', repost.original.post_id);
-                  router.push(`/posts/detail?postId=${repost.original.post_id}`);
-                } else if (repost.original?.forum_id) {
-                  console.log('Navigating to original forum detail:', repost.original.forum_id);
-                  router.push(`/posts/detail?postId=${repost.original.forum_id}`);
-                } else if (repost.original?.donation_id) {
-                  console.log('Navigating to original donation detail:', repost.original.donation_id);
-                  router.push(`/posts/detail?postId=${repost.original.donation_id}`);
+                const original = repost?.original || (repost as any)?.original_post;
+                if (original?.post_id) {
+                  console.log('Navigating to original post detail:', original.post_id);
+                  router.push(`/posts/detail?postId=${original.post_id}`);
+                } else if (original?.forum_id) {
+                  console.log('Navigating to original forum detail:', original.forum_id);
+                  router.push(`/posts/detail?postId=${original.forum_id}`);
+                } else if (original?.donation_id) {
+                  console.log('Navigating to original donation detail:', original.donation_id);
+                  router.push(`/posts/detail?postId=${original.donation_id}`);
                 }
               }}
 
@@ -1604,11 +1618,11 @@ export default function RepostCommentsScreen() {
 
                 <UserAvatar 
 
-                  profilePic={repost.original?.user?.profile_pic}
+                  profilePic={(repost?.original || (repost as any)?.original_post)?.user?.profile_pic}
 
-                  firstName={repost.original?.user?.f_name}
+                  firstName={(repost?.original || (repost as any)?.original_post)?.user?.f_name}
 
-                  lastName={repost.original?.user?.l_name}
+                  lastName={(repost?.original || (repost as any)?.original_post)?.user?.l_name}
 
                   size={40}
 
@@ -1622,11 +1636,11 @@ export default function RepostCommentsScreen() {
 
                     <Text style={styles.name}>
 
-                      {`${repost.original?.user?.f_name || ''} ${repost.original?.user?.l_name || ''}`.trim() || 'User'}
+                      {`${(repost?.original || (repost as any)?.original_post)?.user?.f_name || ''} ${(repost?.original || (repost as any)?.original_post)?.user?.l_name || ''}`.trim() || 'User'}
 
                     </Text>
 
-                    {meId === repost.original?.user?.user_id && (
+                    {meId === (repost?.original || (repost as any)?.original_post)?.user?.user_id && (
 
                       <View style={{ 
 
@@ -1652,9 +1666,9 @@ export default function RepostCommentsScreen() {
 
                   </View>
 
-                  {repost.original?.created_at && (
+                  {(repost?.original || (repost as any)?.original_post)?.created_at && (
 
-                    <Text style={styles.subtle}>{dayjs(repost.original.created_at).fromNow()}</Text>
+                    <Text style={styles.subtle}>{dayjs((repost?.original || (repost as any)?.original_post)?.created_at).fromNow()}</Text>
 
                   )}
 
@@ -1668,34 +1682,40 @@ export default function RepostCommentsScreen() {
 
               </View>
 
-              {(repost.original?.content && repost.original.content.trim()) || (repost.original?.post_content && repost.original.post_content.trim()) ? (
-                <Text style={styles.postContent}>{repost.original.content || repost.original.post_content}</Text>
-              ) : (
-                <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
-                  Original post content unavailable
-                </Text>
-              )}
+              {(() => {
+                const original = repost?.original || (repost as any)?.original_post;
+                const content = (original?.content && original.content.trim()) || (original?.post_content && original.post_content.trim());
+                return content ? (
+                  <Text style={styles.postContent}>{original?.content || original?.post_content}</Text>
+                ) : (
+                  <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
+                    Original post content unavailable
+                  </Text>
+                );
+              })()}
 
               
 
               {/* Original Post Image */}
-              {repost.original && (
+              {(repost.original || (repost as any).original_post) && (
                 <View style={styles.originalPostImageContainer}>
                   {(() => {
                     console.log('Rendering images - originalImages.length:', originalImages.length);
                     console.log('Rendering images - originalImages:', originalImages);
-                    console.log('Rendering images - repost.original:', repost.original);
-                    console.log('Rendering images - repost.original.post_image:', repost.original.post_image);
-                    console.log('Rendering images - repost.original.post_images:', repost.original.post_images);
-                    console.log('Rendering images - repost.original.images:', repost.original.images);
+                  const original = repost?.original || (repost as any)?.original_post;
+                  console.log('Rendering images - original:', original);
+                  console.log('Rendering images - original.post_image:', original?.post_image);
+                  console.log('Rendering images - original.post_images:', original?.post_images);
+                  console.log('Rendering images - original.images:', original?.images);
                     return null;
                   })()}
 
                   {(() => {
                     // Use originalImages state, with fallback to direct extraction if empty
+                    const original = repost?.original || (repost as any)?.original_post;
                     const imagesToRender = originalImages.length > 0 
                       ? originalImages 
-                      : repost?.original ? getImagesFromContent(repost.original) : [];
+                      : original ? getImagesFromContent(original) : [];
                     
                     console.log('Rendering images - imagesToRender.length:', imagesToRender.length);
                     console.log('Rendering images - imagesToRender:', imagesToRender);
@@ -1706,11 +1726,12 @@ export default function RepostCommentsScreen() {
 
                     (() => {
 
+                      const original = repost?.original || (repost as any)?.original_post;
                       const imagesToRender = originalImages.length > 0 
 
                         ? originalImages 
 
-                        : repost?.original ? getImagesFromContent(repost.original) : [];
+                        : original ? getImagesFromContent(original) : [];
 
                       
 
@@ -1730,13 +1751,13 @@ export default function RepostCommentsScreen() {
 
                         >
 
-                          <Image 
+                          <CachedImage 
 
-                            source={{ uri: String(imagesToRender[0].image_url).startsWith('http') ? imagesToRender[0].image_url : `${API_BASE_URL}${imagesToRender[0].image_url}` }} 
+                            uri={String(imagesToRender[0].image_url).startsWith('http') ? imagesToRender[0].image_url : `${API_BASE_URL}${imagesToRender[0].image_url}`} 
 
                             style={styles.originalPostImage} 
 
-                            resizeMode="cover" 
+                            contentFit="cover" 
 
                           />
 
@@ -1784,13 +1805,13 @@ export default function RepostCommentsScreen() {
 
                             >
 
-                              <Image 
+                              <CachedImage 
 
-                                source={{ uri: String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}` }} 
+                                uri={String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`} 
 
                                 style={styles.originalGridImage} 
 
-                                resizeMode="cover" 
+                                contentFit="cover" 
 
                               />
 

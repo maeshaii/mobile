@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions } from 'react-native';
+import CachedImage from '../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { getUserInfo, logoutUser, getFeed, API_BASE_URL } from '../services/api';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { getUserInfo, logoutUser, getFeed, API_BASE_URL, likeRepost, unlikeRepost } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
   repostPost, deleteRepost, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus
@@ -28,6 +30,42 @@ export default function DashboardScreen() {
   const [selectedPost, setSelectedPost] = useState<any | null>(null);
   const [commentText, setCommentText] = useState('');
 
+  // Dashboard image viewer state
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [viewerImages, setViewerImages] = useState<any[]>([]);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+  const imageScrollRef = useRef<ScrollView>(null);
+
+  // Helpers: open original post detail for repost items
+  const openOriginalPostIfAvailable = (post: any) => {
+    try {
+      const original = post?.original_post || {};
+      // Determine possible id fields
+      let rawId: any = original.post_id ?? original.donation_id ?? original.id;
+      if (rawId == null) return false;
+      // Coerce to numeric id when possible
+      let idNum: number | null = null;
+      if (typeof rawId === 'number') {
+        idNum = rawId;
+      } else if (typeof rawId === 'string') {
+        const match = rawId.match(/\d+/);
+        if (match) idNum = parseInt(match[0], 10);
+      }
+      if (!idNum || Number.isNaN(idNum)) return false;
+      const originalType = String(original.type || post.item_type || '').toLowerCase();
+      const isDonation = Boolean(original.donation_id || originalType.includes('donation'));
+      const query = [`postId=${idNum}`];
+      if (isDonation) query.push('isDonationPost=true');
+      console.log('Navigating to original detail with query:', query.join('&'), 'original:', original);
+      router.push(`/posts/detail?${query.join('&')}`);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
   // Tracker reminder state
   const [showTrackerModal, setShowTrackerModal] = useState(false);
   const [trackerStatus, setTrackerStatus] = useState<{
@@ -39,11 +77,35 @@ export default function DashboardScreen() {
     loadUserInfo();
   }, []);
 
+  // Auto-refresh feed whenever dashboard regains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadPosts();
+    }, [])
+  );
+
   const loadPosts = async () => {
     try {
       console.log('Loading posts...');
       const postsData = await getFeed();
-      setPosts(postsData || []);
+      // Merge backend liked state with locally persisted repost likes
+      let likedRepostsSet = new Set<number>();
+      try {
+        const raw = await AsyncStorage.getItem('likedReposts');
+        likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
+      } catch {}
+      const me: any = await getUserInfo().catch(() => null);
+      const meId = me?.user_id || me?.id;
+      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+        if (it?.item_type === 'repost') {
+          const likesArr = Array.isArray(it.likes) ? it.likes : [];
+          const backendLiked = meId ? likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId) : false;
+          const locallyLiked = likedRepostsSet.has(it.repost_id);
+          return { ...it, is_liked: backendLiked || locallyLiked };
+        }
+        return it;
+      }) : [];
+      setPosts(normalized || []);
       console.log('Posts loaded successfully:', postsData?.length || 0);
     } catch (err: any) {
       console.error('Error loading posts:', err);
@@ -83,7 +145,23 @@ export default function DashboardScreen() {
         console.log('❌ User is not alumni, skipping tracker check');
       }
       
-      setPosts(postsData || []);
+      // Merge backend liked state with locally persisted repost likes
+      let likedRepostsSet = new Set<number>();
+      try {
+        const raw = await AsyncStorage.getItem('likedReposts');
+        likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
+      } catch {}
+      const meId = userInfo?.user_id || userInfo?.id;
+      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+        if (it?.item_type === 'repost') {
+          const likesArr = Array.isArray(it.likes) ? it.likes : [];
+          const backendLiked = meId ? likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId) : false;
+          const locallyLiked = likedRepostsSet.has(it.repost_id);
+          return { ...it, is_liked: backendLiked || locallyLiked };
+        }
+        return it;
+      }) : [];
+      setPosts(normalized || []);
     } catch (err: any) {
       console.error('Error loading user info:', err);
       
@@ -340,7 +418,7 @@ export default function DashboardScreen() {
           </View>
         ) : (
           posts.map((post) => (
-            <View key={post.post_id} style={styles.postCard}>
+            <View key={post.repost_id || post.post_id} style={styles.postCard}>
               <View style={styles.postHeader}>
                 <Image
                   source={{ uri: post.user?.profile_pic || 'https://randomuser.me/api/portraits/women/44.jpg' }}
@@ -366,6 +444,31 @@ export default function DashboardScreen() {
                 <Text style={styles.postTitle}>{post.post_title}</Text>
               )}
               <Text style={styles.postContent}>{post.post_content}</Text>
+              {post.original_post && (
+                <TouchableOpacity
+                  style={{ alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 }}
+                  onPress={() => {
+                    try {
+                      const original = post.original_post || {};
+                      const originalId = original.post_id || original.donation_id || original.id;
+                      const originalType = (original.type || post.item_type || '').toString().toLowerCase();
+                      const isDonation = Boolean(
+                        original.donation_id ||
+                        originalType.includes('donation')
+                      );
+                      if (originalId) {
+                        const query = [`postId=${originalId}`];
+                        if (isDonation) query.push('isDonationPost=true');
+                        router.push(`/posts/detail?${query.join('&')}`);
+                      } else {
+                        console.warn('Original post id not found on repost item:', post);
+                      }
+                    } catch (e) {}
+                  }}
+                >
+                  <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>View original post</Text>
+                </TouchableOpacity>
+              )}
               
               {/* Images - Facebook-style grid layout like web */}
               {(() => {
@@ -375,7 +478,32 @@ export default function DashboardScreen() {
                 console.log('Post post_image:', post.post_image);
                 
                 // Use the proper image utility function to avoid duplicates
-                const images = getImagesFromContent(post);
+                // Prefer original post images for repost items
+                const sourceForImages = post?.original_post ? post.original_post : post;
+                // Robust extraction for donation/original posts that may use `images` field
+                // Gather images from multiple potential fields on repost originals (defensive)
+                const tryArrays: any[] = [];
+                const s: any = sourceForImages as any;
+                if (Array.isArray(s.images)) tryArrays.push(s.images);
+                if (Array.isArray(s.post_images)) tryArrays.push(s.post_images);
+                if (Array.isArray(s.content_images)) tryArrays.push(s.content_images);
+                // Some backends nest images further
+                if (s.original && Array.isArray(s.original.images)) tryArrays.push(s.original.images);
+                if (s.original && Array.isArray(s.original.post_images)) tryArrays.push(s.original.post_images);
+                // Flatten and normalize
+                let images = tryArrays.length
+                  ? ([] as any[]).concat(...tryArrays).map((img: any) => ({ image_url: img?.image_url || img?.url || img }))
+                  : getImagesFromContent(sourceForImages);
+                // Deduplicate by URL
+                const seen = new Set<string>();
+                images = images.filter((im: any) => {
+                  const u = String(im?.image_url || '').trim();
+                  if (!u) return false;
+                  const key = u.toLowerCase().split('?')[0];
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
                 
                 console.log('Dashboard - Images to display:', images);
                 console.log('Dashboard - Images length:', images.length);
@@ -387,17 +515,23 @@ export default function DashboardScreen() {
                   <View style={styles.imagesContainer}>
                     {images.length === 1 ? (
                       // Single image - full width
-                      <TouchableOpacity>
-                        <Image source={{ uri: images[0].image_url }} style={styles.singleImage} resizeMode="contain" />
+                      <TouchableOpacity onPress={() => {
+                        if (post.original_post && openOriginalPostIfAvailable(post)) return;
+                        setViewerImages(images); setViewerIndex(0); setImageViewerVisible(true);
+                      }}>
+                        <CachedImage uri={images[0].image_url} style={styles.singleImage} contentFit="cover" />
                       </TouchableOpacity>
                     ) : (
                       // Multiple images - Facebook-style grid layout
                       <View style={styles.imagesGrid}>
-                        {images.slice(0, 4).map((image, index) => {
+                        {images.slice(0, 4).map((image: any, index: number) => {
                           const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
                           return (
-                            <TouchableOpacity key={index} style={styles.fourImagesGrid}>
-                              <Image source={{ uri: imageUri }} style={styles.gridImage} resizeMode="cover" />
+                            <TouchableOpacity key={index} style={styles.fourImagesGrid} onPress={() => {
+                              if (post.original_post && openOriginalPostIfAvailable(post)) return;
+                              setViewerImages(images); setViewerIndex(index); setImageViewerVisible(true);
+                            }}>
+                              <CachedImage uri={imageUri} style={styles.gridImage} contentFit="cover" />
                               {index === 3 && images.length > 4 && (
                                 <View style={styles.moreImagesOverlay}>
                                   <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
@@ -435,24 +569,51 @@ export default function DashboardScreen() {
                   style={styles.actionBtn}
                   onPress={async () => {
                     try {
+                      const isRepost = post?.item_type === 'repost' || typeof post?.repost_id === 'number';
                       if (post.is_liked) {
                         if (post.item_type === 'donation_post') {
                           // Handle donation post unlike
                           const { unlikeDonationPost } = await import('../services/api');
                           await unlikeDonationPost(post.post_id);
+                        } else if (isRepost) {
+                          await unlikeRepost(post.repost_id);
+                          try {
+                            const key = 'likedReposts';
+                            const raw = await AsyncStorage.getItem(key);
+                            const set = new Set<number>(raw ? JSON.parse(raw) : []);
+                            set.delete(post.repost_id);
+                            await AsyncStorage.setItem(key, JSON.stringify(Array.from(set)));
+                          } catch {}
                         } else {
                           await unlikePost(post.post_id);
                         }
-                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p));
+                        setPosts(prev => prev.map(p => {
+                          const pIsRepost = p?.item_type === 'repost' || typeof p?.repost_id === 'number';
+                          const match = pIsRepost && isRepost ? (p.repost_id === post.repost_id) : (p.post_id === post.post_id);
+                          return match ? { ...p, is_liked: false, likes_count: Math.max(0, (p.likes_count||0)-1) } : p;
+                        }));
                       } else {
                         if (post.item_type === 'donation_post') {
                           // Handle donation post like
                           const { likeDonationPost } = await import('../services/api');
                           await likeDonationPost(post.post_id);
+                        } else if (isRepost) {
+                          await likeRepost(post.repost_id);
+                          try {
+                            const key = 'likedReposts';
+                            const raw = await AsyncStorage.getItem(key);
+                            const set = new Set<number>(raw ? JSON.parse(raw) : []);
+                            set.add(post.repost_id);
+                            await AsyncStorage.setItem(key, JSON.stringify(Array.from(set)));
+                          } catch {}
                         } else {
                           await likePost(post.post_id);
                         }
-                        setPosts(prev => prev.map(p => p.post_id === post.post_id ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p));
+                        setPosts(prev => prev.map(p => {
+                          const pIsRepost = p?.item_type === 'repost' || typeof p?.repost_id === 'number';
+                          const match = pIsRepost && isRepost ? (p.repost_id === post.repost_id) : (p.post_id === post.post_id);
+                          return match ? { ...p, is_liked: true, likes_count: (p.likes_count||0)+1 } : p;
+                        }));
                       }
                       // Auto-refresh feed after like/unlike
                       setTimeout(() => loadPosts(), 500);
@@ -498,6 +659,49 @@ export default function DashboardScreen() {
                   <Text style={styles.actionText}>Repost</Text>
                 </TouchableOpacity>
               </View>
+
+      {/* Image Viewer Modal for dashboard */}
+      <Modal visible={imageViewerVisible} transparent animationType="fade" onRequestClose={() => setImageViewerVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)' }}>
+          <TouchableOpacity
+            onPress={() => setImageViewerVisible(false)}
+            style={{ position: 'absolute', top: 50, right: 20, zIndex: 1, backgroundColor: 'rgba(0,0,0,0.6)', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>✕</Text>
+          </TouchableOpacity>
+          {viewerImages.length > 1 && (
+            <View style={{ position: 'absolute', top: 50, left: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, zIndex: 1 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{viewerIndex + 1} of {viewerImages.length}</Text>
+            </View>
+          )}
+          <ScrollView
+            ref={imageScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: viewerIndex * screenWidth, y: 0 }}
+            onLayout={() => {
+              if (imageScrollRef.current) {
+                imageScrollRef.current.scrollTo({ x: viewerIndex * screenWidth, y: 0, animated: false });
+              }
+            }}
+            onMomentumScrollEnd={(event) => {
+              const idx = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+              setViewerIndex(idx);
+            }}
+          >
+            {viewerImages.map((img, idx) => (
+              <View key={idx} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                <CachedImage
+                  uri={String(img.image_url).startsWith('http') ? img.image_url : `${API_BASE_URL}${img.image_url}`}
+                  style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                  contentFit="contain"
+                />
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
             </View>
           ))
         )}
@@ -1061,11 +1265,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 8,
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   singleImage: {
     width: '100%',
-    height: 300,
+    aspectRatio: 1,
     borderRadius: 8,
+    alignSelf: 'center',
   },
   imagesGrid: {
     flexDirection: 'row',

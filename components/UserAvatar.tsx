@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet, ImageSourcePropType } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
+import CachedImage from './CachedImage';
 import { API_BASE_URL } from '../services/api';
 
 interface UserAvatarProps {
@@ -11,90 +13,68 @@ interface UserAvatarProps {
 }
 
 const UserAvatar: React.FC<UserAvatarProps> = ({ 
-  profilePic, 
-  firstName = '', 
-  lastName = '', 
+  profilePic,
+  firstName,
+  lastName,
   size = 40,
   style 
 }) => {
-  const [imageError, setImageError] = useState(false);
-  
-  // Ensure size is always positive
   const safeSize = Math.max(1, Math.abs(size || 40));
-  
-  // Generate initials from first and last name
-  const getInitials = (first: string, last: string) => {
-    const firstInitial = first.charAt(0).toUpperCase();
-    const lastInitial = last.charAt(0).toUpperCase();
-    return `${firstInitial}${lastInitial}`;
-  };
 
-  const initials = getInitials(firstName, lastName);
-  
-  // Determine if we have a valid profile picture
-  const hasValidProfilePic = profilePic && 
-    profilePic.trim() !== '' && 
-    profilePic !== 'null' && 
-    profilePic !== 'undefined' && 
-    !imageError;
-  
   const avatarStyle = {
     width: safeSize,
     height: safeSize,
     borderRadius: safeSize / 2,
+  } as const;
+
+  const buildUri = (src?: string | null) => {
+    if (!src) return null;
+    const s = String(src);
+    const isAbs = s.startsWith('http') || s.startsWith('data:');
+    return isAbs ? s : `${API_BASE_URL}${s}`;
   };
 
-  // Show initials if no valid profile pic or if image failed to load
-  if (!hasValidProfilePic || !firstName) {
+  const getInitials = () => {
+    const name = `${firstName || ''} ${lastName || ''}`.trim();
+    if (!name) return '?';
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  };
+
+  const uri = buildUri(profilePic);
+
+  if (uri) {
     return (
-      <View style={[
-        avatarStyle, 
-        styles.initialsContainer, 
-        style
-      ]}>
-        <Text style={[
-          styles.initialsText, 
-          { fontSize: safeSize * 0.4 }
-        ]}>
-          {initials || '?'}
-        </Text>
-      </View>
+      <CachedImage
+        uri={uri}
+        style={[avatarStyle, style]}
+        contentFit="cover"
+      />
     );
   }
 
-  // Build the image source for valid profile pics
-  const imageSource: ImageSourcePropType = { 
-    uri: String(profilePic).startsWith('http') || String(profilePic).startsWith('data:')
-      ? String(profilePic)
-      : `${API_BASE_URL}${profilePic}`
-  };
-
+  // Fallback to CTU logo when no profile picture
   return (
-    <Image 
-      source={imageSource} 
+    <Image
+      source={require('../assets/images/ctu_logo.png')}
       style={[avatarStyle, style]}
-      resizeMode="cover"
-      onError={(error) => {
-        console.warn('Failed to load profile image:', profilePic, 'Error:', error.nativeEvent.error);
-        setImageError(true);
-      }}
-      onLoadStart={() => {
-        // Reset error state when starting to load a new image
-        setImageError(false);
-      }}
+      contentFit="cover"
     />
   );
 };
 
+ 
+
 const styles = StyleSheet.create({
-  initialsContainer: {
-    backgroundColor: '#bcd0e6',
+  fallback: {
+    backgroundColor: '#174f84',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  initialsText: {
-    color: '#174f84',
-    fontWeight: 'bold',
+  initials: {
+    color: 'white',
+    fontWeight: '700',
   },
 });
 

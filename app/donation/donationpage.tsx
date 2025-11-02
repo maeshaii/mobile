@@ -1,6 +1,6 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost, getDonationLikes, getDonationReposts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
@@ -159,6 +159,13 @@ export default function DonationPage() {
   }
 
   useEffect(() => { loadDonationPosts(); }, []);
+
+  // Auto-refresh donation feed when screen regains focus (after post/repost/edit/delete)
+  useFocusEffect(
+    useCallback(() => {
+      loadDonationPosts();
+    }, [])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -421,6 +428,7 @@ export default function DonationPage() {
               key={`donation-repost-${item.repost_id}`}
               repost={item}
               currentUserId={currentUserId || undefined}
+              origin="donation"
               onLikeToggle={(repostId, liked) => {
                 setPosts((prev) => prev.map((p: any) => {
                   if (p.item_type === 'repost' && p.repost_id === repostId) {

@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Image } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Dimensions, Image } from 'react-native';
+import CachedImage from '../../components/CachedImage';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
+import { getPostDetail, getForumDetail, getDonationDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, getForumComments, getDonationComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import MentionInput from '../../components/MentionInput';
@@ -18,6 +19,12 @@ export default function PostDetailScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
+  const isForumPost = Array.isArray((params as any).isForumPost)
+    ? (params as any).isForumPost[0] === 'true'
+    : (params as any).isForumPost === 'true';
+  const isDonationPost = Array.isArray((params as any).isDonationPost)
+    ? (params as any).isDonationPost[0] === 'true'
+    : (params as any).isDonationPost === 'true';
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -47,15 +54,41 @@ export default function PostDetailScreen() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
 
+  // Hide/disable composer in certain edit states for consistency
+  const hideComposer = !!actionFor || editingId !== null || editingReplyId !== null;
+
   const load = async () => {
     if (!postId) return;
     try {
       setLoading(true);
-      console.log('Loading post detail for postId:', postId);
-      const [detail, user] = await Promise.all([
-        getPostDetail(postId),
-        getUserInfo()
-      ]);
+      console.log('Loading post detail for postId:', postId, 'isForumPost:', isForumPost, 'isDonationPost:', isDonationPost);
+      let detail;
+      if (isForumPost) {
+        detail = await getForumDetail(postId);
+      } else if (isDonationPost) {
+        detail = await getDonationDetail(postId);
+        // Normalize donation data to match post structure
+        detail = {
+          ...detail,
+          post_content: detail.description || detail.post_content || '',
+          post_title: detail.post_title || '',
+          post_image: detail.post_image || (detail.images && detail.images[0]?.image_url) || null,
+          post_images: detail.images || [],
+          likes_count: detail.likes_count || 0,
+          comments_count: detail.comments_count || 0,
+          reposts_count: detail.reposts_count || 0,
+          is_liked: detail.is_liked || false,
+          likes: detail.likes || [],
+          comments: detail.comments || [],
+          reposts: detail.reposts || [],
+          user: detail.user || {},
+          created_at: detail.created_at || detail.donation_date || detail.date_created
+        };
+      } else {
+        detail = await getPostDetail(postId);
+      }
+      
+      const user = await getUserInfo();
       console.log('Post detail loaded:', detail);
       setPost(detail);
       setMe(user);
@@ -87,10 +120,19 @@ export default function PostDetailScreen() {
     }
   };
 
+  // Refresh detail and comments when screen regains focus (after edits/reposts/deletes)
+  useFocusEffect(
+    useCallback(() => {
+      if (postId) {
+        load();
+      }
+    }, [postId, isForumPost, isDonationPost])
+  );
+
   const loadComments = async () => {
     if (!postId) return;
     try {
-      const data = await getPostComments(postId);
+      const data = isForumPost ? await getForumComments(postId) : isDonationPost ? await getDonationComments(postId) : await getPostComments(postId);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
     } catch (error) {
       console.error('Error loading comments:', error);
@@ -552,19 +594,7 @@ export default function PostDetailScreen() {
             }
             return (
               <View style={styles.imagesGrid}>
-                {images.slice(0, 6).map((img, idx) => {
-                  // Determine grid style based on image count and position
-                  let gridStyle = styles.gridImageContainer;
-                  if (images.length === 2) {
-                    gridStyle = styles.twoImagesGrid;
-                  } else if (images.length === 3) {
-                    gridStyle = idx === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
-                  } else if (images.length === 4) {
-                    gridStyle = styles.fourImagesGrid;
-                  } else if (images.length >= 5) {
-                    gridStyle = styles.fivePlusImagesGrid;
-                  }
-                  
+                {images.slice(0, 4).map((img, idx) => {
                   return (
                     <TouchableOpacity 
                       key={idx}
@@ -572,16 +602,16 @@ export default function PostDetailScreen() {
                         setSelectedImageIndex(idx);
                         setImageViewerVisible(true);
                       }}
-                      style={[gridStyle, { marginBottom: 2 }]}
+                      style={styles.fourGridImage}
                     >
-                    <Image source={renderImage(img.image_url)!} style={styles.gridImage} resizeMode="cover" />
-                    {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
-                    {idx === 5 && images.length > 6 && (
-                      <View style={styles.moreImagesOverlay}>
-                        <Text style={styles.moreImagesText}>+{images.length - 6}</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
+                      <Image source={renderImage(img.image_url)!} style={styles.gridImage} resizeMode="cover" />
+                      {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+                      {idx === 3 && images.length > 4 && (
+                        <View style={styles.moreImagesOverlay}>
+                          <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -738,7 +768,13 @@ export default function PostDetailScreen() {
                   activeOpacity={1}
                 >
                   <View style={styles.commentRow}>
-                    <Image source={renderAvatar(c.user?.profile_pic)} style={styles.commentAvatar} />
+                    <UserAvatar
+                      profilePic={c.user?.profile_pic}
+                      firstName={c.user?.f_name}
+                      lastName={c.user?.l_name}
+                      size={32}
+                      style={styles.commentAvatar}
+                    />
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
                         <View style={{ flex: 1 }}>
@@ -816,7 +852,7 @@ export default function PostDetailScreen() {
                             onPress={() => toggleReplies(c.comment_id)}
                           >
                             <Text style={styles.showRepliesText}>
-                              {showReplies[c.comment_id] ? 'Hide' : 'Show'} {c.replies_count} {c.replies_count === 1 ? 'reply' : 'replies'}
+                              {showReplies[c.comment_id] ? 'Hide' : 'View'} {c.replies_count} {c.replies_count === 1 ? 'reply' : 'replies'}
                             </Text>
                           </TouchableOpacity>
                           
@@ -828,7 +864,13 @@ export default function PostDetailScreen() {
                                 
                                 return (
                                   <View key={replyIndex} style={styles.replyItem}>
-                                    <Image source={renderAvatar(reply.user?.profile_pic)} style={styles.replyAvatar} />
+                                    <UserAvatar
+                                      profilePic={reply.user?.profile_pic}
+                                      firstName={reply.user?.f_name}
+                                      lastName={reply.user?.l_name}
+                                      size={24}
+                                      style={styles.replyAvatar}
+                                    />
                                     <View style={styles.replyContent}>
                                       <TouchableOpacity 
                                         onPress={() => {
@@ -932,48 +974,50 @@ export default function PostDetailScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Comment Input - Hide when editing a comment or reply */}
-      {editingId === null && editingReplyId === null && (
+      {/* Comment Input - hide while editing a comment or reply */}
+      {!hideComposer && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.commentInputContainer}
         >
-        {replyingTo && (
-          <View style={styles.replyingToContainer}>
-            <Text style={styles.replyingToText}>
-              Replying to comment
-            </Text>
-            <TouchableOpacity onPress={() => setReplyingTo(null)}>
-              <Ionicons name="close" size={16} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
-        )}
-          <View style={styles.commentInputRow}>
-            <MentionInput
-              value={replyingTo ? replyText : commentText}
-              onChange={replyingTo ? setReplyText : setCommentText}
-              placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
-              style={styles.commentInput}
-              multiline
-              maxLength={500}
-            />
-            <TouchableOpacity
-              disabled={replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment)}
-              onPress={replyingTo ? handleSendReply : handleSendComment}
-              style={[
-                styles.sendButton, 
-                (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment)) && { opacity: 0.5 }
-              ]}
-            >
-              {(replyingTo ? submittingReply : submittingComment) ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="send" size={18} color="#fff" />
-              )}
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
+          {replyingTo && (
+            <View style={styles.replyingToContainer}>
+              <Text style={styles.replyingToText}>
+                Replying to comment
+              </Text>
+              <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                <Ionicons name="close" size={16} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+          )}
+            <View style={styles.commentInputRow}>
+              <MentionInput
+                value={replyingTo ? replyText : commentText}
+                onChange={replyingTo ? setReplyText : setCommentText}
+                placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
+                style={styles.commentInput}
+                multiline
+                maxLength={500}
+                disabled={!!editingReplyId || !!editingId}
+              />
+              <TouchableOpacity
+                disabled={!!editingReplyId || !!editingId || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))}
+                onPress={replyingTo ? handleSendReply : handleSendComment}
+                style={[
+                  styles.sendButton, 
+                  ((!!editingReplyId) || (!!editingId) || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))) ? { opacity: 0.5 } : undefined
+                ]}
+              >
+                {(replyingTo ? submittingReply : submittingComment) ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
       )}
+      
 
       {/* Viewer Modal */}
       {viewerVisible && selectedPost && (
@@ -993,7 +1037,13 @@ export default function PostDetailScreen() {
                   {selectedPost.likes && selectedPost.likes.length > 0 ? (
                     selectedPost.likes.map((like: any, index: number) => (
                       <View key={index} style={styles.viewerItem}>
-                        <Image source={renderAvatar(like.profile_pic)} style={styles.viewerAvatar} />
+                        <UserAvatar
+                          profilePic={like.profile_pic}
+                          firstName={like.f_name}
+                          lastName={like.l_name}
+                          size={36}
+                          style={styles.viewerAvatar}
+                        />
                         <Text style={styles.viewerItemText}>
                           {like.f_name} {like.l_name}
                         </Text>
@@ -1012,7 +1062,13 @@ export default function PostDetailScreen() {
                   {selectedPost.reposts && selectedPost.reposts.length > 0 ? (
                     selectedPost.reposts.map((repost: any, index: number) => (
                       <View key={index} style={styles.viewerItem}>
-                        <Image source={renderAvatar(repost.user?.profile_pic)} style={styles.viewerAvatar} />
+                        <UserAvatar
+                          profilePic={repost.user?.profile_pic}
+                          firstName={repost.user?.f_name}
+                          lastName={repost.user?.l_name}
+                          size={36}
+                          style={styles.viewerAvatar}
+                        />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.viewerItemText}>
                             {repost.user?.f_name} {repost.user?.l_name}
@@ -1148,26 +1204,41 @@ export default function PostDetailScreen() {
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              style={styles.imageViewerScroll}
-              onMomentumScrollEnd={(event) => {
-                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
-                setSelectedImageIndex(index);
-              }}
-            >
-              {getPostImages(post).map((image, index) => (
-                <View key={index} style={styles.imageViewerItem}>
-                  <Image
-                    source={renderImage(image.image_url)!}
-                    style={styles.imageViewerImage}
-                    resizeMode="contain"
-                  />
-                </View>
-              ))}
-            </ScrollView>
+            {(() => {
+              const screenWidth = Dimensions.get('window').width;
+              const screenHeight = Dimensions.get('window').height;
+              const scrollRef = React.createRef<ScrollView>();
+              const images = getPostImages(post);
+              return (
+                <ScrollView
+                  ref={scrollRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.imageViewerScroll}
+                  contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+                  onLayout={() => {
+                    if (scrollRef.current) {
+                      scrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                    }
+                  }}
+                  onMomentumScrollEnd={(event) => {
+                    const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                    setSelectedImageIndex(index);
+                  }}
+                >
+                  {images.map((image, index) => (
+                    <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                      <CachedImage
+                        uri={String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`}
+                        style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                        contentFit="contain"
+                      />
+                    </View>
+                  ))}
+                </ScrollView>
+              );
+            })()}
             {getPostImages(post).length > 1 && (
               <View style={styles.imageViewerPagination}>
                 <Text style={styles.imageViewerPaginationText}>
@@ -1849,49 +1920,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 12,
   },
-  // Facebook-style grid layouts
-  twoImagesGrid: {
-    width: '49%',
-    height: 200,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesGrid: {
-    // Container style - individual images have their own styles
-  },
-  fourImagesGrid: {
+  fourGridImage: {
     width: '49%',
     height: 150,
     position: 'relative',
     overflow: 'hidden',
     borderRadius: 4,
-  },
-  fivePlusImagesGrid: {
-    width: '49%',
-    height: 120,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  gridImageContainer: {
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesFirst: {
-    width: '49%',
-    height: 200,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  threeImagesRest: {
-    width: '49%',
-    height: 100,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
+    marginBottom: 2,
   },
   gridImage: {
     width: '100%',

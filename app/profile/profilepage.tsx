@@ -2,6 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -78,6 +79,9 @@ interface OriginalPost {
   post_title?: string;
   post_content: string;
   post_image?: string | null;
+  donation_id?: number;
+  type?: string | null;
+  post_type?: string | null;
   user: {
     f_name: string;
     l_name: string;
@@ -151,7 +155,6 @@ export default function ProfilePage() {
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [isSelectingPhoto, setIsSelectingPhoto] = useState(false);
-  const [cameraStatus, setCameraStatus] = useState<string>('');
 
   // viewer (likes/reposts)
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -208,6 +211,11 @@ export default function ProfilePage() {
         setEditEmail(profile.email || '');
         setCurrentProfilePicUri(me?.profile_pic ? ((String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? me.profile_pic : `${API_BASE_URL}${me.profile_pic}`) : null);
         const userId = me?.id || me?.user_id;
+        let likedRepostsSet = new Set<number>();
+        try {
+          const raw = await AsyncStorage.getItem('likedReposts');
+          likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
+        } catch {}
         setProfileUserId(userId || null);
           
           // Create feed items that include both posts and reposts
@@ -229,7 +237,9 @@ export default function ProfilePage() {
             } else if (item.item_type === 'repost') {
               // Handle reposts
               const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
-              const repostLikedByMe = userId ? repostLikesArr.some((l: any) => l?.user_id === userId || l?.user?.user_id === userId) : false;
+              const backendLiked = userId ? repostLikesArr.some((l: any) => l?.user_id === userId || l?.user?.user_id === userId) : false;
+              const locallyLiked = likedRepostsSet.has(item.repost_id);
+              const repostLikedByMe = backendLiked || locallyLiked;
               
               feedItems.push({
                 ...item,
@@ -292,6 +302,11 @@ export default function ProfilePage() {
           setFollowing(followingResult?.following || []);
           setIsFollowing(!!statusResult?.is_following);
           setProfileUserId(viewUserId);
+          let likedRepostsSet = new Set<number>();
+          try {
+            const raw = await AsyncStorage.getItem('likedReposts');
+            likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
+          } catch {}
           
           // Create feed items that include both posts and reposts for other user
           const feedItems: FeedItem[] = [];
@@ -312,7 +327,9 @@ export default function ProfilePage() {
             } else if (item.item_type === 'repost') {
               // Handle reposts
               const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
-              const repostLikedByMe = viewUserId ? repostLikesArr.some((l: any) => l?.user_id === viewUserId || l?.user?.user_id === viewUserId) : false;
+              const backendLiked = viewUserId ? repostLikesArr.some((l: any) => l?.user_id === viewUserId || l?.user?.user_id === viewUserId) : false;
+              const locallyLiked = likedRepostsSet.has(item.repost_id);
+              const repostLikedByMe = backendLiked || locallyLiked;
               
               feedItems.push({
                 ...item,
@@ -615,6 +632,12 @@ export default function ProfilePage() {
                   key={`profile-repost-${item.repost_id}`}
                   repost={item}
                   currentUserId={profileUserId || undefined}
+                  origin={
+                    (item?.original_post?.donation_id ||
+                     String(item?.original_post?.type || item?.original_post?.post_type || '')
+                       .toLowerCase()
+                       .includes('donation')) ? 'donation' : undefined
+                  }
                   onLikeToggle={(repostId, liked) => {
                     setPosts(prev => prev.map(p => 
                       isRepost(p) && p.repost_id === repostId 
@@ -851,91 +874,8 @@ export default function ProfilePage() {
         <View style={styles.modalOverlay}>
           <View style={styles.photoOptionsModal}>
             <Text style={styles.photoOptionsTitle}>Choose Profile Picture</Text>
-            {cameraStatus && (
-              <Text style={{ fontSize: 12, color: '#666', textAlign: 'center', marginBottom: 10 }}>
-                {cameraStatus}
-              </Text>
-            )}
             
-            <TouchableOpacity
-              style={styles.photoOptionBtn}
-              onPress={async () => {
-                if (isSelectingPhoto) return;
-                
-                try {
-                  setIsSelectingPhoto(true);
-                  setCameraStatus('Requesting permissions...');
-                  console.log('Camera button pressed');
-                  
-                  // Request camera permissions first
-                  const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-                  if (cameraPermission.status !== 'granted') {
-                    Alert.alert('Permission Required', 'Camera permission is required to take photos');
-                    setCameraStatus('');
-                    return;
-                  }
-
-                  setCameraStatus('Opening camera...');
-                  console.log('Launching camera...');
-                  
-                  // Create a timeout promise
-                  const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Camera operation timed out')), 15000);
-                  });
-                  
-                  // Create camera promise with minimal configuration
-                  const cameraPromise = ImagePicker.launchCameraAsync({
-                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                    allowsEditing: false,
-                    quality: 0.1, // Extremely low quality to prevent memory issues
-                    exif: false,
-                    base64: false, // Disable base64 to reduce memory usage
-                    allowsMultipleSelection: false, // Ensure single selection
-                    // presentationStyle: 'fullScreen', // Force full screen to prevent modal issues
-                  });
-                  
-                  setCameraStatus('Waiting for photo...');
-                  
-                  // Race between camera and timeout
-                  const result = await Promise.race([cameraPromise, timeoutPromise]) as any;
-                  
-                  setCameraStatus('Processing photo...');
-                  console.log('Camera result:', result);
-                  
-                  // Check if result is valid
-                  if (result && !result.canceled && result.assets && result.assets.length > 0) {
-                    console.log('Camera photo selected:', result.assets[0].uri);
-                    setCameraStatus('Photo selected successfully');
-                    setNewPhotoUri(result.assets[0].uri);
-                    setShowPhotoOptions(false);
-                    setEditMode('photo');
-                    setShowEditTabs(false);
-                    setEditModalVisible(true);
-                  } else {
-                    console.log('Camera selection canceled or no assets');
-                    setCameraStatus('Selection canceled');
-                  }
-                } catch (e: any) {
-                  console.error('Camera error:', e);
-                  setCameraStatus('Error: ' + (e?.message || 'Unknown error'));
-                  if (e.message === 'Camera operation timed out') {
-                    Alert.alert('Timeout', 'Camera took too long to respond. Please try again.');
-                  } else if (e.message && e.message.includes('timeout')) {
-                    Alert.alert('Timeout', 'Camera operation timed out. Please try again.');
-                  } else {
-                    Alert.alert('Error', 'Failed to take photo: ' + (e?.message || 'Unknown error'));
-                  }
-                } finally {
-                  setIsSelectingPhoto(false);
-                  setCameraStatus('');
-                }
-              }}
-            >
-              <FontAwesome name="camera" size={20} color="#174f84" />
-              <Text style={styles.photoOptionText}>
-                {isSelectingPhoto ? 'Opening Camera...' : 'Take Photo'}
-              </Text>
-            </TouchableOpacity>
+            {/* Camera option removed */}
 
             <TouchableOpacity
               style={styles.photoOptionBtn}
@@ -983,19 +923,7 @@ export default function ProfilePage() {
               </Text>
             </TouchableOpacity>
 
-            {isSelectingPhoto && (
-              <TouchableOpacity
-                style={[styles.photoOptionBtn, { backgroundColor: '#ff6b6b' }]}
-                onPress={() => {
-                  setIsSelectingPhoto(false);
-                  setCameraStatus('');
-                  Alert.alert('Camera Cancelled', 'Camera operation was cancelled manually.');
-                }}
-              >
-                <FontAwesome name="stop" size={20} color="#fff" />
-                <Text style={[styles.photoOptionText, { color: '#fff' }]}>Cancel Camera</Text>
-              </TouchableOpacity>
-            )}
+            {/* Removed cancel camera control since camera is disabled */}
 
             <TouchableOpacity
               style={[styles.photoOptionBtn, styles.cancelPhotoOptionBtn]}

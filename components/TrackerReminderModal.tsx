@@ -5,7 +5,6 @@ import {
   Modal,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 
@@ -16,7 +15,7 @@ interface TrackerReminderModalProps {
   onRemindLater: () => void;
 }
 
-const { width } = Dimensions.get('window');
+// No Dimensions usage needed in this component
 
 const TrackerReminderModal: React.FC<TrackerReminderModalProps> = ({
   isVisible,
@@ -46,31 +45,38 @@ const TrackerReminderModal: React.FC<TrackerReminderModalProps> = ({
           {/* Body */}
           <View style={styles.body}>
             <View style={styles.iconContainer}>
-              <Text style={styles.icon}>🎓</Text>
+              <Text style={styles.icon}>📋</Text>
             </View>
             
             <Text style={styles.title}>Complete Your Graduate Tracer Survey</Text>
             
             <Text style={styles.description}>
-              Help us improve our programs by sharing your post-graduation journey. 
-              Your responses will help future students and enhance our curriculum.
+              Help us track your career success and improve our programs for future students. Your input shapes the future of education.
             </Text>
 
             {/* Benefits */}
             <View style={styles.benefitsContainer}>
               <View style={styles.benefitItem}>
-                <Text style={styles.benefitIcon}>📊</Text>
-                <Text style={styles.benefitText}>Contribute to program improvement</Text>
+                <Text style={styles.benefitIcon}>💼</Text>
+                <Text style={styles.benefitText}>Share your career journey and current employment status</Text>
               </View>
               
               <View style={styles.benefitItem}>
-                <Text style={styles.benefitIcon}>🎯</Text>
-                <Text style={styles.benefitText}>Help future students make informed decisions</Text>
+                <Text style={styles.benefitIcon}>🏅</Text>
+                <Text style={styles.benefitText}>Highlight your achievements and professional milestones</Text>
               </View>
               
               <View style={styles.benefitItem}>
-                <Text style={styles.benefitIcon}>⏱️</Text>
-                <Text style={styles.benefitText}>Takes only 5-10 minutes to complete</Text>
+                <Text style={styles.benefitIcon}>⏰</Text>
+                <Text style={styles.benefitText}>Quick 5-minute survey - your time makes a difference</Text>
+              </View>
+
+              {/* Award banner */}
+              <View style={styles.awardBanner}>
+                <Text style={styles.benefitIcon}>🎁</Text>
+                <Text style={styles.awardText}>
+                  Maybe you're one of the lucky ones who will receive an award for completing the survey!
+                </Text>
               </View>
             </View>
           </View>
@@ -81,14 +87,14 @@ const TrackerReminderModal: React.FC<TrackerReminderModalProps> = ({
               style={[styles.button, styles.remindLaterButton]}
               onPress={onRemindLater}
             >
-              <Text style={styles.remindLaterText}>Remind Me Later</Text>
+              <Text style={styles.remindLaterText}>Maybe Later</Text>
             </TouchableOpacity>
             
             <TouchableOpacity
               style={[styles.button, styles.takeSurveyButton]}
               onPress={onTakeSurvey}
             >
-              <Text style={styles.takeSurveyText}>Take Survey</Text>
+              <Text style={styles.takeSurveyText}>Start Survey</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -169,10 +175,12 @@ const styles = StyleSheet.create({
   benefitItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 14,
     backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    borderRadius: 12,
     gap: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   benefitIcon: {
     fontSize: 20,
@@ -182,6 +190,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#374151',
     flex: 1,
+  },
+  awardBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    gap: 12,
+  },
+  awardText: {
+    flex: 1,
+    color: '#92400e',
+    fontSize: 14,
   },
   footer: {
     flexDirection: 'row',

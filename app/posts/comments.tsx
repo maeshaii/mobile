@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -31,6 +31,7 @@ import {
   TouchableOpacity,
 
   View,
+  Dimensions,
 
 } from 'react-native';
 
@@ -387,6 +388,15 @@ export default function PostCommentsScreen() {
     if (postId) load();
 
   }, [postId, load]);
+
+  // Auto-refresh comments and post header on focus (after caption edits/reposts/deletes)
+  useFocusEffect(
+    useCallback(() => {
+      if (postId) {
+        load();
+      }
+    }, [postId, load])
+  );
 
 
 
@@ -1468,15 +1478,16 @@ export default function PostCommentsScreen() {
 
                 maxLength={500}
 
+                disabled={!!editingReplyId}
               />
 
               <TouchableOpacity
 
-                disabled={!canSend}
+                disabled={!!editingReplyId || !canSend}
 
                 onPress={handleSend}
 
-                style={[styles.sendBtn, !canSend && { opacity: 0.5 }]}
+                style={[styles.sendBtn, (!!editingReplyId || !canSend) && { opacity: 0.5 }]}
 
               >
 
@@ -1661,39 +1672,40 @@ export default function PostCommentsScreen() {
 
                 </View>
 
-                <ScrollView 
-
-                  horizontal 
-
-                  pagingEnabled 
-
-                  showsHorizontalScrollIndicator={false}
-
-                  style={styles.imageViewerScroll}
-
-                  contentOffset={{ x: selectedImageIndex * 400, y: 0 }}
-
-                >
-
-                  {sortedImages.map((image, index) => (
-
-                    <View key={index} style={styles.imageViewerItem}>
-
-                      <Image 
-
-                        source={renderAvatar(image.image_url)} 
-
-                        style={styles.imageViewerImage}
-
-                        resizeMode="contain"
-
-                      />
-
-                    </View>
-
-                  ))}
-
-                </ScrollView>
+                {(() => {
+                  const screenWidth = Dimensions.get('window').width;
+                  const screenHeight = Dimensions.get('window').height;
+                  const scrollRef = React.createRef<ScrollView>();
+                  return (
+                    <ScrollView 
+                      ref={scrollRef}
+                      horizontal 
+                      pagingEnabled 
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.imageViewerScroll}
+                      contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+                      onLayout={() => {
+                        if (scrollRef.current) {
+                          scrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                        }
+                      }}
+                      onMomentumScrollEnd={(event) => {
+                        const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                        setSelectedImageIndex(index);
+                      }}
+                    >
+                      {sortedImages.map((image, index) => (
+                        <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                          <Image 
+                            source={renderAvatar(image.image_url)} 
+                            style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      ))}
+                    </ScrollView>
+                  );
+                })()}
 
               </TouchableOpacity>
 
