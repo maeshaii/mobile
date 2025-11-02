@@ -49,6 +49,61 @@ const civilStatusOptions = ['Single', 'Married', 'Divorced', 'Widowed'];
 const employmentStatusOptions = ['Full Time', 'Part Time', 'Unemployed'];
 const sectorOptions = ['Private', 'Government', 'Unemployed'];
 
+// Form components - defined outside to prevent recreation on each render
+const LabeledInput = React.memo(({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+  secureTextEntry,
+  showPassword,
+  onTogglePassword,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder?: string;
+  keyboardType?: 'default' | 'numeric' | 'phone-pad' | 'email-address';
+  secureTextEntry?: boolean;
+  showPassword?: boolean;
+  onTogglePassword?: () => void;
+  styles: any;
+}) => (
+  <View style={styles.formGroup}>
+    <Text style={styles.label}>{label}</Text>
+    <View style={secureTextEntry ? styles.passwordInputContainer : undefined}>
+        <TextInput
+          style={[styles.input, secureTextEntry && styles.passwordInput]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          keyboardType={keyboardType}
+          secureTextEntry={secureTextEntry && !showPassword}
+          placeholderTextColor="#9ca3af"
+          blurOnSubmit={false}
+          autoCorrect={false}
+          autoCapitalize={keyboardType === 'email-address' || secureTextEntry ? 'none' : 'words'}
+        />
+      {secureTextEntry && onTogglePassword && (
+        <TouchableOpacity 
+          style={styles.passwordToggle}
+          onPress={onTogglePassword}
+        >
+          <PasswordVisibilityIcon 
+            show={showPassword || false} 
+            size={18} 
+            color="#0f172a" 
+          />
+        </TouchableOpacity>
+      )}
+    </View>
+  </View>
+));
+
+LabeledInput.displayName = 'LabeledInput';
+
 export default function SettingsPage() {
   const [open, setOpen] = useState({
     personal: false,
@@ -147,53 +202,6 @@ export default function SettingsPage() {
     });
   };
 
-  // Form components
-  const LabeledInput = ({
-    label,
-    value,
-    onChangeText,
-    placeholder,
-    keyboardType,
-    secureTextEntry,
-    showPassword,
-    onTogglePassword,
-  }: {
-    label: string;
-    value: string;
-    onChangeText: (text: string) => void;
-    placeholder?: string;
-    keyboardType?: 'default' | 'numeric' | 'phone-pad' | 'email-address';
-    secureTextEntry?: boolean;
-    showPassword?: boolean;
-    onTogglePassword?: () => void;
-  }) => (
-    <View style={styles.formGroup}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={secureTextEntry ? styles.passwordInputContainer : undefined}>
-        <TextInput
-          style={[styles.input, secureTextEntry && styles.passwordInput]}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          keyboardType={keyboardType}
-          secureTextEntry={secureTextEntry && !showPassword}
-          placeholderTextColor="#9ca3af"
-        />
-        {secureTextEntry && onTogglePassword && (
-          <TouchableOpacity 
-            style={styles.passwordToggle}
-            onPress={onTogglePassword}
-          >
-            <PasswordVisibilityIcon 
-              show={showPassword || false} 
-              size={18} 
-              color="#0f172a" 
-            />
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
 
   const DropDown = ({
     label,
@@ -535,16 +543,19 @@ export default function SettingsPage() {
                 label="First Name :"
                 value={personal.first_name}
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, first_name: text }))}
+                styles={styles}
               />
               <LabeledInput
                 label="Last Name :"
                 value={personal.last_name}
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, last_name: text }))}
+                styles={styles}
               />
               <LabeledInput
                 label="Middle Name :"
                 value={personal.middle_name}
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, middle_name: text }))}
+                styles={styles}
               />
               <DropDown
                 id="civil"
@@ -559,23 +570,27 @@ export default function SettingsPage() {
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, contact_number: text }))}
                 placeholder="+63"
                 keyboardType="phone-pad"
+                styles={styles}
               />
               <LabeledInput
                 label="Email :"
                 value={personal.email}
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, email: text }))}
                 keyboardType="email-address"
+                styles={styles}
               />
               <LabeledInput
                 label="Address :"
                 value={personal.address}
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, address: text }))}
+                styles={styles}
               />
               <LabeledInput
                 label="Social Media :"
                 value={personal.social_media}
                 onChangeText={(text) => setPersonal(prev => ({ ...prev, social_media: text }))}
                 placeholder="e.g., facebook.com/you"
+                styles={styles}
               />
 
               <View style={styles.buttonRow}>
@@ -655,17 +670,20 @@ export default function SettingsPage() {
                 label="Name of Organization :"
                 value={employment.org_name}
                 onChangeText={(text) => setEmployment(prev => ({ ...prev, org_name: text }))}
+                styles={styles}
               />
               <LabeledInput
                 label="Date Hired :"
                 value={employment.date_hired}
                 onChangeText={(text) => setEmployment(prev => ({ ...prev, date_hired: text }))}
                 placeholder="MM/DD/YYYY"
+                styles={styles}
               />
               <LabeledInput
                 label="Position :"
                 value={employment.position}
                 onChangeText={(text) => setEmployment(prev => ({ ...prev, position: text }))}
+                styles={styles}
               />
               <DropDown
                 id="emp_status"
@@ -678,6 +696,7 @@ export default function SettingsPage() {
                 label="Company Address :"
                 value={employment.company_address}
                 onChangeText={(text) => setEmployment(prev => ({ ...prev, company_address: text }))}
+                styles={styles}
               />
               <DropDown
                 id="sector"
@@ -752,6 +771,7 @@ export default function SettingsPage() {
                 placeholder="Enter your current password"
                 showPassword={showOldPassword}
                 onTogglePassword={() => setShowOldPassword(!showOldPassword)}
+                styles={styles}
               />
 
               <LabeledInput
@@ -762,6 +782,7 @@ export default function SettingsPage() {
                 placeholder="Enter your new password"
                 showPassword={showNewPassword}
                 onTogglePassword={() => setShowNewPassword(!showNewPassword)}
+                styles={styles}
               />
 
               <LabeledInput
@@ -772,6 +793,7 @@ export default function SettingsPage() {
                 placeholder="Confirm your new password"
                 showPassword={showConfirmPassword}
                 onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+                styles={styles}
               />
 
               <View style={styles.buttonRow}>

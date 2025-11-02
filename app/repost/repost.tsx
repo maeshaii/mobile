@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { Ionicons } from '@expo/vector-icons';
 import UserAvatar from '../../components/UserAvatar';
+import { getImagesFromContent } from '../../utils/imageUtils';
 
 dayjs.extend(relativeTime);
 
@@ -61,40 +62,8 @@ export default function RepostScreen() {
     run();
   }, [postId]);
 
-  const meAvatar = me?.profile_pic
-    ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? String(me.profile_pic) : `${API_BASE_URL}${me.profile_pic}` }
-    : require('../../assets/images/sample_pic.jpg');
-
-  const origAvatar = original?.user?.profile_pic
-    ? { uri: (String(original.user.profile_pic).startsWith('http') || String(original.user.profile_pic).startsWith('data:')) ? String(original.user.profile_pic) : `${API_BASE_URL}${original.user.profile_pic}` }
-    : require('../../assets/images/sample_pic.jpg');
-
-  const imageUrl = original?.post_image
-    ? (String(original.post_image).startsWith('http') || String(original.post_image).startsWith('data:') ? String(original.post_image) : `${API_BASE_URL}${original.post_image}`)
-    : null;
-
-  // Get all images from both post_image and post_images array
-  const getAllImages = () => {
-    const images = [];
-    
-    // Add main post image if exists (backward compatibility)
-    if (imageUrl) {
-      images.push({
-        image_id: 0,
-        image_url: imageUrl,
-        order: 0
-      });
-    }
-    
-    // Add post_images array if exists (multiple images)
-    if (original?.post_images && Array.isArray(original.post_images)) {
-      images.push(...original.post_images);
-    }
-    
-    return images.sort((a, b) => a.order - b.order);
-  };
-
-  const allImages = getAllImages();
+  // Use the utility function to extract all images from the original post
+  const allImages = getImagesFromContent(original);
 
   const loadComments = async () => {
     if (!original?.post_id) return;
@@ -259,7 +228,13 @@ export default function RepostScreen() {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
           {/* User + caption input */}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-            <Image source={meAvatar} style={styles.avatar} />
+            <UserAvatar 
+              profilePic={me?.profile_pic}
+              firstName={me?.f_name}
+              lastName={me?.l_name}
+              size={40}
+              style={styles.avatar}
+            />
             <Text style={styles.meName}>{me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim()}</Text>
           </View>
           <TextInput
@@ -284,7 +259,13 @@ export default function RepostScreen() {
           {/* Nested original post card (tap to open original post detail) */}
           <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/detail?postId=${original.post_id}`); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <Image source={origAvatar} style={styles.avatarSmall} />
+              <UserAvatar 
+                profilePic={original?.user?.profile_pic}
+                firstName={original?.user?.f_name}
+                lastName={original?.user?.l_name}
+                size={32}
+                style={styles.avatarSmall}
+              />
               <View style={{ flex: 1 }}>
                 <Text style={styles.origName}>{original?.user?.f_name} {original?.user?.l_name}</Text>
                 <Text style={styles.origMeta}>Original post</Text>
@@ -485,12 +466,27 @@ export default function RepostScreen() {
                           {!!original.post_content && (
                             <Text style={styles.postContent}>{original.post_content}</Text>
                           )}
-                          {imageUrl && (
-                            <Image
-                              source={{ uri: imageUrl }}
-                              style={styles.postImage}
-                              resizeMode="cover"
-                            />
+                          {allImages.length > 0 && (
+                            <View style={{ marginTop: 10 }}>
+                              {allImages.length === 1 ? (
+                                <Image
+                                  source={renderAvatar(allImages[0].image_url)}
+                                  style={styles.postImage}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                                  {allImages.slice(0, 4).map((img, idx) => (
+                                    <Image
+                                      key={idx}
+                                      source={renderAvatar(img.image_url)}
+                                      style={{ width: '48%', height: 100, borderRadius: 8 }}
+                                      resizeMode="cover"
+                                    />
+                                  ))}
+                                </View>
+                              )}
+                            </View>
                           )}
                           <Text style={styles.sectionTitle}>Comments</Text>
                         </View>

@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { getNotifications, deleteNotifications, getUserInfo } from '../../services/api';
 import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
+import TrackerNotificationModal from '../../components/TrackerNotificationModal';
 
 interface NotificationItem {
   id?: number;
@@ -37,6 +38,7 @@ interface NotificationItem {
   donation_id?: number;
   isAdminNotification?: boolean;
   isPesoNotification?: boolean;
+  fullMessage?: string;
 }
 
 const NotificationScreen = () => {
@@ -47,6 +49,7 @@ const NotificationScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [trackerNotification, setTrackerNotification] = useState<NotificationItem | null>(null);
   const router = useRouter();
 
   const fetchNotificationsData = useCallback(async () => {
@@ -185,6 +188,7 @@ const NotificationScreen = () => {
             id: n.id || index,
             name: displayName,
             message: shortMessage,
+            fullMessage: fullMessage, // Store full message for modal display
             date: n.date || n.created_at || new Date().toLocaleDateString(),
             notif_type: rawType,
             subject: n.subject,
@@ -364,11 +368,18 @@ const NotificationScreen = () => {
     }
   
     // Special case: forms/tracker notifications
-    if (
-      type === 'ccict' ||
-      (item.subject && item.subject.toLowerCase().includes('tracker'))
-    ) {
-      router.push('/forms/forms');
+    // Apply same detection logic as web frontend
+    const notifType = (item.notif_type || '').toLowerCase();
+    const isTrackerNotification = 
+      notifType === 'ccict' || 
+      notifType === 'tracker_submission' ||
+      notifType.includes('tracker') || 
+      (item.subject && item.subject.toLowerCase().includes('tracker')) ||
+      (item.message && item.message.includes('Tracker Form'));
+    
+    if (isTrackerNotification) {
+      // Show tracker notification modal instead of navigating directly
+      setTrackerNotification(item);
       return;
     }
 
@@ -652,6 +663,18 @@ const NotificationScreen = () => {
           contentContainerStyle={{ paddingBottom: 20 }}
         />
       )}
+
+      {/* Tracker Notification Modal */}
+      <TrackerNotificationModal
+        isVisible={!!trackerNotification}
+        onClose={() => setTrackerNotification(null)}
+        notification={trackerNotification ? {
+          subject: trackerNotification.subject,
+          content: trackerNotification.fullMessage || trackerNotification.message, // Use full message if available
+          date: trackerNotification.date,
+          type: trackerNotification.notif_type,
+        } : null}
+      />
     </View>
   );
 };

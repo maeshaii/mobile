@@ -189,6 +189,16 @@ export const forceLogout = async () => {
 /** Attach bearer - but NOT for login/token endpoints */
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
+    // Ensure Content-Type is set for JSON requests
+    if (!config.headers['Content-Type'] && config.data && typeof config.data === 'object' && !(config.data instanceof FormData)) {
+      config.headers['Content-Type'] = 'application/json';
+    }
+    
+    // Ensure ngrok header is always present for ngrok URLs
+    if (API_BASE_URL.includes('ngrok')) {
+      config.headers['ngrok-skip-browser-warning'] = 'true';
+    }
+    
     // Don't add Authorization header for login/token endpoints
     const isLoginEndpoint = config.url?.includes('/api/token/') && config.method === 'post';
     const isRefreshEndpoint = config.url?.includes('/api/token/refresh/');
@@ -278,8 +288,13 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
   const trimmedUsername = acc_username.trim();
   const trimmedPassword = acc_password.trim();
   
-  console.log('Mobile: Sending login request:', { acc_username: trimmedUsername, acc_password: trimmedPassword });
+  console.log('Mobile: Sending login request:', { 
+    acc_username: trimmedUsername, 
+    acc_password: '***' // Don't log password
+  });
   console.log('Mobile: API Base URL:', API_BASE_URL);
+  console.log('Mobile: Full login URL will be:', `${API_BASE_URL}/api/token/`);
+  
   try {
     const response = await api.post('/api/token/', { acc_username: trimmedUsername, acc_password: trimmedPassword });
     console.log('Mobile: Login response received:', response.data);

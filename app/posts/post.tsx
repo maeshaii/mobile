@@ -7,6 +7,7 @@ import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, T
 import { API_BASE_URL, createPost, createForumPost, getUserInfo } from '../../services/api';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
+import UserAvatar from '../../components/UserAvatar';
 
 interface UserInfo {
   name?: string;
@@ -271,9 +272,6 @@ export default function PostScreen() {
   }
 
   const userName = user ? (user.name || `${user.f_name || ''} ${user.l_name || ''}`.trim()) || 'User' : 'User';
-  const userAvatar = user?.profile_pic
-    ? { uri: String(user.profile_pic).startsWith('http') || String(user.profile_pic).startsWith('data:') ? String(user.profile_pic) : `${API_BASE_URL}${user.profile_pic}` }
-    : require('../../assets/images/sample_pic.jpg');
 
   return (
     <View style={styles.container}>
@@ -305,7 +303,13 @@ export default function PostScreen() {
       {/* User Info */}
       <View style={styles.postContainer}>
         <View style={styles.userRow}>
-          <Image source={userAvatar} style={styles.avatar} />
+          <UserAvatar 
+            profilePic={user?.profile_pic}
+            firstName={user?.f_name}
+            lastName={user?.l_name}
+            size={40}
+            style={styles.avatar}
+          />
           <Text style={styles.userName}>{userName}</Text>
         </View>
 
