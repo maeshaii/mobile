@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, TextInput, StyleSheet, TouchableOpacity, Text } from 'react-native';
 import { FontAwesome, MaterialIcons, Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router'; // ✅ Use useRouter from expo-router
 import { getUserInfo } from '../../services/api';
+import { useRealTimeMessages } from '../../hooks/useRealTimeMessages';
 
 const NavBar = () => {
   const router = useRouter(); // ✅ This replaces useNavigation()
   const [user, setUser] = useState<any>(null);
+
+  // Use real-time messages hook
+  const { unreadCount: messageUnreadCount } = useRealTimeMessages({
+    enablePolling: true,
+    pollingInterval: 30000,
+    autoConnect: true
+  });
 
   useEffect(() => {
     const loadUser = async () => {
@@ -60,8 +68,15 @@ const NavBar = () => {
           <FontAwesome name="bell" size={24} color="white" />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.push('/messages/message')}>
+        <TouchableOpacity onPress={() => router.push('/messages/message')} style={{ position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
           <MaterialIcons name="email" size={24} color="white" />
+          {messageUnreadCount > 0 && (
+            <View style={styles.messageBadge}>
+              <Text style={styles.messageBadgeText}>
+                {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push('/profile/profiletab')}>
@@ -100,6 +115,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'black',
     borderWidth: 1,
     borderColor: 'white',
+  },
+  messageBadge: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    backgroundColor: '#ff3b3b',
+    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#1C4E80',
+    zIndex: 10,
+  },
+  messageBadgeText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });
 

@@ -45,4 +45,3 @@ export const validatePassword = (password: string): PasswordValidationResult => 
     message,
   };
 };
-
