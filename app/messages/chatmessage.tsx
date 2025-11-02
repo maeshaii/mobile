@@ -21,6 +21,7 @@ import { getFileIcon, getFileTypeDisplayName, formatFileSize, isImageFile, isVid
 import { deduplicateMessages, addMessageWithDeduplication, replaceTempMessage, removeTempMessage, isDuplicateMessage } from '../../utils/messageUtils';
 import { sanitizeUserInput, validateMessageType } from '../../utils/securityUtils';
 import { useLogger } from '../../utils/logger';
+import { renderTextWithLinks } from '../../utils/linkRenderer';
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
 
@@ -1026,7 +1027,11 @@ const ChatMessageScreen = () => {
                         styles.messageText,
                         isActuallyMine ? styles.messageTextSent : styles.messageTextReceived
                       ]}>
-                        {item.text}
+                        {renderTextWithLinks(
+                          item.text,
+                          isActuallyMine ? styles.messageTextSent : styles.messageTextReceived,
+                          { color: isActuallyMine ? '#ffffff' : '#007bff' }
+                        )}
                       </Text>
                     )}
                     

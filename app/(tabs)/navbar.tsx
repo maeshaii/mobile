@@ -4,6 +4,7 @@ import { usePathname } from 'expo-router';
 import { FontAwesome, MaterialIcons, Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router'; // ✅ Use useRouter from expo-router
 import { getUserInfo } from '../../services/api';
+import { useRealTimeMessages } from '../../hooks/useRealTimeMessages';
 
 const NAV_ICON_SIZE = 24;
 const LABEL_FONT_SIZE = 12;
@@ -19,6 +20,13 @@ const NavBar = () => {
     if (!pathname) return false;
     return prefixes.some((p) => pathname.startsWith(p));
   };
+
+  // Use real-time messages hook
+  const { unreadCount: messageUnreadCount } = useRealTimeMessages({
+    enablePolling: true,
+    pollingInterval: 30000,
+    autoConnect: true
+  });
 
   useEffect(() => {
     const loadUser = async () => {
@@ -84,11 +92,18 @@ const NavBar = () => {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.push('/messages/message')}>
+        <TouchableOpacity onPress={() => router.push('/messages/message')} style={{ position: 'relative' }}>
           <View style={styles.iconWithLabel}>
             {isActive(['/messages']) && <View style={styles.activeIndicator} />}
             <MaterialIcons name="email" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
             <Text style={[styles.label, isActive(['/messages']) && styles.activeLabel]}>Messages</Text>
+            {messageUnreadCount > 0 && (
+              <View style={styles.messageBadge}>
+                <Text style={styles.messageBadgeText}>
+                  {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                </Text>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
 
@@ -157,6 +172,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'black',
     borderWidth: 1,
     borderColor: '#FFFFFF',
+  },
+  messageBadge: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    backgroundColor: '#ff3b3b',
+    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#1C4E80',
+    zIndex: 10,
+  },
+  messageBadgeText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });
 
