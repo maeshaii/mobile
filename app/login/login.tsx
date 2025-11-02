@@ -14,6 +14,7 @@ import {
 import { loginUser, clearAllTokens, checkUserTrackerStatus } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
 
 export default function LoginScreen() {
   const [ctuId, setCtuId] = useState('');
@@ -142,7 +143,7 @@ export default function LoginScreen() {
                 editable={!loading}
               />
               <TouchableOpacity style={styles.eyeButton} onPress={() => setShow((s) => !s)}>
-                <Ionicons name={show ? 'eye-off' : 'eye'} size={24} color="black" />
+                <PasswordVisibilityIcon show={show} size={24} color="#000000" />
               </TouchableOpacity>
             </View>
             {error ? (

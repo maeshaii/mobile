@@ -8,12 +8,15 @@ import {
   TextInput,
   Alert,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
-import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL } from '../../services/api';
+import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL, changePassword } from '../../services/api';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
+import { validatePassword } from '../../utils/passwordValidator';
 
 // Platform-specific storage utility
 const isWeb = Platform.OS === 'web';
@@ -119,7 +122,17 @@ export default function SettingsPage() {
   const [isEditingEmployment, setIsEditingEmployment] = useState(false);
 
   // Password state
-  const [newPassword, setNewPassword] = useState('');
+  const [passwordData, setPasswordData] = useState({
+    old_password: '',
+    new_password: '',
+    confirm_password: ''
+  });
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const toggle = (key: keyof typeof open) => {
     setOpen((prev) => {
@@ -142,6 +155,8 @@ export default function SettingsPage() {
     placeholder,
     keyboardType,
     secureTextEntry,
+    showPassword,
+    onTogglePassword,
   }: {
     label: string;
     value: string;
@@ -149,18 +164,34 @@ export default function SettingsPage() {
     placeholder?: string;
     keyboardType?: 'default' | 'numeric' | 'phone-pad' | 'email-address';
     secureTextEntry?: boolean;
+    showPassword?: boolean;
+    onTogglePassword?: () => void;
   }) => (
     <View style={styles.formGroup}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={styles.input}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        keyboardType={keyboardType}
-        secureTextEntry={secureTextEntry}
-        placeholderTextColor="#9ca3af"
-      />
+      <View style={secureTextEntry ? styles.passwordInputContainer : undefined}>
+        <TextInput
+          style={[styles.input, secureTextEntry && styles.passwordInput]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          keyboardType={keyboardType}
+          secureTextEntry={secureTextEntry && !showPassword}
+          placeholderTextColor="#9ca3af"
+        />
+        {secureTextEntry && onTogglePassword && (
+          <TouchableOpacity 
+            style={styles.passwordToggle}
+            onPress={onTogglePassword}
+          >
+            <PasswordVisibilityIcon 
+              show={showPassword || false} 
+              size={18} 
+              color="#0f172a" 
+            />
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 
@@ -435,37 +466,52 @@ export default function SettingsPage() {
     }
   };
 
-  const validatePassword = (password: string): string => {
-    if (password.length < 16) {
-      return 'Password must be at least 16 characters long.';
-    }
-    if (!/[A-Z]/.test(password)) {
-      return 'Password must contain at least one uppercase letter.';
-    }
-    if (!/[a-z]/.test(password)) {
-      return 'Password must contain at least one lowercase letter.';
-    }
-    if (!/\d/.test(password)) {
-      return 'Password must contain at least one number.';
-    }
-    if (!/[^A-Za-z0-9]/.test(password)) {
-      return 'Password must contain at least one special character.';
-    }
-    return '';
-  };
+  const onSavePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
 
-  const onSavePassword = () => {
-    if (!newPassword.trim()) {
-      return Alert.alert('Error', 'Please enter a password');
+    // Validation
+    if (!passwordData.old_password || !passwordData.new_password || !passwordData.confirm_password) {
+      setPasswordError('All fields are required.');
+      return;
     }
-    
-    const validationError = validatePassword(newPassword);
-    if (validationError) {
-      return Alert.alert('Validation Error', validationError);
+
+    if (passwordData.new_password !== passwordData.confirm_password) {
+      setPasswordError('New passwords do not match.');
+      return;
     }
-    
-    Alert.alert('Saved', 'Password updated.');
-    setNewPassword('');
+
+    const validation = validatePassword(passwordData.new_password);
+    if (!validation.isValid) {
+      const missing = validation.missingRequirements;
+      setPasswordError(`Password requirements missing: ${missing.join(', ')}`);
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const resp = await changePassword(passwordData.old_password, passwordData.new_password);
+      
+      if (resp.success) {
+        setPasswordSuccess('Password changed successfully!');
+        setPasswordData({
+          old_password: '',
+          new_password: '',
+          confirm_password: ''
+        });
+        // Auto-hide success message after 3 seconds
+        setTimeout(() => setPasswordSuccess(''), 3000);
+        // Close the password section after successful change
+        setTimeout(() => toggle('password'), 3500);
+      } else {
+        setPasswordError(resp.message || 'Failed to change password.');
+      }
+    } catch (error: any) {
+      console.error('Error changing password:', error);
+      setPasswordError('An error occurred while changing password.');
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   return (
@@ -685,19 +731,75 @@ export default function SettingsPage() {
               <Text style={styles.sectionNote}>
                 Password must be at least 16 characters with uppercase, lowercase, number, and special character.
               </Text>
+
+              {passwordError ? (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{passwordError}</Text>
+                </View>
+              ) : null}
+
+              {passwordSuccess ? (
+                <View style={styles.successContainer}>
+                  <Text style={styles.successText}>{passwordSuccess}</Text>
+                </View>
+              ) : null}
+
               <LabeledInput
-                label="Enter New Password :"
-                value={newPassword}
-                onChangeText={setNewPassword}
+                label="Current Password :"
+                value={passwordData.old_password}
+                onChangeText={(text) => setPasswordData({ ...passwordData, old_password: text })}
                 secureTextEntry
-                placeholder="••••••••••••••••"
+                placeholder="Enter your current password"
+                showPassword={showOldPassword}
+                onTogglePassword={() => setShowOldPassword(!showOldPassword)}
+              />
+
+              <LabeledInput
+                label="New Password :"
+                value={passwordData.new_password}
+                onChangeText={(text) => setPasswordData({ ...passwordData, new_password: text })}
+                secureTextEntry
+                placeholder="Enter your new password"
+                showPassword={showNewPassword}
+                onTogglePassword={() => setShowNewPassword(!showNewPassword)}
+              />
+
+              <LabeledInput
+                label="Confirm New Password :"
+                value={passwordData.confirm_password}
+                onChangeText={(text) => setPasswordData({ ...passwordData, confirm_password: text })}
+                secureTextEntry
+                placeholder="Confirm your new password"
+                showPassword={showConfirmPassword}
+                onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
               />
 
               <View style={styles.buttonRow}>
-                <TouchableOpacity onPress={onSavePassword} style={styles.saveButton}>
-                  <Text style={styles.saveButtonText}>Save</Text>
+                <TouchableOpacity 
+                  onPress={onSavePassword} 
+                  style={[styles.saveButton, isChangingPassword && styles.buttonDisabled]}
+                  disabled={isChangingPassword}
+                >
+                  {isChangingPassword ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Change Password</Text>
+                  )}
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => toggle('password')} style={styles.cancelButton}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    toggle('password');
+                    setPasswordData({
+                      old_password: '',
+                      new_password: '',
+                      confirm_password: ''
+                    });
+                    setPasswordError('');
+                    setPasswordSuccess('');
+                  }} 
+                  style={styles.cancelButton}
+                  disabled={isChangingPassword}
+                >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
@@ -794,6 +896,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
     color: '#111827',
+    flex: 1,
+  },
+  passwordInput: {
+    backgroundColor: '#ffffff',
+  },
+  passwordInputContainer: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 8,
+    padding: 4,
+  },
+  errorContainer: {
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 13,
+  },
+  successContainer: {
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  successText: {
+    color: '#16a34a',
+    fontSize: 13,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   dropdown: {
     flexDirection: 'row',
