@@ -1997,3 +1997,14 @@ export const claimRewardRequest = async (requestId: number) => {
   }
 };
 
+// Mobile -> Backend: GET /api/engagement/points-settings/
+export const getEngagementPointsSettings = async () => {
+  try {
+    const { data } = await api.get('/api/engagement/points-settings/');
+    return data;
+  } catch (error) {
+    console.error('Mobile getEngagementPointsSettings API Error:', error);
+    throw error;
+  }
+};
+

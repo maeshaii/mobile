@@ -1,17 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Modal,
   Alert,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { FontAwesome } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { FontAwesome } from '@expo/vector-icons';
 import {
   getInventoryItems,
   getUserPoints,
@@ -19,7 +21,10 @@ import {
   requestReward,
   getRewardRequests,
   claimRewardRequest,
+  getEngagementPointsSettings,
+  API_BASE_URL,
 } from '../../services/api';
+import { NotificationWebSocket } from '../../services/notificationWebSocket';
 
 interface InventoryItem {
   id: number;
@@ -60,8 +65,22 @@ export default function RewardsScreen() {
   const [userRewardRequests, setUserRewardRequests] = useState<RewardRequest[]>([]);
   const [showRequestsModal, setShowRequestsModal] = useState(false);
   const [rewardStatusFilter, setRewardStatusFilter] = useState<'all' | 'pending' | 'approved' | 'claimed' | 'did_not_push_through'>('all');
+  const [showRewardFilterDropdown, setShowRewardFilterDropdown] = useState(false);
   const [selectedRewardDetail, setSelectedRewardDetail] = useState<RewardRequest | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showMonthlyLimitModal, setShowMonthlyLimitModal] = useState(false);
+  const [showConfirmRequestModal, setShowConfirmRequestModal] = useState(false);
+  const [pendingRewardRequest, setPendingRewardRequest] = useState<{id: number; name: string; value: string; type?: string} | null>(null);
+  const [pointsSettings, setPointsSettings] = useState({
+    enabled: true,
+    like: 1,
+    comment: 3,
+    share: 5,
+    reply: 2,
+    post: 0,
+    post_with_photo: 15,
+    tracker_form: 0
+  });
 
   const fetchUserPoints = async () => {
     try {
@@ -71,6 +90,25 @@ export default function RewardsScreen() {
       if (userId) {
         const points = await getUserPoints(userId);
         setUserPoints(points);
+        
+        // Fetch points settings
+        try {
+          const settingsResponse = await getEngagementPointsSettings();
+          if (settingsResponse && settingsResponse.success && settingsResponse.settings) {
+            setPointsSettings({
+              enabled: settingsResponse.settings.enabled !== false,
+              like: settingsResponse.settings.like_points || 0,
+              comment: settingsResponse.settings.comment_points || 0,
+              share: settingsResponse.settings.share_points || 0,
+              reply: settingsResponse.settings.reply_points || 0,
+              post: settingsResponse.settings.post_points || 0,
+              post_with_photo: settingsResponse.settings.post_with_photo_points || 0,
+              tracker_form: settingsResponse.settings.tracker_form_points || 0
+            });
+          }
+        } catch (settingsError) {
+          console.error('Error fetching points settings:', settingsError);
+        }
       }
     } catch (error) {
       console.error('Error fetching user points:', error);
@@ -118,6 +156,97 @@ export default function RewardsScreen() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Setup WebSocket for real-time points updates - use ref to persist across renders
+  const wsRef = useRef<NotificationWebSocket | null>(null);
+  const userIdRef = useRef<number | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('RewardsScreen: useFocusEffect triggered - setting up WebSocket');
+      let notificationWs: NotificationWebSocket | null = null;
+
+      const setupWebSocket = async () => {
+        try {
+          console.log('RewardsScreen: Starting WebSocket setup...');
+          // Disconnect existing connection if any
+          if (wsRef.current) {
+            console.log('RewardsScreen: Disconnecting existing WebSocket');
+            wsRef.current.disconnect();
+            wsRef.current = null;
+          }
+
+          const user = await getUserInfo();
+          console.log('RewardsScreen: Got user info:', user);
+          const userId = user?.user_id || user?.id;
+          console.log('RewardsScreen: Extracted userId:', userId);
+          if (!userId) {
+            console.error('RewardsScreen: No userId found, cannot setup WebSocket');
+            return;
+          }
+
+          userIdRef.current = userId;
+          console.log('RewardsScreen: Stored userId in ref:', userIdRef.current);
+
+          const { getAccessToken } = await import('../../services/api');
+          const token = await getAccessToken();
+          console.log('RewardsScreen: Got access token:', token ? 'Yes' : 'No');
+          console.log('RewardsScreen: API_BASE_URL:', API_BASE_URL);
+
+          notificationWs = new NotificationWebSocket(userId, API_BASE_URL, token);
+          wsRef.current = notificationWs;
+          console.log('RewardsScreen: Created NotificationWebSocket instance');
+
+          notificationWs.onNotification((event) => {
+            console.log('RewardsScreen NotificationWebSocket: Received event:', event.type, event);
+            if (event.type === 'points_update' && event.points) {
+              const pointsData = event.points;
+              console.log('RewardsScreen NotificationWebSocket: Points update received:', pointsData);
+              console.log('RewardsScreen: Current userIdRef:', userIdRef.current);
+              console.log('RewardsScreen: Points data userId:', pointsData.user_id);
+              // Check if it's for the current user using stored userId
+              if (userIdRef.current && Number(pointsData.user_id) === Number(userIdRef.current)) {
+                console.log('RewardsScreen NotificationWebSocket: Updating points for current user:', pointsData);
+                console.log('RewardsScreen: Setting userPoints to:', pointsData);
+                setUserPoints(pointsData);
+              } else {
+                console.log('RewardsScreen NotificationWebSocket: Points update ignored - different user. Expected:', userIdRef.current, 'Got:', pointsData.user_id);
+                console.log('RewardsScreen: Comparison - userIdRef:', userIdRef.current, 'type:', typeof userIdRef.current, 'pointsData.user_id:', pointsData.user_id, 'type:', typeof pointsData.user_id);
+                console.log('RewardsScreen: Number comparison:', Number(userIdRef.current), '===', Number(pointsData.user_id), '=', Number(userIdRef.current) === Number(pointsData.user_id));
+              }
+            } else {
+              console.log('RewardsScreen: Received non-points_update event or missing points data');
+            }
+          });
+
+          notificationWs.onStatus((status) => {
+            console.log('RewardsScreen Notification WebSocket status:', status);
+            if (status === 'disconnected' || status === 'error') {
+              console.log('RewardsScreen: WebSocket disconnected/error, will reconnect on next focus');
+            }
+          });
+
+          console.log('RewardsScreen: Calling connect()...');
+          await notificationWs.connect();
+          console.log('RewardsScreen: WebSocket connected successfully');
+        } catch (error) {
+          console.error('RewardsScreen: Failed to setup notification WebSocket:', error);
+          console.error('RewardsScreen: Error details:', JSON.stringify(error, null, 2));
+          wsRef.current = null;
+        }
+      };
+
+      setupWebSocket();
+
+      return () => {
+        console.log('RewardsScreen: Cleaning up WebSocket on blur');
+        if (wsRef.current) {
+          wsRef.current.disconnect();
+          wsRef.current = null;
+        }
+      };
+    }, [])
+  );
 
   // Handle reward notification - open specific reward detail when requestId is provided
   useEffect(() => {
@@ -174,49 +303,53 @@ export default function RewardsScreen() {
       return;
     }
 
-    const isVoucher = reward.type?.toLowerCase().includes('voucher') ||
-      reward.type?.toLowerCase().includes('gift card') ||
-      reward.type?.toLowerCase().includes('coupon');
-    const isMerchandise = reward.type?.toLowerCase().includes('merchandise') ||
-      reward.type?.toLowerCase().includes('merch') ||
-      reward.type?.toLowerCase().includes('product') ||
-      reward.type?.toLowerCase().includes('item');
+    // Check if user has already requested a reward this month
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthlyRequests = userRewardRequests.filter((req) => {
+      const requestedDate = new Date(req.requested_at);
+      return requestedDate >= startOfMonth;
+    });
 
-    const confirmMessage = isVoucher
-      ? 'Please expect a reply from us regarding your reward request.'
-      : isMerchandise
-        ? 'Please note that this reward must be claimed in person at the CTU office.'
-        : 'Your reward request has been submitted and is pending approval.';
+    if (monthlyRequests.length >= 1) {
+      setShowMonthlyLimitModal(true);
+      return;
+    }
 
-    Alert.alert(
-      'Request Reward',
-      `Request "${reward.name}" for ${reward.value}?\n\n${confirmMessage}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Request',
-          onPress: async () => {
-            try {
-              setClaimingReward(rewardId);
-              const response = await requestReward(rewardId);
-              if (response.success) {
-                Alert.alert('Success', response.message || 'Reward requested successfully!');
-                await fetchUserPoints();
-                await fetchInventoryItems();
-                await fetchUserRewardRequests();
-              } else {
-                Alert.alert('Error', response.message || 'Failed to request reward');
-              }
-            } catch (error: any) {
-              console.error('Error requesting reward:', error);
-              Alert.alert('Error', error.response?.data?.message || 'Failed to request reward');
-            } finally {
-              setClaimingReward(null);
-            }
-          },
-        },
-      ]
-    );
+    // Show confirmation modal instead of Alert
+    setPendingRewardRequest({
+      id: rewardId,
+      name: reward.name,
+      value: reward.value,
+      type: reward.type
+    });
+    setShowConfirmRequestModal(true);
+  };
+
+  const confirmRequestReward = async () => {
+    if (!pendingRewardRequest) return;
+    
+    const rewardId = pendingRewardRequest.id;
+    setShowConfirmRequestModal(false);
+    
+    try {
+      setClaimingReward(rewardId);
+      const response = await requestReward(rewardId);
+      
+      if (response.success) {
+        await fetchUserPoints();
+        await fetchInventoryItems();
+        await fetchUserRewardRequests();
+        setPendingRewardRequest(null);
+      } else {
+        Alert.alert('Error', response.message || 'Failed to request reward');
+      }
+    } catch (error: any) {
+      console.error('Error requesting reward:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to request reward');
+    } finally {
+      setClaimingReward(null);
+    }
   };
 
   const handleClaimApprovedReward = async (requestId: number) => {
@@ -256,11 +389,13 @@ export default function RewardsScreen() {
     );
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string, hasExpired?: boolean) => {
+    if (hasExpired) return '#ef4444'; // Red for expired
     switch (status) {
       case 'pending':
         return '#f59e0b';
       case 'approved':
+      case 'ready_for_pickup':
         return '#10b981';
       case 'claimed':
         return '#3b82f6';
@@ -271,9 +406,36 @@ export default function RewardsScreen() {
     }
   };
 
-  const filteredRequests = rewardStatusFilter === 'all'
-    ? userRewardRequests
-    : userRewardRequests.filter(req => req.status === rewardStatusFilter);
+  const getStatusDisplay = (status: string, hasExpired?: boolean) => {
+    if (hasExpired) return 'Expired';
+    switch (status) {
+      case 'pending':
+        return 'Pending';
+      case 'approved':
+      case 'ready_for_pickup':
+        return 'Ready';
+      case 'claimed':
+        return 'Claimed';
+      case 'did_not_push_through':
+        return 'Did Not Push Through';
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
+    }
+  };
+
+  const filteredRequests = userRewardRequests.filter((req: any) => {
+    if (rewardStatusFilter === 'all') return true;
+    if (rewardStatusFilter === 'pending') return req.status === 'pending';
+    if (rewardStatusFilter === 'approved') return req.status === 'approved' || req.status === 'ready_for_pickup';
+    if (rewardStatusFilter === 'claimed') return req.status === 'claimed';
+    if (rewardStatusFilter === 'did_not_push_through') {
+      const isApproved = req.status === 'approved' || req.status === 'ready_for_pickup';
+      const isNotClaimed = req.status !== 'claimed';
+      const hasExpired = req.expires_at && new Date(req.expires_at) < new Date();
+      return isApproved && isNotClaimed && hasExpired;
+    }
+    return true;
+  });
 
   if (loading) {
     return (
@@ -317,7 +479,7 @@ export default function RewardsScreen() {
                 </Text>
               </View>
               <Text style={styles.breakdownPoints}>
-                +{userPoints.points_breakdown?.likes?.points || 0}
+                +{(userPoints.points_breakdown?.likes?.count || 0) * pointsSettings.like}
               </Text>
             </View>
 
@@ -331,7 +493,7 @@ export default function RewardsScreen() {
                 </Text>
               </View>
               <Text style={styles.breakdownPoints}>
-                +{userPoints.points_breakdown?.comments?.points || 0}
+                +{(userPoints.points_breakdown?.comments?.count || 0) * pointsSettings.comment}
               </Text>
             </View>
 
@@ -345,7 +507,7 @@ export default function RewardsScreen() {
                 </Text>
               </View>
               <Text style={styles.breakdownPoints}>
-                +{userPoints.points_breakdown?.shares?.points || 0}
+                +{(userPoints.points_breakdown?.shares?.count || 0) * pointsSettings.share}
               </Text>
             </View>
 
@@ -359,7 +521,7 @@ export default function RewardsScreen() {
                 </Text>
               </View>
               <Text style={styles.breakdownPoints}>
-                +{userPoints.points_breakdown?.replies?.points || 0}
+                +{(userPoints.points_breakdown?.replies?.count || 0) * pointsSettings.reply}
               </Text>
             </View>
 
@@ -373,7 +535,7 @@ export default function RewardsScreen() {
                 </Text>
               </View>
               <Text style={styles.breakdownPoints}>
-                +{userPoints.points_breakdown?.posts?.points || 0}
+                +{(userPoints.points_breakdown?.posts?.count || 0) * pointsSettings.post}
               </Text>
             </View>
 
@@ -387,7 +549,7 @@ export default function RewardsScreen() {
                 </Text>
               </View>
               <Text style={styles.breakdownPoints}>
-                +{userPoints.points_breakdown?.posts_with_photos?.points || 0}
+                +{(userPoints.points_breakdown?.posts_with_photos?.count || 0) * pointsSettings.post_with_photo}
               </Text>
             </View>
 
@@ -404,7 +566,7 @@ export default function RewardsScreen() {
                   </Text>
                 </View>
                 <Text style={styles.breakdownPoints}>
-                  +{userPoints.points_breakdown?.tracker_form?.points || 0}
+                  +{(userPoints.points_breakdown?.tracker_form?.count || 0) * pointsSettings.tracker_form}
                 </Text>
               </View>
             )}
@@ -417,6 +579,7 @@ export default function RewardsScreen() {
             style={styles.actionButton}
             onPress={() => {
               fetchInventoryItems();
+              fetchUserRewardRequests();
               setShowRewardsModal(true);
             }}
           >
@@ -529,10 +692,11 @@ export default function RewardsScreen() {
             setShowRequestsModal(false);
             setSelectedRewardDetail(null);
             setRewardStatusFilter('all');
+            setShowRewardFilterDropdown(false);
           }}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, styles.requestsModalContent]}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>My Reward Requests</Text>
                 <TouchableOpacity
@@ -540,77 +704,160 @@ export default function RewardsScreen() {
                     setShowRequestsModal(false);
                     setSelectedRewardDetail(null);
                     setRewardStatusFilter('all');
+                    setShowRewardFilterDropdown(false);
                   }}
                 >
                   <FontAwesome name="times" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
 
-              {/* Filter Buttons */}
-              <View style={styles.filterContainer}>
-                {(['all', 'pending', 'approved', 'claimed', 'did_not_push_through'] as const).map((filter) => (
-                  <TouchableOpacity
-                    key={filter}
-                    style={[
-                      styles.filterButton,
-                      rewardStatusFilter === filter && styles.filterButtonActive,
-                    ]}
-                    onPress={() => setRewardStatusFilter(filter)}
-                  >
-                    <Text
-                      style={[
-                        styles.filterButtonText,
-                        rewardStatusFilter === filter && styles.filterButtonTextActive,
-                      ]}
+              {/* Filter Dropdown */}
+              <View style={styles.filterDropdownContainer}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={styles.filterLabel}>Filter by status:</Text>
+                  <View style={{ position: 'relative', flex: 1 }}>
+                    <TouchableOpacity
+                      style={styles.filterDropdownButton}
+                      onPress={() => setShowRewardFilterDropdown(!showRewardFilterDropdown)}
                     >
-                      {filter.charAt(0).toUpperCase() + filter.slice(1).replace(/_/g, ' ')}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text style={styles.filterDropdownButtonText}>
+                        {rewardStatusFilter === 'all' ? 'All' : 
+                         rewardStatusFilter === 'pending' ? 'Pending' : 
+                         rewardStatusFilter === 'approved' ? 'Ready' : 
+                         rewardStatusFilter === 'claimed' ? 'Claimed' : 
+                         'Did Not Push Through'}
+                      </Text>
+                      <FontAwesome 
+                        name={showRewardFilterDropdown ? 'chevron-up' : 'chevron-down'} 
+                        size={12} 
+                        color="#1e3a5f" 
+                      />
+                    </TouchableOpacity>
+                    {showRewardFilterDropdown && (
+                      <View style={styles.filterDropdownMenu}>
+                        {(['all', 'pending', 'approved', 'claimed', 'did_not_push_through'] as const).map((filter) => (
+                          <TouchableOpacity
+                            key={filter}
+                            style={[
+                              styles.filterDropdownItem,
+                              rewardStatusFilter === filter && styles.filterDropdownItemActive
+                            ]}
+                            onPress={() => {
+                              setRewardStatusFilter(filter);
+                              setShowRewardFilterDropdown(false);
+                            }}
+                          >
+                            <Text style={[
+                              styles.filterDropdownItemText,
+                              rewardStatusFilter === filter && styles.filterDropdownItemTextActive
+                            ]}>
+                              {filter === 'all' ? 'All' : 
+                               filter === 'approved' ? 'Ready' : 
+                               filter === 'did_not_push_through' ? 'Did Not Push Through' : 
+                               filter.charAt(0).toUpperCase() + filter.slice(1)}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
               </View>
 
-              <ScrollView style={styles.modalScrollView}>
+              <ScrollView 
+                style={styles.modalScrollView}
+                onScrollBeginDrag={() => setShowRewardFilterDropdown(false)}
+                contentContainerStyle={filteredRequests.length === 0 ? styles.emptyScrollContent : undefined}
+              >
                 {filteredRequests.length === 0 ? (
-                  <Text style={styles.emptyText}>No reward requests</Text>
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No reward requests</Text>
+                  </View>
                 ) : (
-                  filteredRequests.map((request) => (
-                    <TouchableOpacity
-                      key={request.request_id}
-                      style={styles.requestCard}
-                      onPress={() => setSelectedRewardDetail(request)}
-                    >
-                      <View style={styles.requestHeader}>
-                        <Text style={styles.requestName}>{request.reward_name}</Text>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            { backgroundColor: getStatusColor(request.status) },
-                          ]}
-                        >
-                          <Text style={styles.statusBadgeText}>
-                            {request.status.charAt(0).toUpperCase() + request.status.slice(1).replace(/_/g, ' ')}
-                          </Text>
+                  filteredRequests.map((request: any) => {
+                    const isApproved = request.status === 'approved' || request.status === 'ready_for_pickup';
+                    const isClaimed = request.status === 'claimed';
+                    const hasExpired = request.expires_at && new Date(request.expires_at) < new Date();
+                    const didNotPushThrough = isApproved && !isClaimed && hasExpired;
+                    const isMerchandise = request.reward_type?.toLowerCase().includes('merchandise') || 
+                                         request.reward_type?.toLowerCase().includes('merch') ||
+                                         request.reward_type?.toLowerCase().includes('product') ||
+                                         request.reward_type?.toLowerCase().includes('item');
+                    const canClaim = isApproved && !isClaimed && !isMerchandise;
+
+                    return (
+                      <TouchableOpacity
+                        key={request.request_id}
+                        style={[
+                          styles.requestCard,
+                          didNotPushThrough && { backgroundColor: '#fef2f2', borderColor: '#fee2e2' }
+                        ]}
+                        onPress={() => setSelectedRewardDetail(request)}
+                      >
+                        <View style={styles.requestHeader}>
+                          <Text style={styles.requestName}>{request.reward_name}</Text>
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              { backgroundColor: getStatusColor(request.status, didNotPushThrough) },
+                            ]}
+                          >
+                            <Text style={styles.statusBadgeText}>
+                              {getStatusDisplay(request.status, didNotPushThrough)}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
-                      <Text style={styles.requestPoints}>Cost: {request.points_cost} points</Text>
-                      <Text style={styles.requestDate}>
-                        Requested: {new Date(request.requested_at).toLocaleDateString()}
-                      </Text>
-                      {request.status === 'approved' && (
-                        <TouchableOpacity
-                          style={styles.claimButton}
-                          onPress={() => handleClaimApprovedReward(request.request_id)}
-                          disabled={claimingReward === request.request_id}
-                        >
-                          {claimingReward === request.request_id ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <Text style={styles.claimButtonText}>Claim Reward</Text>
-                          )}
-                        </TouchableOpacity>
-                      )}
-                    </TouchableOpacity>
-                  ))
+                        <Text style={styles.requestPoints}>Cost: {request.points_cost} points</Text>
+                        {request.reward_type && (
+                          <Text style={styles.requestDate}>Type: {request.reward_type}</Text>
+                        )}
+                        <Text style={styles.requestDate}>
+                          Requested: {new Date(request.requested_at).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric'
+                          })}
+                        </Text>
+                        {request.approved_at && (
+                          <Text style={styles.requestDate}>
+                            Approved: {new Date(request.approved_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </Text>
+                        )}
+                        {canClaim && request.expires_at && (
+                          <Text style={[
+                            styles.requestDate,
+                            hasExpired && { color: '#dc2626', fontWeight: '600' }
+                          ]}>
+                            Expires: {new Date(request.expires_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </Text>
+                        )}
+                        {canClaim && (
+                          <TouchableOpacity
+                            style={styles.claimButton}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleClaimApprovedReward(request.request_id);
+                            }}
+                            disabled={claimingReward === request.request_id}
+                          >
+                            {claimingReward === request.request_id ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <Text style={styles.claimButtonText}>Claim Reward</Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
                 )}
               </ScrollView>
             </View>
@@ -651,26 +898,64 @@ export default function RewardsScreen() {
                     <View
                       style={[
                         styles.statusBadge,
-                        { backgroundColor: getStatusColor(selectedRewardDetail.status) },
+                        { backgroundColor: getStatusColor(selectedRewardDetail.status, 
+                          selectedRewardDetail.expires_at && 
+                          new Date(selectedRewardDetail.expires_at) < new Date() &&
+                          (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') &&
+                          selectedRewardDetail.status !== 'claimed'
+                        ) },
                       ]}
                     >
                       <Text style={styles.statusBadgeText}>
-                        {selectedRewardDetail.status.charAt(0).toUpperCase() +
-                          selectedRewardDetail.status.slice(1).replace(/_/g, ' ')}
+                        {getStatusDisplay(selectedRewardDetail.status, 
+                          selectedRewardDetail.expires_at && 
+                          new Date(selectedRewardDetail.expires_at) < new Date() &&
+                          (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') &&
+                          selectedRewardDetail.status !== 'claimed'
+                        )}
                       </Text>
                     </View>
                   </View>
                   <View style={styles.detailCard}>
                     <Text style={styles.detailLabel}>Requested At</Text>
                     <Text style={styles.detailValue}>
-                      {new Date(selectedRewardDetail.requested_at).toLocaleString()}
+                      {new Date(selectedRewardDetail.requested_at).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit'
+                      })}
                     </Text>
                   </View>
                   {selectedRewardDetail.approved_at && (
                     <View style={styles.detailCard}>
                       <Text style={styles.detailLabel}>Approved At</Text>
                       <Text style={styles.detailValue}>
-                        {new Date(selectedRewardDetail.approved_at).toLocaleString()}
+                        {new Date(selectedRewardDetail.approved_at).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        })}
+                      </Text>
+                    </View>
+                  )}
+                  {selectedRewardDetail.expires_at && (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') && (
+                    <View style={styles.detailCard}>
+                      <Text style={styles.detailLabel}>Expires At</Text>
+                      <Text style={[
+                        styles.detailValue,
+                        new Date(selectedRewardDetail.expires_at) < new Date() && { color: '#dc2626', fontWeight: '600' }
+                      ]}>
+                        {new Date(selectedRewardDetail.expires_at).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        })}
                       </Text>
                     </View>
                   )}
@@ -694,26 +979,157 @@ export default function RewardsScreen() {
                       <Text style={styles.detailValue}>{selectedRewardDetail.notes}</Text>
                     </View>
                   )}
-                  {selectedRewardDetail.status === 'approved' && (
-                    <TouchableOpacity
-                      style={styles.claimButton}
-                      onPress={() => {
-                        handleClaimApprovedReward(selectedRewardDetail.request_id);
-                      }}
-                      disabled={claimingReward === selectedRewardDetail.request_id}
-                    >
-                      {claimingReward === selectedRewardDetail.request_id ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.claimButtonText}>Claim Reward</Text>
-                      )}
-                    </TouchableOpacity>
-                  )}
+                  {(() => {
+                    const isApproved = selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup';
+                    const isClaimed = selectedRewardDetail.status === 'claimed';
+                    const isMerchandise = selectedRewardDetail.reward_type?.toLowerCase().includes('merchandise') || 
+                                         selectedRewardDetail.reward_type?.toLowerCase().includes('merch') ||
+                                         selectedRewardDetail.reward_type?.toLowerCase().includes('product') ||
+                                         selectedRewardDetail.reward_type?.toLowerCase().includes('item');
+                    const canClaim = isApproved && !isClaimed && !isMerchandise;
+
+                    return canClaim ? (
+                      <TouchableOpacity
+                        style={styles.claimButton}
+                        onPress={() => {
+                          handleClaimApprovedReward(selectedRewardDetail.request_id);
+                        }}
+                        disabled={claimingReward === selectedRewardDetail.request_id}
+                      >
+                        {claimingReward === selectedRewardDetail.request_id ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.claimButtonText}>Claim Reward</Text>
+                        )}
+                      </TouchableOpacity>
+                    ) : null;
+                  })()}
                 </ScrollView>
               </View>
             </View>
           </Modal>
         )}
+
+        {/* Monthly Limit Modal */}
+        <Modal
+          visible={showMonthlyLimitModal}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setShowMonthlyLimitModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Monthly Limit Reached</Text>
+                <TouchableOpacity onPress={() => setShowMonthlyLimitModal(false)}>
+                  <FontAwesome name="times" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.modalBody}>
+                <Text style={styles.modalIcon}>⚠️</Text>
+                <Text style={styles.modalMessage}>
+                  You can only request 1 reward per month. Please wait until next month to request another reward.
+                </Text>
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={() => setShowMonthlyLimitModal(false)}
+                >
+                  <Text style={styles.modalButtonText}>OK</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Confirm Request Modal */}
+        <Modal
+          visible={showConfirmRequestModal}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => {
+            setShowConfirmRequestModal(false);
+            setPendingRewardRequest(null);
+          }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalTitleRow}>
+                  <FontAwesome name="gift" size={20} color="#1e3a5f" />
+                  <Text style={styles.modalTitle}>Request Reward</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowConfirmRequestModal(false);
+                    setPendingRewardRequest(null);
+                  }}
+                >
+                  <FontAwesome name="times" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalScrollView}>
+                {pendingRewardRequest && (() => {
+                  const pointsMatch = pendingRewardRequest.value?.match(/(\d+)/);
+                  const pointsValue = pointsMatch ? parseInt(pointsMatch[1]) : 0;
+                  const pointsText = pointsValue === 1 ? 'point' : 'points';
+                  
+                  return (
+                    <View style={styles.modalBody}>
+                      <Text style={styles.confirmMessage}>
+                        You are about to redeem <Text style={styles.highlightText}>{pendingRewardRequest.name}</Text> as your reward for accumulating <Text style={styles.highlightText}>{pointsValue} {pointsText}</Text>.
+                      </Text>
+                      
+                      {/* Warning Box - Only show for merchandise */}
+                      {pendingRewardRequest.type && 
+                       pendingRewardRequest.type.toLowerCase().includes('merchandise') && (
+                        <View style={styles.warningBox}>
+                          <Text style={styles.warningIcon}>⚠️</Text>
+                          <Text style={styles.warningText}>
+                            Please take note that this needs to be claimed in the CTU.
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Info Box */}
+                      <View style={styles.infoBox}>
+                        <Text style={styles.infoIcon}>ℹ️</Text>
+                        <Text style={styles.infoText}>
+                          Note: You can only redeem 1 reward per month.
+                        </Text>
+                      </View>
+
+                      <View style={styles.modalButtonRow}>
+                        <TouchableOpacity
+                          style={[styles.modalButton, styles.modalButtonCancel]}
+                          onPress={() => {
+                            setShowConfirmRequestModal(false);
+                            setPendingRewardRequest(null);
+                          }}
+                        >
+                          <Text style={styles.modalButtonCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.modalButton,
+                            claimingReward !== null && styles.modalButtonDisabled
+                          ]}
+                          onPress={confirmRequestReward}
+                          disabled={claimingReward !== null}
+                        >
+                          {claimingReward !== null ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.modalButtonText}>Confirm Request</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })()}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </View>
   );
@@ -858,6 +1274,9 @@ const styles = StyleSheet.create({
     maxHeight: '90%',
     paddingBottom: 20,
   },
+  requestsModalContent: {
+    minHeight: 400,
+  },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -874,6 +1293,10 @@ const styles = StyleSheet.create({
   modalScrollView: {
     padding: 16,
   },
+  emptyScrollContent: {
+    minHeight: 300,
+    justifyContent: 'center',
+  },
   emptyText: {
     textAlign: 'center',
     fontSize: 16,
@@ -882,6 +1305,8 @@ const styles = StyleSheet.create({
   emptyContainer: {
     padding: 40,
     alignItems: 'center',
+    minHeight: 250,
+    justifyContent: 'center',
   },
   emptySubtext: {
     textAlign: 'center',
@@ -945,30 +1370,67 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  filterContainer: {
-    flexDirection: 'row',
+  filterDropdownContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    gap: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
-  filterButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+  filterLabel: {
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  filterDropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: 'white',
+    minWidth: 180,
+  },
+  filterDropdownButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1e3a5f',
+  },
+  filterDropdownMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginTop: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+    zIndex: 100,
+  },
+  filterDropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: 'white',
+  },
+  filterDropdownItemActive: {
     backgroundColor: '#f3f4f6',
   },
-  filterButtonActive: {
-    backgroundColor: '#1e3a8a',
+  filterDropdownItemText: {
+    fontSize: 13,
+    color: '#374151',
+    fontWeight: '400',
   },
-  filterButtonText: {
-    fontSize: 12,
-    color: '#6b7280',
+  filterDropdownItemTextActive: {
+    color: '#1e3a5f',
     fontWeight: '600',
-  },
-  filterButtonTextActive: {
-    color: '#fff',
   },
   requestCard: {
     backgroundColor: '#fff',
@@ -1046,6 +1508,110 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1e3a8a',
     letterSpacing: 2,
+  },
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalBody: {
+    padding: 16,
+  },
+  modalIcon: {
+    fontSize: 48,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#374151',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  confirmMessage: {
+    fontSize: 16,
+    color: '#374151',
+    lineHeight: 24,
+    marginBottom: 20,
+  },
+  highlightText: {
+    color: '#1e3a5f',
+    fontWeight: '600',
+  },
+  warningBox: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  warningIcon: {
+    fontSize: 18,
+    flexShrink: 0,
+    marginTop: 2,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#92400e',
+    lineHeight: 20,
+  },
+  infoBox: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  infoIcon: {
+    fontSize: 16,
+    flexShrink: 0,
+    marginTop: 2,
+    color: '#1e40af',
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1e40af',
+    lineHeight: 18,
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'flex-end',
+  },
+  modalButton: {
+    backgroundColor: '#1e3a5f',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    minWidth: 120,
+  },
+  modalButtonCancel: {
+    backgroundColor: '#f3f4f6',
+  },
+  modalButtonDisabled: {
+    backgroundColor: '#9ca3af',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalButtonCancelText: {
+    color: '#374151',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 
