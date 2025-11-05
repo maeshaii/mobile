@@ -80,8 +80,24 @@ export default function RepostScreen() {
 
   const renderAvatar = (src?: string) => {
     if (!src) return require('../../assets/images/sample_pic.jpg');
-    const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
-    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+    const s = String(src);
+    
+    // Handle data URIs
+    if (s.startsWith('data:')) return { uri: s };
+    
+    // Handle absolute URLs - check if it's localhost and replace with API_BASE_URL
+    if (s.startsWith('http')) {
+      const localhostPattern = /^https?:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2)(:\d+)?/i;
+      if (localhostPattern.test(s)) {
+        const urlObj = new URL(s);
+        return { uri: `${API_BASE_URL}${urlObj.pathname}${urlObj.search}` };
+      }
+      return { uri: s };
+    }
+    
+    // Handle relative URLs
+    const relativePath = s.startsWith('/') ? s : `/${s}`;
+    return { uri: `${API_BASE_URL}${relativePath}` };
   };
 
   const meId = me?.id || me?.user_id;
@@ -336,13 +352,13 @@ export default function RepostScreen() {
                 <ScrollView style={{ maxHeight: 320, marginTop: 8 }}>
                   {viewerType === 'likes' && (original?.likes || []).map((u:any, idx:number)=> (
                     <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
-                      <Image source={{ uri: (u.profile_pic && (String(u.profile_pic).startsWith('http') || String(u.profile_pic).startsWith('data:'))) ? u.profile_pic : (u.profile_pic ? `${API_BASE_URL}${u.profile_pic}` : '') }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                      <Image source={renderAvatar(u.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
                       <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{u.f_name || ''} {u.l_name || ''}</Text>
                     </View>
                   ))}
                   {viewerType === 'reposts' && (original?.reposts || []).map((r:any)=> (
                     <View key={r.repost_id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
-                      <Image source={{ uri: (r.user?.profile_pic && (String(r.user.profile_pic).startsWith('http') || String(r.user.profile_pic).startsWith('data:'))) ? r.user?.profile_pic : (r.user?.profile_pic ? `${API_BASE_URL}${r.user.profile_pic}` : '') }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                      <Image source={renderAvatar(r.user?.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
                       <View>
                         <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{r.user?.f_name || ''} {r.user?.l_name || ''}</Text>
                         <Text style={{ color: '#888', fontSize: 12 }}>{r.repost_date ? new Date(r.repost_date).toLocaleString() : ''}</Text>

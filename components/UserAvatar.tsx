@@ -30,8 +30,27 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
   const buildUri = (src?: string | null) => {
     if (!src) return null;
     const s = String(src);
-    const isAbs = s.startsWith('http') || s.startsWith('data:');
-    return isAbs ? s : `${API_BASE_URL}${s}`;
+    
+    // Handle data URIs (base64 images)
+    if (s.startsWith('data:')) return s;
+    
+    // Handle absolute URLs - check if it's localhost and replace with API_BASE_URL
+    if (s.startsWith('http')) {
+      // If it's a localhost URL (127.0.0.1, localhost, or 10.0.2.2), replace with API_BASE_URL
+      const localhostPattern = /^https?:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2)(:\d+)?/i;
+      if (localhostPattern.test(s)) {
+        // Extract the path from the URL
+        const urlObj = new URL(s);
+        return `${API_BASE_URL}${urlObj.pathname}${urlObj.search}`;
+      }
+      // Otherwise use the absolute URL as-is (should be ngrok or production URL)
+      return s;
+    }
+    
+    // Handle relative URLs - prepend API_BASE_URL
+    // Ensure the relative path starts with / for proper concatenation
+    const relativePath = s.startsWith('/') ? s : `/${s}`;
+    return `${API_BASE_URL}${relativePath}`;
   };
 
   const getInitials = () => {
