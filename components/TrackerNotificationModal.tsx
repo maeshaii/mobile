@@ -119,7 +119,7 @@ const TrackerNotificationModal: React.FC<TrackerNotificationModalProps> = ({
               {/* CCICT Logo/Icon */}
               <View style={styles.logoContainer}>
                 <Image
-                  source={require('../../assets/images/ccict_logo.jpg')}
+                  source={require('../assets/images/ccict_logo.jpg')}
                   style={styles.logo}
                   resizeMode="contain"
                 />

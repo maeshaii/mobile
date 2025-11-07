@@ -18,6 +18,7 @@ import { getNotifications, deleteNotifications, getUserInfo } from '../../servic
 import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
 import TrackerNotificationModal from '../../components/TrackerNotificationModal';
+import NotificationModal from '../../components/NotificationModal';
 
 interface NotificationItem {
   id?: number;
@@ -50,6 +51,7 @@ const NotificationScreen = () => {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [trackerNotification, setTrackerNotification] = useState<NotificationItem | null>(null);
+  const [generalNotification, setGeneralNotification] = useState<NotificationItem | null>(null);
   const router = useRouter();
 
   const fetchNotificationsData = useCallback(async () => {
@@ -237,26 +239,38 @@ const NotificationScreen = () => {
     await fetchNotificationsData();
   };
 
-  const handleNotificationPress = (item: NotificationItem) => {
+  const handleNotificationPress = async (item: NotificationItem) => {
     if (selectionMode) {
       toggleSelect(item.id || 0);
       return;
     }
   
-    // Debug: Log the notification data to see what we're working with
-    console.log('Notification pressed:', {
-      notif_type: item.notif_type,
-      name: item.name,
-      post_id: item.post_id,
-      user_id: item.user_id,
-      subject: item.subject,
-      message: item.message
-    });
-  
     const type = item.notif_type?.toLowerCase();
     const name = item.name?.toLowerCase();
     const message = item.message?.toLowerCase();
-  
+    const fullMessage = item.fullMessage || item.message || '';
+
+    // Special case: tracker notifications - show modal
+    const isTrackerNotification = 
+      type === 'ccict' || 
+      type === 'tracker_submission' ||
+      type.includes('tracker') || 
+      (item.subject && item.subject.toLowerCase().includes('tracker')) ||
+      (fullMessage && fullMessage.includes('Tracker Form'));
+    
+    if (isTrackerNotification) {
+      setTrackerNotification(item);
+      return;
+    }
+
+    // Special case: reward notifications - show modal first with content/images
+    const isRewardNotification = type === 'reward';
+    if (isRewardNotification) {
+      setGeneralNotification(item);
+      return;
+    }
+
+    // All other notifications redirect immediately
     // When a user follows me → go to their profile
     if (type === 'follow' || name?.includes('follow') || message?.includes('follow')) {
       if (item.user_id) {
@@ -266,12 +280,11 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        // If no user_id, try to extract from message or go to general profile
         Alert.alert('Follow Notification', 'Unable to navigate to user profile - user ID not found.');
         return;
       }
     }
-  
+
     // When user likes my post/repost → go to that post's detail page
     if (type === 'like' || name?.includes('like') || message?.includes('like')) {
       if (item.post_id) {
@@ -290,12 +303,11 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        // If no post_id, try to navigate to posts page or show alert
         Alert.alert('Like Notification', 'Unable to navigate to post - post ID not found.');
         return;
       }
     }
-  
+
     // When user comments on my post/repost → go to that post's comments
     if (type === 'comment' || name?.includes('comment') || message?.includes('comment')) {
       if (item.post_id) {
@@ -322,7 +334,7 @@ const NotificationScreen = () => {
         return;
       }
     }
-  
+
     // When user reposts my post → go to that post's comments
     if (type === 'repost' || name?.includes('repost') || message?.includes('repost')) {
       if (item.post_id) {
@@ -360,26 +372,10 @@ const NotificationScreen = () => {
         return;
       }
     }
-  
+
     // When user interacts with my donation post → go to donation page
     if (type === 'donation' || name?.includes('donation') || message?.includes('donation')) {
       router.push('/donation/donationpage');
-      return;
-    }
-  
-    // Special case: forms/tracker notifications
-    // Apply same detection logic as web frontend
-    const notifType = (item.notif_type || '').toLowerCase();
-    const isTrackerNotification = 
-      notifType === 'ccict' || 
-      notifType === 'tracker_submission' ||
-      notifType.includes('tracker') || 
-      (item.subject && item.subject.toLowerCase().includes('tracker')) ||
-      (item.message && item.message.includes('Tracker Form'));
-    
-    if (isTrackerNotification) {
-      // Show tracker notification modal instead of navigating directly
-      setTrackerNotification(item);
       return;
     }
 
@@ -410,7 +406,7 @@ const NotificationScreen = () => {
         return;
       }
     }
-  
+
     // Fallback: Show debug info and alert
     console.log('Unhandled notification type:', { type, name, item });
     Alert.alert('Notification', `This notification type is not yet handled.\nType: ${type}\nName: ${name}\nPost ID: ${item.post_id}\nUser ID: ${item.user_id}`);
@@ -522,6 +518,11 @@ const NotificationScreen = () => {
       return `💰 ${name} interacted with your donation post`;
     }
 
+    // Format reward notifications
+    if (type === 'reward' || message.toLowerCase().includes('reward')) {
+      return '🎁 Reward request update';
+    }
+
     // Default formatting
     return message.length > 80 ? message.substring(0, 80) + '...' : message;
   };
@@ -530,9 +531,10 @@ const NotificationScreen = () => {
     // Use the pre-detected notification source
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
+    const isRewardNotification = item.notif_type?.toLowerCase() === 'reward';
 
-    // Admin/CCICT notifications - show CCICT logo
-    if (isAdminNotification && !isPesoNotification) {
+    // Admin/CCICT notifications - show CCICT logo (including reward notifications)
+    if ((isAdminNotification || isRewardNotification) && !isPesoNotification) {
       return (
         <Image
           source={require('../../assets/images/ccict_logo.jpg')}
@@ -674,6 +676,47 @@ const NotificationScreen = () => {
           date: trackerNotification.date,
           type: trackerNotification.notif_type,
         } : null}
+      />
+
+      <NotificationModal
+        isVisible={!!generalNotification}
+        onClose={() => setGeneralNotification(null)}
+        notification={generalNotification ? {
+          subject: generalNotification.subject,
+          content: generalNotification.fullMessage || generalNotification.message,
+          fullMessage: generalNotification.fullMessage || generalNotification.message,
+          date: generalNotification.date,
+          type: generalNotification.notif_type,
+          post_id: generalNotification.post_id,
+          forum_id: generalNotification.forum_id,
+          repost_id: generalNotification.repost_id,
+          donation_id: generalNotification.donation_id,
+          comment_id: generalNotification.comment_id,
+          user_id: generalNotification.user_id,
+        } : null}
+        onNavigate={() => {
+          if (generalNotification) {
+            const type = generalNotification.notif_type?.toLowerCase();
+            const isRewardNotification = type === 'reward';
+            
+            if (isRewardNotification) {
+              // Extract reward request ID from notification content
+              const fullMessage = generalNotification.fullMessage || generalNotification.message || '';
+              const requestIdMatch = fullMessage.match(/<!--REQUEST_ID:(\d+)-->/);
+              const requestId = requestIdMatch ? requestIdMatch[1] : null;
+              
+              // Navigate to rewards page with request ID if available
+              if (requestId) {
+                router.push({
+                  pathname: '/rewards/rewards',
+                  params: { requestId: requestId },
+                });
+              } else {
+                router.push('/rewards/rewards');
+              }
+            }
+          }
+        }}
       />
     </View>
   );

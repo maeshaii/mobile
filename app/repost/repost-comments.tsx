@@ -381,11 +381,24 @@ export default function RepostCommentsScreen() {
 
     if (!src) return require('../../assets/images/sample_pic.jpg');
 
-    const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
-
-    const imageUrl = isAbs ? src : `${API_BASE_URL}${src}`;
-
-    return { uri: imageUrl };
+    const s = String(src);
+    
+    // Handle data URIs
+    if (s.startsWith('data:')) return { uri: s };
+    
+    // Handle absolute URLs - check if it's localhost and replace with API_BASE_URL
+    if (s.startsWith('http')) {
+      const localhostPattern = /^https?:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2)(:\d+)?/i;
+      if (localhostPattern.test(s)) {
+        const urlObj = new URL(s);
+        return { uri: `${API_BASE_URL}${urlObj.pathname}${urlObj.search}` };
+      }
+      return { uri: s };
+    }
+    
+    // Handle relative URLs
+    const relativePath = s.startsWith('/') ? s : `/${s}`;
+    return { uri: `${API_BASE_URL}${relativePath}` };
 
   };
 
