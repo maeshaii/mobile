@@ -55,6 +55,7 @@ export default function RootLayout() {
             <Stack.Screen name="repost/repost" options={{ title: 'repost', headerShown: false }} />
             <Stack.Screen name="repost/repost-comments" options={{ title: 'repost-comments', headerShown: false }} />
             <Stack.Screen name="donation/donation-repost" options={{ title: 'donation-repost', headerShown: false }} />
+            <Stack.Screen name="rewards/rewards" options={{ title: 'rewards', headerShown: false }} />
           </Stack>
           <StatusBar style="auto" />
         </ThemeProvider>

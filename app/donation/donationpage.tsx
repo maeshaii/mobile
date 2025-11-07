@@ -1,6 +1,6 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost, getDonationLikes, getDonationReposts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
@@ -53,6 +53,24 @@ export default function DonationPage() {
   const [donationMessage, setDonationMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
+    if (showSuggestions && scrollViewRef.current && inputPosition) {
+      // Calculate scroll offset to move input and dropdown above keyboard
+      // Dropdown max height is ~300px, add padding
+      const dropdownHeight = 320;
+      const padding = 20;
+      
+      // Scroll upward to make room for dropdown
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ 
+          y: dropdownHeight + padding, 
+          animated: true 
+        });
+      }, 150);
+    }
+  };
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -120,6 +138,7 @@ export default function DonationPage() {
             user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
             item_type: 'post'
           });
+          console.log(`Donation post ${feedItems[feedItems.length - 1].post_id} - is_liked: ${feedItems[feedItems.length - 1].is_liked} (from backend: ${d.is_liked})`);
 
           // Add donation reposts as separate feed items
           const reposts = Array.isArray(d.reposts) ? d.reposts : [];
@@ -341,6 +360,7 @@ export default function DonationPage() {
 
   return (
     <ScrollView
+      ref={scrollViewRef}
       style={styles.scrollContainer}
       contentContainerStyle={{ flexGrow: 1 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#1e3a8a"]} tintColor="#1e3a8a" />}
@@ -466,13 +486,20 @@ export default function DonationPage() {
               post={item}
               currentUserId={currentUserId || undefined}
               onLikeToggle={(postId, isLiked) => {
-                setPosts(prev => prev.map((p: any) => 
-                  p.post_id === postId 
-                    ? { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) }
-                    : p
-                ));
-                // Auto-refresh donation posts after like/unlike
-                setTimeout(() => loadDonationPosts(), 500);
+                console.log(`Like toggle for post ${postId}: ${isLiked}`);
+                setPosts(prev => prev.map((p: any) => {
+                  if (p.post_id === postId) {
+                    const updated = { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) };
+                    console.log(`Updated post ${postId} - is_liked: ${updated.is_liked}, likes_count: ${updated.likes_count}`);
+                    return updated;
+                  }
+                  return p;
+                }));
+                // Refresh donation posts after like/unlike to get updated state from backend
+                setTimeout(() => {
+                  console.log(`Refreshing donation posts after like toggle for post ${postId}`);
+                  loadDonationPosts();
+                }, 1000);
               }}
               onOpenViewer={async (post, type) => {
                 try {
@@ -616,6 +643,7 @@ export default function DonationPage() {
               placeholder="Describe your situation and how donations would help..."
               style={styles.input}
               multiline
+              onSuggestionsChange={handleSuggestionsChange}
             />
 
             {/* Character Count */}

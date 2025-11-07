@@ -33,8 +33,10 @@ export default function TrackerForm() {
   const [categories, setCategories] = useState<any[] | null>(null);
   const [responses, setResponses] = useState<Record<string, any>>({});
   const [fileAnswers, setFileAnswers] = useState<Record<string, FileAsset | null>>({});
+  const [multipleFileAnswers, setMultipleFileAnswers] = useState<Record<string, FileAsset[]>>({});
   const [accepting, setAccepting] = useState<boolean | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState<boolean | null>(null);
+  const [userDetails, setUserDetails] = useState<any>(null);
 
   // Existing static form (fallback)
   const [form, setForm] = useState({
@@ -147,13 +149,21 @@ export default function TrackerForm() {
         const qs = await getTrackerQuestions();
         const cats = qs?.categories ?? qs ?? [];
         setQuestions(qs);
-        if (Array.isArray(cats)) setCategories(cats);
+        if (Array.isArray(cats)) {
+          // Sort questions within each category by order
+          const sortedCategories = cats.map(cat => ({
+            ...cat,
+            questions: (cat.questions || []).sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
+          }));
+          setCategories(sortedCategories);
+        }
 
         // 3) Prefill like web does
         try {
           if (user?.id) {
             const details = await getAlumniDetails(user.id);
             const alumni = details?.alumni || {};
+            setUserDetails(alumni);
             setForm(prev => ({
               ...prev,
               courseGraduated: alumni.course || prev.courseGraduated,
@@ -171,6 +181,57 @@ export default function TrackerForm() {
               age: alumni.age ? String(alumni.age) : prev.age,
               socmedlink: alumni.social_media || prev.socmedlink,
             }));
+            
+            // Prefill dynamic form responses
+            if (Array.isArray(cats) && cats.length > 0) {
+              const initialResponses: Record<string, any> = {};
+              for (const category of cats) {
+                for (const question of category.questions || []) {
+                  const questionText = question.text?.toLowerCase() || '';
+                  const qid = String(question.id);
+                  
+                  if (questionText.includes('first name')) {
+                    initialResponses[qid] = alumni.first_name || alumni.f_name || '';
+                  } else if (questionText.includes('last name')) {
+                    initialResponses[qid] = alumni.last_name || alumni.l_name || '';
+                  } else if (questionText.includes('middle name')) {
+                    initialResponses[qid] = alumni.middle_name || alumni.m_name || '';
+                  } else if (questionText.includes('email')) {
+                    initialResponses[qid] = alumni.email || '';
+                  } else if (questionText.includes('birthdate') || questionText.includes('birth date')) {
+                    if (alumni.birthdate) {
+                      const date = new Date(alumni.birthdate);
+                      initialResponses[qid] = date.toISOString().split('T')[0];
+                    }
+                  } else if (questionText.includes('age')) {
+                    if (alumni.age) {
+                      initialResponses[qid] = String(alumni.age);
+                    } else if (alumni.birthdate) {
+                      const birthDate = new Date(alumni.birthdate);
+                      const today = new Date();
+                      const age = today.getFullYear() - birthDate.getFullYear() - 
+                        ((today.getMonth() < birthDate.getMonth()) ? 1 : 0) - 
+                        ((today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate()) ? 1 : 0);
+                      initialResponses[qid] = String(age);
+                    }
+                  } else if (questionText.includes('phone') || questionText.includes('mobile') || questionText.includes('landline')) {
+                    initialResponses[qid] = alumni.phone || alumni.phone_num || '';
+                  } else if (questionText.includes('address') && !questionText.includes('company')) {
+                    initialResponses[qid] = alumni.address || '';
+                  } else if (questionText.includes('civil status')) {
+                    initialResponses[qid] = alumni.civil_status || '';
+                  } else if (questionText.includes('social media')) {
+                    initialResponses[qid] = alumni.social_media || '';
+                  } else if ((questionText.includes('year') && questionText.includes('graduated')) || questionText.includes('batch')) {
+                    const yearValue = alumni.year_graduated || alumni.batch || '';
+                    initialResponses[qid] = yearValue ? String(yearValue) : '';
+                  } else if (questionText.includes('program graduated') || (questionText.includes('program') && questionText.includes('graduated'))) {
+                    initialResponses[qid] = alumni.program || '';
+                  }
+                }
+              }
+              setResponses(prev => ({ ...prev, ...initialResponses }));
+            }
           }
         } catch {}
 
@@ -198,7 +259,7 @@ export default function TrackerForm() {
     setResponses((prev) => ({ ...prev, [String(questionId)]: value }));
   };
 
-  const pickFileForQuestion = async (questionId: string | number) => {
+  const pickFileForQuestion = async (questionId: string | number, isMultiple: boolean = false) => {
     const result = await DocumentPicker.getDocumentAsync({});
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const f = result.assets[0];
@@ -208,9 +269,23 @@ export default function TrackerForm() {
         mimeType: f.mimeType,
         size: f.size,
       };
-      setFileAnswers((prev) => ({ ...prev, [String(questionId)]: asset }));
-      setResponse(String(questionId), { type: 'file' });
+      
+      if (isMultiple) {
+        const currentFiles = multipleFileAnswers[String(questionId)] || [];
+        setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: [...currentFiles, asset] }));
+        setResponse(String(questionId), [...currentFiles, asset]);
+      } else {
+        setFileAnswers((prev) => ({ ...prev, [String(questionId)]: asset }));
+        setResponse(String(questionId), { type: 'file' });
+      }
     }
+  };
+  
+  const removeFileFromMultiple = (questionId: string | number, index: number) => {
+    const currentFiles = multipleFileAnswers[String(questionId)] || [];
+    const updatedFiles = currentFiles.filter((_, i) => i !== index);
+    setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: updatedFiles }));
+    setResponse(String(questionId), updatedFiles);
   };
 
   // Submit form: show terms modal first if not accepted
@@ -229,8 +304,7 @@ export default function TrackerForm() {
   const handleTermsAccept = () => {
     setTermsAccepted(true);
     setShowTermsModal(false);
-    // Trigger actual form submission after accepting terms
-    submitForm();
+    // Don't submit form here - let user fill out form first, then submit via Submit button
   };
 
   // Actual form submission logic (extracted from handleSubmit)
@@ -239,22 +313,82 @@ export default function TrackerForm() {
       setSubmitting(true);
       const user = await getUserInfo();
 
+      // Validate required questions
+      if (Array.isArray(categories) && categories.length > 0) {
+        const missingRequiredQuestions: any[] = [];
+        for (const category of categories) {
+          for (const question of category.questions || []) {
+            if (question.required) {
+              const answer = responses[String(question.id)];
+              const lowerText = question.text?.toLowerCase() || '';
+              const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
+                                             (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
+              
+              if (isAwardSupportingDocs) {
+                const files = multipleFileAnswers[String(question.id)] || [];
+                const hasValidFile = Array.isArray(files) && files.length > 0;
+                if (!hasValidFile) {
+                  missingRequiredQuestions.push(question.text);
+                }
+              } else if (!answer || (typeof answer === 'string' && answer.trim() === '') || 
+                       (Array.isArray(answer) && answer.length === 0)) {
+                missingRequiredQuestions.push(question.text);
+              }
+            }
+          }
+        }
+        
+        if (missingRequiredQuestions.length > 0) {
+          Alert.alert('Required Questions', `Please answer the following required questions:\n\n${missingRequiredQuestions.join('\n')}`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
       const fd = new FormData();
       if (user?.id) fd.append('user_id', String(user.id));
 
       if (Array.isArray(categories) && categories.length > 0) {
         // Dynamic submission
-        fd.append('answers', JSON.stringify(responses));
-        // Attach files per question
-        Object.entries(fileAnswers).forEach(([qid, file]) => {
-          if (file && file.uri && file.name) {
-            fd.append(`file_${qid}`, {
-              uri: file.uri,
-              name: file.name,
-              type: file.mimeType || 'application/octet-stream',
-            } as any);
+        const processedAnswers: Record<string, any> = {};
+        
+        for (const [questionId, answer] of Object.entries(responses)) {
+          const question = categories
+            .flatMap(cat => cat.questions || [])
+            .find(q => String(q.id) === questionId);
+          
+          const lowerText = question?.text?.toLowerCase() || '';
+          const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
+                                         (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
+          
+          if (isAwardSupportingDocs && Array.isArray(answer)) {
+            processedAnswers[questionId] = { type: 'file', multiple: true, count: answer.length };
+            const files = multipleFileAnswers[questionId] || [];
+            files.forEach((file, index) => {
+              if (file && file.uri && file.name) {
+                fd.append(`file_${questionId}_${index}`, {
+                  uri: file.uri,
+                  name: file.name,
+                  type: file.mimeType || 'application/octet-stream',
+                } as any);
+              }
+            });
+          } else if (answer && typeof answer === 'object' && 'type' in answer && answer.type === 'file') {
+            processedAnswers[questionId] = { type: 'file' };
+            const file = fileAnswers[questionId];
+            if (file && file.uri && file.name) {
+              fd.append(`file_${questionId}`, {
+                uri: file.uri,
+                name: file.name,
+                type: file.mimeType || 'application/octet-stream',
+              } as any);
+            }
+          } else {
+            processedAnswers[questionId] = answer;
           }
-        });
+        }
+        
+        fd.append('answers', JSON.stringify(processedAnswers));
       } else {
         // Fallback submission (existing static mapping)
         const answers: Record<string, any> = {
@@ -358,17 +492,196 @@ export default function TrackerForm() {
     
   };
 
+  // Helper: get flat list of all questions with their number
+  const getFlatQuestions = () => {
+    if (!Array.isArray(categories)) return [];
+    const flat: { catIdx: number; qIdx: number; number: number }[] = [];
+    let num = 1;
+    categories.forEach((cat, catIdx) => {
+      (cat.questions || []).forEach((q: any, qIdx: number) => {
+        flat.push({ catIdx, qIdx, number: num++ });
+      });
+    });
+    return flat;
+  };
+  
+  const getQuestionNumber = (catIdx: number, qIdx: number) => {
+    const flatQuestions = getFlatQuestions();
+    const found = flatQuestions.find((fq) => fq.catIdx === catIdx && fq.qIdx === qIdx);
+    return found ? found.number : '';
+  };
+  
+  // Conditional rendering logic
+  const shouldShowCategory = (category: any) => {
+    if (!Array.isArray(categories)) return true;
+    
+    const title = (category.title || category.name || '').toLowerCase();
+    
+    // Check if this is "PART III: EMPLOYMENT STATUS" category
+    if (title.includes('employment status') && !title.includes('unemployed')) {
+      const employmentQuestion = categories.find((cat) =>
+        (cat.questions || []).some((q: any) => q.text?.toLowerCase().includes('presently employed'))
+      );
+      if (employmentQuestion) {
+        const employmentQuestionId = employmentQuestion.questions?.find((q: any) =>
+          q.text?.toLowerCase().includes('presently employed')
+        )?.id;
+        return responses[String(employmentQuestionId)] === 'Yes';
+      }
+    }
+
+    // Check if this is "IF UNEMPLOYED" category
+    if (title.includes('unemployed')) {
+      const employmentQuestion = categories.find((cat) =>
+        (cat.questions || []).some((q: any) => q.text?.toLowerCase().includes('presently employed'))
+      );
+      if (employmentQuestion) {
+        const employmentQuestionId = employmentQuestion.questions?.find((q: any) =>
+          q.text?.toLowerCase().includes('presently employed')
+        )?.id;
+        return responses[String(employmentQuestionId)] === 'No';
+      }
+    }
+
+    // Check if this is "PART IV: FURTHER STUDY" category
+    if (title.includes('further study')) {
+      const studyQuestion = categories.find((cat) =>
+        (cat.questions || []).some((q: any) => {
+          const t = q.text?.toLowerCase() || '';
+          return t.includes('pursue') && t.includes('study');
+        })
+      );
+      if (studyQuestion) {
+        const studyQuestionId = studyQuestion.questions?.find((q: any) => {
+          const t = q.text?.toLowerCase() || '';
+          return t.includes('pursue') && t.includes('study');
+        })?.id;
+        return responses[String(studyQuestionId)] === 'Yes';
+      }
+    }
+
+    // Show all other categories by default
+    return true;
+  };
+  
+  // Helper to check if field should be read-only
+  const isReadOnlyField = (q: any): boolean => {
+    const text = (q.text || '').toLowerCase();
+    return text.includes('program') || text.includes('year graduated') || text.includes('batch') || 
+           text.includes('birthdate') || text.includes('birth date') || text.includes('birthday');
+  };
+  
+  // Helper to get prefilled value
+  const getPrefilledValue = (q: any) => {
+    const qid = String(q.id);
+    if (responses[qid] !== undefined) {
+      return responses[qid];
+    }
+    
+    if (!userDetails) return '';
+    
+    const text = (q.text || '').toLowerCase();
+    if (text.includes('first name')) {
+      return userDetails.first_name || userDetails.f_name || '';
+    } else if (text.includes('last name')) {
+      return userDetails.last_name || userDetails.l_name || '';
+    } else if (text.includes('middle name')) {
+      return userDetails.middle_name || userDetails.m_name || '';
+    } else if (text.includes('email')) {
+      return userDetails.email || '';
+    } else if (text.includes('birthdate') || text.includes('birth date')) {
+      if (userDetails.birthdate) {
+        const date = new Date(userDetails.birthdate);
+        return date.toISOString().split('T')[0];
+      }
+    } else if (text.includes('age')) {
+      if (userDetails.age) {
+        return String(userDetails.age);
+      } else if (userDetails.birthdate) {
+        const birthDate = new Date(userDetails.birthdate);
+        const today = new Date();
+        const age = today.getFullYear() - birthDate.getFullYear() - 
+          ((today.getMonth() < birthDate.getMonth()) ? 1 : 0) - 
+          ((today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate()) ? 1 : 0);
+        return String(age);
+      }
+    } else if (text.includes('phone') || text.includes('mobile') || text.includes('landline')) {
+      return userDetails.phone || userDetails.phone_num || '';
+    } else if (text.includes('address') && !text.includes('company')) {
+      return userDetails.address || '';
+    } else if (text.includes('civil status')) {
+      return userDetails.civil_status || '';
+    } else if (text.includes('social media')) {
+      return userDetails.social_media || '';
+    } else if ((text.includes('year') && text.includes('graduated')) || text.includes('batch')) {
+      const yearValue = userDetails.year_graduated || userDetails.batch || '';
+      return yearValue ? String(yearValue) : '';
+    } else if (text.includes('program graduated') || (text.includes('program') && text.includes('graduated'))) {
+      return userDetails.program || '';
+    }
+    
+    return '';
+  };
+
   // Dynamic renderer
-  const renderQuestion = (q: any) => {
+  const renderQuestion = (q: any, catIdx: number = 0, qIdx: number = 0) => {
     const qid = String(q.id ?? q.question_id ?? q.key ?? q.text);
     const qtype = (q.type || '').toLowerCase();
-    const value = responses[qid];
+    const value = responses[qid] !== undefined ? responses[qid] : getPrefilledValue(q);
+    const questionNumber = getQuestionNumber(catIdx, qIdx);
+    
+    // Check if this is award supporting docs question - only show if awards question is "Yes"
+    const lowerText = (q.text || '').toLowerCase();
+    const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
+                                   (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
+    
+    if (isAwardSupportingDocs) {
+      const awardQuestion = categories
+        ?.flatMap(cat => cat.questions || [])
+        .find((ques: any) => {
+          const qt = ques.text?.toLowerCase() || '';
+          return ques.type === 'radio' && 
+                 (qt.includes('awards') || qt.includes('award') || qt.includes('recognition')) &&
+                 (qt.includes('received') || qt.includes('during') || qt.includes('employment'));
+        });
+      
+      if (!awardQuestion || responses[String(awardQuestion.id)] !== 'Yes') {
+        return null;
+      }
+      
+      // Multiple file upload for award documents
+      const files = multipleFileAnswers[qid] || [];
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
+          {files.map((file, index) => (
+            <View key={index} style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={styles.fileText}>{file.name}</Text>
+              <TouchableOpacity onPress={() => removeFileFromMultiple(qid, index)}>
+                <Text style={{ color: 'red', marginLeft: 8 }}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.uploadButton} onPress={() => pickFileForQuestion(qid, true)}>
+            <Text style={styles.uploadButtonText}>
+              {files.length === 0 ? 'Choose File' : '+ Add Another Award'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
 
     if (qtype === 'file' || /upload|file/i.test(q.text || '')) {
       const file = fileAnswers[qid];
       return (
         <View key={qid} style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>{q.text}</Text>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
           <TouchableOpacity style={styles.uploadButton} onPress={() => pickFileForQuestion(qid)}>
             <Text style={styles.uploadButtonText}>Choose File</Text>
           </TouchableOpacity>
@@ -377,11 +690,14 @@ export default function TrackerForm() {
       );
     }
 
-    if (qtype === 'radio' || qtype === 'select' || Array.isArray(q.options)) {
+    if (qtype === 'radio' || (qtype === 'select' && Array.isArray(q.options))) {
       const opts: string[] = (q.options || []).map((o: any) => (typeof o === 'string' ? o : (o?.label ?? o?.value)));
       return (
         <View key={qid} style={{ marginBottom: 12 }}>
-          <Text style={styles.label}>{q.text}</Text>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {opts.map((opt) => (
               <TouchableOpacity
@@ -405,16 +721,99 @@ export default function TrackerForm() {
         </View>
       );
     }
+    
+    if (qtype === 'checkbox' && Array.isArray(q.options)) {
+      const opts: string[] = (q.options || []).map((o: any) => (typeof o === 'string' ? o : (o?.label ?? o?.value)));
+      const selectedValues = Array.isArray(value) ? value : [];
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
+          <View style={{ marginTop: 8 }}>
+            {opts.map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                onPress={() => {
+                  const prev = Array.isArray(value) ? value : [];
+                  if (prev.includes(opt)) {
+                    setResponse(qid, prev.filter((v: string) => v !== opt));
+                  } else {
+                    setResponse(qid, [...prev, opt]);
+                  }
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}
+              >
+                <View style={[styles.checkboxBox, selectedValues.includes(opt) && styles.checked]} />
+                <Text style={styles.checkboxLabel}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      );
+    }
+    
+    if (qtype === 'multiple' && Array.isArray(q.options)) {
+      const opts: string[] = (q.options || []).map((o: any) => (typeof o === 'string' ? o : (o?.label ?? o?.value)));
+      const readOnly = isReadOnlyField(q);
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
+          <View style={styles.dropdownContainer}>
+            <TouchableOpacity 
+              style={[styles.dropdown, readOnly && { backgroundColor: '#f0f0f0', opacity: 0.7 }]} 
+              onPress={() => {
+                if (readOnly) return; // Don't allow selection if read-only
+                // Simple dropdown implementation - you might want to use a proper picker
+                Alert.alert('Select Option', '', [
+                  ...opts.map(opt => ({
+                    text: opt,
+                    onPress: () => setResponse(qid, opt)
+                  })),
+                  { text: 'Cancel', style: 'cancel' }
+                ]);
+              }}
+              disabled={readOnly}
+            >
+              <Text style={{ color: value ? '#222' : '#aaa' }}>
+                {value || 'Select...'}
+              </Text>
+              {!readOnly && <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 'auto' }} />}
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
 
     // default to text input
+    const text = (q.text || '').toLowerCase();
+    const isDate = text.includes('birth') || text.includes('bday') || text.includes('date');
+    const isPhone = text.includes('phone') || text.includes('mobile') || text.includes('contact');
+    const isEmail = text.includes('email');
+    const isNumeric = text.includes('age') || text.includes('units') || text.includes('number');
+    const readOnly = isReadOnlyField(q);
+    
     return (
       <View key={qid} style={{ marginBottom: 12 }}>
-        <Text style={styles.label}>{q.text}</Text>
+        <Text style={styles.label}>
+          {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+          {q.required && <Text style={{ color: 'red' }}> *</Text>}
+        </Text>
         <TextInput
-          style={styles.input}
-          value={value ?? ''}
-          onChangeText={(v) => setResponse(qid, v)}
+          style={[styles.input, readOnly && { backgroundColor: '#f0f0f0', opacity: 0.7 }]}
+          value={value !== null && value !== undefined ? String(value) : ''}
+          onChangeText={(v) => {
+            if (!readOnly) {
+              setResponse(qid, v);
+            }
+          }}
           placeholder={q.placeholder || ''}
+          keyboardType={isDate ? 'default' : isPhone ? 'phone-pad' : isEmail ? 'email-address' : isNumeric ? 'numeric' : 'default'}
+          editable={!readOnly}
         />
       </View>
     );
@@ -427,7 +826,7 @@ export default function TrackerForm() {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <FontAwesome name="arrow-left" size={20} color="#174f84" />
         </TouchableOpacity>
-        <Text style={styles.topBarTitle}>GRADUATE TRACER SURVEY – CTU MAIN</Text>
+        <Text style={styles.topBarTitle}>CTU MAIN ALUMNI TRACKER</Text>
       </View>
       
       {loading ? (
@@ -438,15 +837,16 @@ export default function TrackerForm() {
         </View>
       ) : Array.isArray(categories) && categories.length > 0 ? (
         <ScrollView contentContainerStyle={styles.container}>
-          <View style={styles.card}>
-            <Text style={styles.sectionDescription}>* Required</Text>
-          </View>
-          {categories.map((cat, idx) => (
-            <View key={cat.id ?? idx} style={styles.card}>
-              {cat.name && <Text style={styles.sectionTitle}>{cat.name}</Text>}
-              {Array.isArray(cat.questions) && cat.questions.map((q: any) => renderQuestion(q))}
-            </View>
-          ))}
+        
+          {categories
+            .filter((cat) => shouldShowCategory(cat))
+            .map((cat, catIdx) => (
+              <View key={cat.id ?? catIdx} style={styles.card}>
+                {(cat.title || cat.name) && <Text style={styles.sectionTitle}>{cat.title || cat.name}</Text>}
+                {cat.description && <Text style={styles.sectionDescription}>{cat.description}</Text>}
+                {Array.isArray(cat.questions) && cat.questions.map((q: any, qIdx: number) => renderQuestion(q, catIdx, qIdx))}
+              </View>
+            ))}
 
           <TouchableOpacity 
             style={[styles.button, submitting && styles.buttonDisabled]} 

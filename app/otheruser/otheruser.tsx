@@ -23,7 +23,8 @@ import {
   getPosts,
   getUserPosts,
   fetchFollowers,
-  fetchFollowing
+  fetchFollowing,
+  getAdminPesoUsers
 } from '../../services/api';
 import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
@@ -131,6 +132,7 @@ export default function OtherUserPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
+  const [isSpecialAccount, setIsSpecialAccount] = useState(false);
 
   // viewer (likes/reposts)
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -143,11 +145,12 @@ export default function OtherUserPage() {
     try {
       setLoading(true);
       console.log('Loading user data for viewUserId:', viewUserId);
-      const [userData, currentUserData, followersData, followingData] = await Promise.all([
+      const [userData, currentUserData, followersData, followingData, specialUsers] = await Promise.all([
         getAlumniDetails(Number(viewUserId)),
         getUserInfo(),
         fetchFollowers(Number(viewUserId)),
-        fetchFollowing(Number(viewUserId))
+        fetchFollowing(Number(viewUserId)),
+        getAdminPesoUsers().catch(() => ({ admin_user_ids: [], peso_user_ids: [] }))
       ]);
       
       console.log('User data from API:', userData);
@@ -180,6 +183,12 @@ export default function OtherUserPage() {
       
       setUser(userWithCounts);
       setCurrentUser(currentUserData);
+      try {
+        const adminIds: number[] = Array.isArray(specialUsers?.admin_user_ids) ? specialUsers.admin_user_ids : [];
+        const pesoIds: number[] = Array.isArray(specialUsers?.peso_user_ids) ? specialUsers.peso_user_ids : [];
+        const viewedId = Number(viewUserId);
+        setIsSpecialAccount(adminIds.includes(viewedId) || pesoIds.includes(viewedId));
+      } catch {}
       
       // Check follow status
       const followStatus = await checkFollowStatus(Number(viewUserId));
@@ -362,15 +371,17 @@ export default function OtherUserPage() {
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.followButton, isFollowing && styles.followingButton]}
-            onPress={handleFollow}
-            disabled={followLoading}
-          >
-            <Text style={[styles.actionButtonText, isFollowing && styles.followingButtonText]}>
-              {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
-            </Text>
-          </TouchableOpacity>
+          {!isSpecialAccount && (
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.followButton, isFollowing && styles.followingButton]}
+              onPress={handleFollow}
+              disabled={followLoading}
+            >
+              <Text style={[styles.actionButtonText, isFollowing && styles.followingButtonText]}>
+                {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+              </Text>
+            </TouchableOpacity>
+          )}
           
           <TouchableOpacity 
             style={[styles.actionButton, styles.messageButton]}

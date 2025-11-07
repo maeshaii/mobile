@@ -174,7 +174,10 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     if ((liked === undefined || liked === null) && currentUserId && Array.isArray((post as any).likes)) {
       liked = (post as any).likes.some((l: any) => (l?.user_id || l?.user?.user_id) === currentUserId);
     }
+    console.log(`DonationPostCard ${post.post_id} - useEffect triggered: is_liked=${post.is_liked}, liked=${liked}, setting isLiked to ${Boolean(liked)}`);
     setIsLiked(Boolean(liked));
+    setLikeCount(post.likes_count || 0);
+    setRepostCount(post.reposts_count || 0);
 
     if (currentUserId && post.user.user_id !== currentUserId) {
       setShowFollowButton(true);
@@ -184,14 +187,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
         setIsFollowing(false);
       });
     }
-  }, [currentUserId, post.user.user_id]);
-
-  // Sync like state when post data changes
-  useEffect(() => {
-    setIsLiked(post.is_liked || false);
-    setLikeCount(post.likes_count || 0);
-    setRepostCount(post.reposts_count || 0);
-  }, [post.is_liked, post.likes_count, post.reposts_count]);
+  }, [currentUserId, post.user.user_id, post.is_liked, post.likes_count, post.reposts_count, post.post_id]);
 
   return (
     <View style={styles.card}>

@@ -22,102 +22,105 @@ export const renderTextWithMentions = (
 ): React.ReactNode => {
   if (!text) return <Text>{text}</Text>;
 
+  // Updated regex to match @mentions without spaces (e.g., @FirstLast, @JohnDoe)
+  // This matches the format stored by MentionInput: @FirstLast (no spaces)
+  // The backend regex r'@([^@\s]+)' doesn't support spaces, so we use @FirstLast format
+  const mentionRegex = /@([A-Za-z0-9]+)/g;
   const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const mentionRegex = /@(\w+)/g;
-  // Enhanced regex to detect names (First Last format)
-  const nameRegex = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g;
   
-  const parts = text.split(urlRegex);
+  // First, split by URLs
+  const urlParts = text.split(urlRegex);
   
-  return (
-    <Text>
-      {parts.map((part, index) => {
-        if (urlRegex.test(part)) {
-          // Handle URLs
-          return (
-            <Text key={index} style={{ color: '#007bff', textDecorationLine: 'underline' }}>
-              {part}
-            </Text>
-          );
-        }
-        
-        // Handle mentions (@username) and names
-        const mentionParts = part.split(mentionRegex);
-        const processedMentionParts = mentionParts.map((mentionPart, mentionIndex) => {
-          if (mentionRegex.test(mentionPart)) {
-            // This is a @mention
-            const username = mentionPart.substring(1); // Remove @
-            
-            return (
-              <TouchableOpacity
-                key={`${index}-${mentionIndex}`}
-                onPress={() => {
-                  if (onMentionPress) {
-                    // Use the same search approach as web frontend
-                    searchAlumni(username)
-                      .then(response => {
-                        if (response.results && response.results.length > 0) {
-                          const foundUser = response.results[0];
-                          onMentionPress(foundUser.id);
-                        }
-                      })
-                      .catch(error => {
-                        console.error('Error searching for user:', error);
-                      });
+  const result: React.ReactNode[] = [];
+  
+  urlParts.forEach((urlPart, urlIndex) => {
+    // Check if this is a URL
+    if (/^https?:\/\/[^\s]+$/.test(urlPart)) {
+      result.push(
+        <Text key={`url-${urlIndex}`} style={{ color: '#007bff', textDecorationLine: 'underline' }}>
+          {urlPart}
+        </Text>
+      );
+      return;
+    }
+    
+    // Process mentions in this part
+    let lastIndex = 0;
+    let match;
+    // Match @ followed by name without spaces (matches backend format)
+    const mentionRegexLocal = /@([A-Za-z0-9]+)/g;
+    
+    while ((match = mentionRegexLocal.exec(urlPart)) !== null) {
+      // Add text before the mention
+      if (match.index > lastIndex) {
+        result.push(
+          <Text key={`text-${urlIndex}-${lastIndex}`}>
+            {urlPart.substring(lastIndex, match.index)}
+          </Text>
+        );
+      }
+      
+      // Add the mention as clickable
+      const mentionText = match[0]; // Full match including @
+      const username = match[1]; // Captured group (username without @)
+      
+      result.push(
+        <TouchableOpacity
+          key={`mention-${urlIndex}-${match.index}`}
+          onPress={async () => {
+            if (onMentionPress) {
+              try {
+                // The username might be in format "FirstLast" (no space)
+                // Try searching with the username as-is first
+                let response = await searchAlumni(username);
+                
+                // If no results, try splitting camelCase (e.g., "JohnDoe" -> "John Doe")
+                if (!response.results || response.results.length === 0) {
+                  // Try to split camelCase: "JohnDoe" -> "John Doe"
+                  const splitName = username.replace(/([a-z])([A-Z])/g, '$1 $2');
+                  if (splitName !== username) {
+                    response = await searchAlumni(splitName);
                   }
-                }}
-              >
-                <Text style={styles.mentionText}>
-                  {mentionPart}
-                </Text>
-              </TouchableOpacity>
-            );
-          }
-          
-          // Handle names (First Last format)
-          const nameParts = mentionPart.split(nameRegex);
-          return nameParts.map((namePart, nameIndex) => {
-            if (nameRegex.test(namePart)) {
-              // This looks like a name
-              return (
-                <TouchableOpacity
-                  key={`${index}-${mentionIndex}-${nameIndex}`}
-                  onPress={() => {
-                    if (onMentionPress) {
-                      // Search for the user by name
-                      searchAlumni(namePart)
-                        .then(response => {
-                          if (response.results && response.results.length > 0) {
-                            const foundUser = response.results[0];
-                            onMentionPress(foundUser.id);
-                          }
-                        })
-                        .catch(error => {
-                          console.error('Error searching for user:', error);
-                        });
-                    }
-                  }}
-                >
-                  <Text style={styles.mentionText}>
-                    {namePart}
-                  </Text>
-                </TouchableOpacity>
-              );
+                }
+                
+                if (response.results && response.results.length > 0) {
+                  const foundUser = response.results[0];
+                  // Try both id and user_id fields
+                  const userId = foundUser.id || foundUser.user_id || foundUser.userId;
+                  if (userId) {
+                    onMentionPress(userId);
+                  } else {
+                    console.error('User ID not found in search result:', foundUser);
+                  }
+                } else {
+                  console.error('No users found for mention:', username);
+                }
+              } catch (error) {
+                console.error('Error searching for user:', error);
+              }
             }
-            
-            // Regular text
-            return (
-              <Text key={`${index}-${mentionIndex}-${nameIndex}`}>
-                {namePart}
-              </Text>
-            );
-          });
-        });
-        
-        return processedMentionParts;
-      })}
-    </Text>
-  );
+          }}
+        >
+          <Text style={styles.mentionText}>
+            {mentionText}
+          </Text>
+        </TouchableOpacity>
+      );
+      
+      lastIndex = mentionRegexLocal.lastIndex;
+    }
+    
+    // Add remaining text after last mention
+    if (lastIndex < urlPart.length) {
+      result.push(
+        <Text key={`text-${urlIndex}-${lastIndex}`}>
+          {urlPart.substring(lastIndex)}
+        </Text>
+      );
+    }
+  });
+  
+  return <Text>{result}</Text>;
 };
 
 /**

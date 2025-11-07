@@ -37,6 +37,24 @@ export default function DashboardScreen() {
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
   const imageScrollRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
+    if (showSuggestions && scrollViewRef.current && inputPosition) {
+      // Calculate scroll offset to move input and dropdown above keyboard
+      // Dropdown max height is ~300px, add padding
+      const dropdownHeight = 320;
+      const padding = 20;
+      
+      // Scroll upward to make room for dropdown
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ 
+          y: dropdownHeight + padding, 
+          animated: true 
+        });
+      }, 150);
+    }
+  };
 
   // Helpers: open original post detail for repost items
   const openOriginalPostIfAvailable = (post: any) => {
@@ -411,7 +429,7 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollViewRef} style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
             <Text style={styles.noPostsText}>No posts yet. Be the first to share something!</Text>
@@ -781,6 +799,7 @@ export default function DashboardScreen() {
                   onChange={setCommentText}
                   placeholder="Write a comment..."
                   style={styles.commentInput}
+                  onSuggestionsChange={handleSuggestionsChange}
                 />
                 <TouchableOpacity
                   style={styles.sendBtn}

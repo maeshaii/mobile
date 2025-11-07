@@ -709,11 +709,11 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
         >
 
-          <View style={styles.modalContent}>
+          <View style={styles.sheet}>
 
             <TouchableOpacity
 
-              style={styles.modalButton}
+              style={styles.sheetRow}
 
               onPress={() => {
 
@@ -725,23 +725,41 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
             >
 
-              <Text style={styles.modalButtonText}>Edit</Text>
+              <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+
+              <Text style={styles.sheetRowText}>Edit Post</Text>
 
             </TouchableOpacity>
 
+            <View style={styles.sheetDivider} />
+
             <TouchableOpacity
 
-              style={[styles.modalButton, { backgroundColor: 'red' }]}
+              style={styles.sheetRow}
 
-              onPress={handleDelete}
+              onPress={() => {
+
+                setShowActions(false);
+
+                handleDelete();
+
+              }}
 
             >
 
-              <Text style={styles.modalButtonText}>Delete</Text>
+              <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+
+              <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete Post</Text>
 
             </TouchableOpacity>
 
           </View>
+
+          <TouchableOpacity style={styles.sheetCancel} onPress={() => setShowActions(false)}>
+
+            <Text style={styles.sheetCancelText}>Cancel</Text>
+
+          </TouchableOpacity>
 
         </TouchableOpacity>
 
@@ -831,6 +849,10 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
+              directionalLockEnabled
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="always"
+              style={{ flex: 1, width: '100%' }}
               contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
               onLayout={() => {
                 if (imageScrollRef.current) {
@@ -1028,6 +1050,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
 
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
 
   },
 
@@ -1038,6 +1062,7 @@ const styles = StyleSheet.create({
     height: 300,
 
     borderRadius: 8,
+    alignSelf: 'center',
 
   },
 
@@ -1289,6 +1314,74 @@ const styles = StyleSheet.create({
 
   },
 
+  // Action Sheet styles (matching RepostCard design)
+
+  sheet: {
+
+    backgroundColor: '#fff',
+
+    width: '88%',
+
+    borderRadius: 16,
+
+    paddingVertical: 8,
+
+  },
+
+  sheetRow: {
+
+    flexDirection: 'row',
+
+    alignItems: 'center',
+
+    paddingHorizontal: 16,
+
+    paddingVertical: 14,
+
+  },
+
+  sheetRowText: {
+
+    fontSize: 16,
+
+    color: '#111827',
+
+  },
+
+  sheetDivider: {
+
+    height: 1,
+
+    backgroundColor: '#e5e7eb',
+
+  },
+
+  sheetCancel: {
+
+    marginTop: 10,
+
+    backgroundColor: '#fff',
+
+    borderRadius: 16,
+
+    width: '88%',
+
+    paddingVertical: 14,
+
+    alignItems: 'center',
+
+  },
+
+  sheetCancelText: {
+
+    fontSize: 16,
+
+    color: '#6b7280',
+
+    fontWeight: '500',
+
+  },
+
   editModalContent: {
 
     backgroundColor: '#fff',
@@ -1414,15 +1507,10 @@ const styles = StyleSheet.create({
   },
 
   imageViewerContainer: {
-
-    width: '90%',
-
-    height: '70%',
-
+    flex: 1,
+    width: '100%',
     justifyContent: 'center',
-
     alignItems: 'center',
-
   },
 
   imageViewerImage: {

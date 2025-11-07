@@ -1,13 +1,14 @@
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
-import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator, Dimensions } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch, getPostLikes, getPostReposts, getRepostComments, commentOnRepost, getRepostDetail, API_BASE_URL } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import ForumPostCard from './ForumPostCard';
 import RepostCard from '../repost/RepostCard';
 import MentionInput from '../../components/MentionInput';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { getImagesFromContent } from '../../utils/imageUtils';
 
 const forumLogo = require('../../assets/images/wny_logo.jpg');
 
@@ -56,6 +57,30 @@ export default function CCICTPage() {
   const [submittingRepostComment, setSubmittingRepostComment] = useState(false);
   const [repostComments, setRepostComments] = useState<any[]>([]);
   const [repostCommentsLoading, setRepostCommentsLoading] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Comment image viewer state
+  const [commentImageViewerVisible, setCommentImageViewerVisible] = useState(false);
+  const [commentImageIndex, setCommentImageIndex] = useState(0);
+  const [commentImages, setCommentImages] = useState<Array<{ image_url: string; order?: number }>>([]);
+  const commentImageScrollRef = useRef<ScrollView>(null);
+
+  const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
+    if (showSuggestions && scrollViewRef.current && inputPosition) {
+      // Calculate scroll offset to move input and dropdown above keyboard
+      // Dropdown max height is ~300px, add padding
+      const dropdownHeight = 320;
+      const padding = 20;
+      
+      // Scroll upward to make room for dropdown
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ 
+          y: dropdownHeight + padding, 
+          animated: true 
+        });
+      }, 150);
+    }
+  };
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -217,13 +242,29 @@ export default function CCICTPage() {
     }, [])
   );
 
+  // Scroll to correct image when modal opens or index changes
+  useEffect(() => {
+    if (commentImageViewerVisible && commentImageScrollRef.current && commentImages.length > 0) {
+      const screenWidth = Dimensions.get('window').width;
+      setTimeout(() => {
+        commentImageScrollRef.current?.scrollTo({
+          x: commentImageIndex * screenWidth,
+          y: 0,
+          animated: false,
+        });
+      }, 100);
+    }
+  }, [commentImageViewerVisible, commentImageIndex, commentImages.length]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     try { await loadForumPosts(); } finally { setRefreshing(false); }
   };
 
   return (
+    <>
     <ScrollView
+      ref={scrollViewRef}
       style={styles.scrollContainer}
       contentContainerStyle={{ flexGrow: 1 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#1e3a8a"]} tintColor="#1e3a8a" />}
@@ -572,6 +613,56 @@ export default function CCICTPage() {
                         {renderTextWithMentions(comment.comment_content, [], (userId) => {
                           router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                         })}
+                        {/* Comment Images */}
+                        {(() => {
+                          const images = getImagesFromContent(comment);
+                          if (images.length === 0) return null;
+                          
+                          return (
+                            <View style={styles.commentImagesContainer}>
+                              {images.length === 1 ? (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setCommentImages(images);
+                                    setCommentImageIndex(0);
+                                    setCommentImageViewerVisible(true);
+                                  }}
+                                >
+                                  <Image
+                                    source={renderAvatar(images[0].image_url)}
+                                    style={styles.commentSingleImage}
+                                    resizeMode="cover"
+                                  />
+                                </TouchableOpacity>
+                              ) : (
+                                <View style={styles.commentImagesGrid}>
+                                  {images.slice(0, 4).map((image, index) => (
+                                    <TouchableOpacity
+                                      key={index}
+                                      style={styles.commentGridImageItem}
+                                      onPress={() => {
+                                        setCommentImages(images);
+                                        setCommentImageIndex(index);
+                                        setCommentImageViewerVisible(true);
+                                      }}
+                                    >
+                                      <Image
+                                        source={renderAvatar(image.image_url)}
+                                        style={styles.commentGridImage}
+                                        resizeMode="cover"
+                                      />
+                                      {index === 3 && images.length > 4 && (
+                                        <View style={styles.commentMoreImagesOverlay}>
+                                          <Text style={styles.commentMoreImagesText}>+{images.length - 4}</Text>
+                                        </View>
+                                      )}
+                                    </TouchableOpacity>
+                                  ))}
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })()}
                       </View>
                     </View>
                   </View>
@@ -586,6 +677,7 @@ export default function CCICTPage() {
                   onChange={setRepostCommentText}
                   placeholder="Write a comment..."
                   style={styles.commentInput}
+                  onSuggestionsChange={handleSuggestionsChange}
                 />
                 <TouchableOpacity
                   style={styles.sendBtn}
@@ -605,6 +697,87 @@ export default function CCICTPage() {
       </Modal>
 
     </ScrollView>
+
+    {/* Comment Image Viewer Modal */}
+    {commentImageViewerVisible && commentImages.length > 0 && (
+      <Modal visible={commentImageViewerVisible} transparent animationType="fade" onRequestClose={() => setCommentImageViewerVisible(false)}>
+        <View style={styles.commentImageViewerOverlay} pointerEvents="box-none">
+          <View
+            style={styles.commentImageViewerContainer}
+          >
+            <View style={styles.commentImageViewerHeader}>
+              <TouchableOpacity
+                onPress={() => setCommentImageViewerVisible(false)}
+                style={styles.commentImageViewerCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+              {commentImages.length > 1 && (
+                <Text style={styles.commentImageViewerPagination}>
+                  {commentImageIndex + 1} of {commentImages.length}
+                </Text>
+              )}
+            </View>
+            {(() => {
+              const screenWidth = Dimensions.get('window').width;
+              const screenHeight = Dimensions.get('window').height;
+              return (
+                <ScrollView
+                  ref={commentImageScrollRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.commentImageViewerScroll}
+                  contentContainerStyle={{ width: screenWidth * commentImages.length }}
+                  onLayout={() => {
+                    // Scroll to correct position after layout
+                    if (commentImageScrollRef.current) {
+                      commentImageScrollRef.current.scrollTo({
+                        x: commentImageIndex * screenWidth,
+                        y: 0,
+                        animated: false,
+                      });
+                    }
+                  }}
+                  onMomentumScrollEnd={(event) => {
+                    const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                    setCommentImageIndex(index);
+                  }}
+                >
+                  {commentImages.map((image, index) => {
+                    const imageSource = renderAvatar(image.image_url);
+                    if (!imageSource) return null;
+                    return (
+                      <View
+                        key={index}
+                        style={{
+                          width: screenWidth,
+                          height: screenHeight,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Image
+                          source={imageSource}
+                          style={{
+                            width: screenWidth,
+                            height: screenHeight * 0.8,
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                          }}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+    )}
+    </>
   );
 }
 
@@ -907,5 +1080,92 @@ const styles = StyleSheet.create({
   },
   originalPostArrow: {
     marginLeft: 8,
+  },
+  // Comment Images Styles
+  commentImagesContainer: {
+    marginTop: 8,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  commentSingleImage: {
+    width: '100%',
+    maxWidth: 300,
+    height: 200,
+    borderRadius: 8,
+  },
+  commentImagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    maxWidth: 300,
+  },
+  commentGridImageItem: {
+    width: '48%',
+    height: 100,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+  },
+  commentGridImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 4,
+  },
+  commentMoreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentMoreImagesText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  // Comment Image Viewer Styles
+  commentImageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentImageViewerContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentImageViewerHeader: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 1,
+  },
+  commentImageViewerCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  commentImageViewerPagination: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  commentImageViewerScroll: {
+    flex: 1,
+    width: '100%',
   },
 });

@@ -4,7 +4,7 @@ import CachedImage from '../../components/CachedImage';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getForumDetail, getDonationDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, getForumComments, getDonationComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply } from '../../services/api';
+import { getPostDetail, getForumDetail, getDonationDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, getForumComments, getDonationComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply, editPost, deletePost } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import MentionInput from '../../components/MentionInput';
@@ -54,13 +54,31 @@ export default function PostDetailScreen() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
   
+  const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
+    if (showSuggestions && scrollViewRef.current && inputPosition) {
+      // Calculate scroll offset to move input and dropdown above keyboard
+      // Dropdown max height is ~300px, add padding
+      const dropdownHeight = 320;
+      const padding = 20;
+      
+      // Scroll upward to make room for dropdown
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ 
+          y: dropdownHeight + padding, 
+          animated: true 
+        });
+      }, 150);
+    }
+  };
+  
   // Image viewer state for comments and replies
   const [commentImageViewerVisible, setCommentImageViewerVisible] = useState(false);
   const [commentImageIndex, setCommentImageIndex] = useState(0);
   const [commentImages, setCommentImages] = useState<Array<{ image_url: string; order?: number }>>([]);
+  const commentImageScrollRef = useRef<ScrollView>(null);
 
   // Hide/disable composer in certain edit states for consistency
-  const hideComposer = !!actionFor || editingId !== null || editingReplyId !== null;
+  const hideComposer = !!actionFor || editingId !== null || editingReplyId !== null || editingPost;
 
   const load = async () => {
     if (!postId) return;
@@ -134,6 +152,20 @@ export default function PostDetailScreen() {
     }, [postId, isForumPost, isDonationPost])
   );
 
+  // Scroll to correct image when modal opens or index changes
+  useEffect(() => {
+    if (commentImageViewerVisible && commentImageScrollRef.current && commentImages.length > 0) {
+      const screenWidth = Dimensions.get('window').width;
+      setTimeout(() => {
+        commentImageScrollRef.current?.scrollTo({
+          x: commentImageIndex * screenWidth,
+          y: 0,
+          animated: false,
+        });
+      }, 100);
+    }
+  }, [commentImageViewerVisible, commentImageIndex, commentImages.length]);
+
   const loadComments = async () => {
     if (!postId) return;
     try {
@@ -204,8 +236,10 @@ export default function PostDetailScreen() {
       await commentOnPost(postId, commentText.trim());
       setCommentText('');
       await loadComments();
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add comment');
+    } catch (error: any) {
+      console.error('Error adding comment:', error);
+      const errorMessage = error?.response?.data?.error || error?.message || 'Failed to add comment';
+      Alert.alert('Error', errorMessage);
     } finally {
       setSubmittingComment(false);
     }
@@ -233,12 +267,11 @@ export default function PostDetailScreen() {
   };
 
   const handleEditPost = async () => {
-    if (!editPostContent.trim()) return;
+    if (!editPostContent.trim() || !postId) return;
     try {
       setActionLoading(true);
       // Update the original post content/caption
-      // TODO: Add updatePost API call
-      // await updatePost(postId!, editPostContent.trim());
+      await editPost(postId, { post_content: editPostContent.trim() });
       
       // Update the post state immediately for better UX
       setPost((prev: any) => ({
@@ -248,27 +281,32 @@ export default function PostDetailScreen() {
         caption: editPostContent.trim()
       }));
       
-      Alert.alert('Success', 'Post caption updated successfully!');
+      Alert.alert('Success', 'Post updated successfully!');
       setEditingPost(false);
       setEditPostContent('');
       
       // Reload post data to ensure consistency
       await load();
     } catch (error) {
-      Alert.alert('Error', 'Failed to update post');
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post. Please try again.');
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleDeletePost = async () => {
+    if (!postId) return;
     try {
-      // TODO: Add deletePost API call that also deletes all reposts
-      // await deletePost(postId!); // This should cascade delete all reposts
+      setActionLoading(true);
+      await deletePost(postId); // This should cascade delete all reposts
       Alert.alert('Success', 'Post and all its reposts have been deleted successfully!');
       router.back();
     } catch (error) {
-      Alert.alert('Error', 'Failed to delete post');
+      console.error('Error deleting post:', error);
+      Alert.alert('Error', 'Failed to delete post. Please try again.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -285,6 +323,14 @@ export default function PostDetailScreen() {
       await createCommentReply(replyingTo, replyWithMention);
       setReplyText('');
       setReplyingTo(null);
+      
+      // Update comment's replies_count
+      setComments(prev => prev.map(c => 
+        c.comment_id === replyingTo 
+          ? { ...c, replies_count: (c.replies_count || 0) + 1 }
+          : c
+      ));
+      
       // Show replies after submitting a new reply
       setShowReplies(prev => ({ ...prev, [replyingTo]: true }));
       await loadReplies(replyingTo);
@@ -328,6 +374,14 @@ export default function PostDetailScreen() {
   const handleReplyDelete = async (commentId: number, replyId: number) => {
     try {
       await deleteCommentReply(commentId, replyId);
+      
+      // Update comment's replies_count
+      setComments(prev => prev.map(c => 
+        c.comment_id === commentId 
+          ? { ...c, replies_count: Math.max(0, (c.replies_count || 0) - 1) }
+          : c
+      ));
+      
       await loadReplies(commentId);
     } catch (error) {
       Alert.alert('Error', 'Failed to delete reply');
@@ -335,8 +389,9 @@ export default function PostDetailScreen() {
   };
 
   const toggleReplies = (commentId: number) => {
-    setShowReplies(prev => ({ ...prev, [commentId]: !prev[commentId] }));
-    if (!showReplies[commentId]) {
+    const willShow = !showReplies[commentId];
+    setShowReplies(prev => ({ ...prev, [commentId]: willShow }));
+    if (willShow && (!commentReplies[commentId] || commentReplies[commentId].length === 0)) {
       loadReplies(commentId);
     }
   };
@@ -820,6 +875,7 @@ export default function PostDetailScreen() {
                             placeholder="Edit your comment..."
                             style={styles.editInput}
                             multiline
+                            onSuggestionsChange={handleSuggestionsChange}
                             maxLength={500}
                           />
                           <View style={styles.editActions}>
@@ -928,21 +984,28 @@ export default function PostDetailScreen() {
                                       style={styles.replyAvatar}
                                     />
                                     <View style={styles.replyContent}>
-                                      <TouchableOpacity 
-                                        onPress={() => {
-                                          if (reply.user?.user_id && reply.user.user_id !== meId) {
-                                            router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
-                                          }
-                                        }}
-                                        disabled={!reply.user?.user_id || reply.user.user_id === meId}
-                                      >
-                                        <Text style={[
-                                          styles.replyName,
-                                          (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
-                                        ]}>
-                                          {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
-                                        </Text>
-                                      </TouchableOpacity>
+                                      <View style={styles.replyHeaderRow}>
+                                        <TouchableOpacity 
+                                          onPress={() => {
+                                            if (reply.user?.user_id && reply.user.user_id !== meId) {
+                                              router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
+                                            }
+                                          }}
+                                          disabled={!reply.user?.user_id || reply.user.user_id === meId}
+                                        >
+                                          <Text style={[
+                                            styles.replyName,
+                                            (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
+                                          ]}>
+                                            {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
+                                          </Text>
+                                        </TouchableOpacity>
+                                        {isMyReply && !isEditingReply && (
+                                          <TouchableOpacity onPress={() => setActionFor({ type: 'reply', ...reply, comment_id: c.comment_id })} style={{ padding: 4 }}>
+                                            <Ionicons name="ellipsis-horizontal" size={14} color="#6b7280" />
+                                          </TouchableOpacity>
+                                        )}
+                                      </View>
                                       
                                       {isEditingReply ? (
                                         <KeyboardAvoidingView
@@ -955,6 +1018,7 @@ export default function PostDetailScreen() {
                                             placeholder="Edit your reply..."
                                             style={styles.editReplyInput}
                                             multiline
+                                            onSuggestionsChange={handleSuggestionsChange}
                                             maxLength={500}
                                           />
                                           <View style={styles.editReplyActions}>
@@ -1034,37 +1098,6 @@ export default function PostDetailScreen() {
                                       )}
                                       
                                       <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
-                                      
-                                      {/* Reply Actions */}
-                                      {isMyReply && !isEditingReply && (
-                                        <View style={styles.replyActions}>
-                                          <TouchableOpacity
-                                            style={styles.replyActionButton}
-                                            onPress={() => {
-                                              setEditingReplyId(reply.reply_id);
-                                              setEditReplyText(reply.reply_content);
-                                              scrollToEditInput();
-                                            }}
-                                          >
-                                            <Text style={styles.replyActionText}>Edit</Text>
-                                          </TouchableOpacity>
-                                          <TouchableOpacity
-                                            style={styles.replyActionButton}
-                                            onPress={() => {
-                                              Alert.alert(
-                                                'Delete Reply',
-                                                'Are you sure you want to delete this reply?',
-                                                [
-                                                  { text: 'Cancel', style: 'cancel' },
-                                                  { text: 'Delete', style: 'destructive', onPress: () => handleReplyDelete(c.comment_id, reply.reply_id) }
-                                                ]
-                                              );
-                                            }}
-                                          >
-                                            <Text style={[styles.replyActionText, { color: '#dc2626' }]}>Delete</Text>
-                                          </TouchableOpacity>
-                                        </View>
-                                      )}
                                     </View>
                                   </View>
                                 );
@@ -1081,34 +1114,33 @@ export default function PostDetailScreen() {
           )}
         </View>
         </ScrollView>
-      </KeyboardAvoidingView>
-
-      {/* Comment Input - hide while editing a comment or reply */}
-      {!hideComposer && (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.commentInputContainer}
-        >
-          {replyingTo && (
-            <View style={styles.replyingToContainer}>
-              <Text style={styles.replyingToText}>
-                Replying to comment
-              </Text>
-              <TouchableOpacity onPress={() => setReplyingTo(null)}>
-                <Ionicons name="close" size={16} color="#6b7280" />
-              </TouchableOpacity>
-            </View>
-          )}
+        
+        {/* Comment Input - hide while editing a comment or reply */}
+        {!hideComposer && (
+          <View style={styles.commentInputContainer}>
+            {replyingTo && (
+              <View style={styles.replyingToContainer}>
+                <Text style={styles.replyingToText}>
+                  Replying to comment
+                </Text>
+                <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                  <Ionicons name="close" size={16} color="#6b7280" />
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={styles.commentInputRow}>
-              <MentionInput
-                value={replyingTo ? replyText : commentText}
-                onChange={replyingTo ? setReplyText : setCommentText}
-                placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
-                style={styles.commentInput}
-                multiline
-                maxLength={500}
-                disabled={!!editingReplyId || !!editingId}
-              />
+              <View style={styles.mentionInputWrapper}>
+                <MentionInput
+                  value={replyingTo ? replyText : commentText}
+                  onChange={replyingTo ? setReplyText : setCommentText}
+                  placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
+                  style={styles.commentInput}
+                  multiline
+                  maxLength={500}
+                  disabled={!!editingReplyId || !!editingId}
+                  onSuggestionsChange={handleSuggestionsChange}
+                />
+              </View>
               <TouchableOpacity
                 disabled={!!editingReplyId || !!editingId || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))}
                 onPress={replyingTo ? handleSendReply : handleSendComment}
@@ -1124,8 +1156,9 @@ export default function PostDetailScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </KeyboardAvoidingView>
-      )}
+          </View>
+        )}
+      </KeyboardAvoidingView>
       
 
       {/* Viewer Modal */}
@@ -1201,104 +1234,157 @@ export default function PostDetailScreen() {
         </View>
       )}
 
-      {/* Action Popup Modal */}
+      {/* Action Sheet Modal */}
       {actionFor && (
-        <View style={styles.popupOverlay}>
-          <View style={styles.popupBox}>
-            <Text style={styles.popupTitle}>
-              {actionFor.type === 'post' ? 'Post Actions' : 'Comment Actions'}
-            </Text>
-
-            {/* Post Actions */}
-            {actionFor.type === 'post' && (
-              <>
-                <TouchableOpacity
-                  style={styles.popupButton}
-                  onPress={() => {
-                    setEditPostContent(post.post_content);
-                    setEditingPost(true);
-                    setActionFor(null);
-                  }}
-                >
-                  <Text style={styles.popupButtonText}>✏️ Edit Post</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
-                  onPress={() => {
-                    Alert.alert(
-                      'Delete Post',
-                      'Are you sure you want to delete this post? This action cannot be undone.',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Delete',
-                          style: 'destructive',
-                          onPress: () => handleDeletePost(),
-                        },
-                      ]
-                    );
-                    setActionFor(null);
-                  }}
-                >
-                  <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete Post</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {/* Comment Actions */}
-            {actionFor.type !== 'post' && (
-              <>
-                {/* Edit: only show if comment is mine */}
-                {actionFor.user?.user_id === meId && (
+        <Modal visible={!!actionFor} transparent animationType="fade" onRequestClose={() => setActionFor(null)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.sheet}>
+              {/* Post Actions */}
+              {actionFor.type === 'post' && (
+                <>
                   <TouchableOpacity
-                    style={styles.popupButton}
+                    style={styles.sheetRow}
                     onPress={() => {
-                      setEditingId(actionFor.comment_id);
-                      setEditText(actionFor.comment_content);
+                      setEditPostContent(post.post_content);
+                      setEditingPost(true);
                       setActionFor(null);
-                      scrollToEditInput();
                     }}
                   >
-                    <Text style={styles.popupButtonText}>✏️ Edit</Text>
+                    <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+                    <Text style={styles.sheetRowText}>Edit Post</Text>
                   </TouchableOpacity>
-                )}
-
-                {/* Delete: show if comment is mine OR I am the post owner */}
-                {(actionFor.user?.user_id === meId || post?.user?.user_id === meId || post?.user?.id === meId) && (
+                  <View style={styles.sheetDivider} />
                   <TouchableOpacity
-                    style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
+                    style={styles.sheetRow}
                     onPress={() => {
+                      setActionFor(null);
                       Alert.alert(
-                        'Delete Comment',
-                        'Are you sure you want to delete this comment? This action cannot be undone.',
+                        'Delete Post',
+                        'Are you sure you want to delete this post?',
                         [
                           { text: 'Cancel', style: 'cancel' },
                           {
                             text: 'Delete',
                             style: 'destructive',
-                            onPress: () => handleDeleteComment(actionFor.comment_id),
+                            onPress: () => handleDeletePost(),
                           },
                         ]
                       );
-                      setActionFor(null);
                     }}
                   >
-                    <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
+                    <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                    <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete Post</Text>
                   </TouchableOpacity>
-                )}
-              </>
-            )}
+                </>
+              )}
 
-            {/* Cancel: always show */}
-            <TouchableOpacity
-              style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
-              onPress={() => setActionFor(null)}
-            >
-              <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
+              {/* Comment Actions */}
+              {actionFor.type !== 'post' && actionFor.type !== 'reply' && (
+                <>
+                  {/* Edit: only show if comment is mine */}
+                  {actionFor.user?.user_id === meId && (
+                    <>
+                      <TouchableOpacity
+                        style={styles.sheetRow}
+                        onPress={() => {
+                          setEditingId(actionFor.comment_id);
+                          setEditText(actionFor.comment_content);
+                          setActionFor(null);
+                          scrollToEditInput();
+                        }}
+                      >
+                        <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+                        <Text style={styles.sheetRowText}>Edit</Text>
+                      </TouchableOpacity>
+                      {(actionFor.user?.user_id === meId || post?.user?.user_id === meId || post?.user?.id === meId) && (
+                        <View style={styles.sheetDivider} />
+                      )}
+                    </>
+                  )}
+
+                  {/* Delete: show if comment is mine OR I am the post owner */}
+                  {(actionFor.user?.user_id === meId || post?.user?.user_id === meId || post?.user?.id === meId) && (
+                    <TouchableOpacity
+                      style={styles.sheetRow}
+                      onPress={() => {
+                        setActionFor(null);
+                        Alert.alert(
+                          'Delete Comment',
+                          'Are you sure you want to delete this comment?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => handleDeleteComment(actionFor.comment_id),
+                            },
+                          ]
+                        );
+                      }}
+                    >
+                      <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                      <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+
+              {/* Reply Actions */}
+              {actionFor.type === 'reply' && (
+                <>
+                  {/* Edit: only show if reply is mine */}
+                  {actionFor.user?.user_id === meId && (
+                    <>
+                      <TouchableOpacity
+                        style={styles.sheetRow}
+                        onPress={() => {
+                          setEditingReplyId(actionFor.reply_id);
+                          setEditReplyText(actionFor.reply_content);
+                          setActionFor(null);
+                          scrollToEditInput();
+                        }}
+                      >
+                        <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+                        <Text style={styles.sheetRowText}>Edit</Text>
+                      </TouchableOpacity>
+                      {actionFor.user?.user_id === meId && (
+                        <View style={styles.sheetDivider} />
+                      )}
+                    </>
+                  )}
+
+                  {/* Delete: show if reply is mine */}
+                  {actionFor.user?.user_id === meId && (
+                    <TouchableOpacity
+                      style={styles.sheetRow}
+                      onPress={() => {
+                        setActionFor(null);
+                        Alert.alert(
+                          'Delete Reply',
+                          'Are you sure you want to delete this reply?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => handleReplyDelete(actionFor.comment_id, actionFor.reply_id),
+                            },
+                          ]
+                        );
+                      }}
+                    >
+                      <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                      <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </View>
+            <TouchableOpacity style={styles.sheetCancel} onPress={() => setActionFor(null)}>
+              <Text style={styles.sheetCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
-      </View>
+        </Modal>
       )}
 
       {/* Image Viewer Modal */}
@@ -1361,12 +1447,10 @@ export default function PostDetailScreen() {
 
       {/* Comment/Reply Image Viewer Modal */}
       {commentImageViewerVisible && commentImages.length > 0 && (
-        <Modal visible={commentImageViewerVisible} transparent animationType="fade">
-          <View style={styles.commentImageViewerOverlay}>
-            <TouchableOpacity
+        <Modal visible={commentImageViewerVisible} transparent animationType="fade" onRequestClose={() => setCommentImageViewerVisible(false)}>
+          <View style={styles.commentImageViewerOverlay} pointerEvents="box-none">
+            <View
               style={styles.commentImageViewerContainer}
-              onPress={() => setCommentImageViewerVisible(false)}
-              activeOpacity={1}
             >
               <View style={styles.commentImageViewerHeader}>
                 <TouchableOpacity
@@ -1384,18 +1468,22 @@ export default function PostDetailScreen() {
               {(() => {
                 const screenWidth = Dimensions.get('window').width;
                 const screenHeight = Dimensions.get('window').height;
-                const scrollRef = React.createRef<ScrollView>();
                 return (
                   <ScrollView
-                    ref={scrollRef}
+                    ref={commentImageScrollRef}
                     horizontal
                     pagingEnabled
                     showsHorizontalScrollIndicator={false}
                     style={styles.commentImageViewerScroll}
-                    contentOffset={{ x: commentImageIndex * screenWidth, y: 0 }}
+                    contentContainerStyle={{ width: screenWidth * commentImages.length }}
                     onLayout={() => {
-                      if (scrollRef.current) {
-                        scrollRef.current.scrollTo({ x: commentImageIndex * screenWidth, y: 0, animated: false });
+                      // Scroll to correct position after layout
+                      if (commentImageScrollRef.current) {
+                        commentImageScrollRef.current.scrollTo({
+                          x: commentImageIndex * screenWidth,
+                          y: 0,
+                          animated: false,
+                        });
                       }
                     }}
                     onMomentumScrollEnd={(event) => {
@@ -1428,7 +1516,7 @@ export default function PostDetailScreen() {
                   </ScrollView>
                 );
               })()}
-            </TouchableOpacity>
+            </View>
           </View>
         </Modal>
       )}
@@ -1748,6 +1836,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
   },
+  mentionInputWrapper: {
+    flex: 1,
+    position: 'relative',
+    zIndex: 1001,
+    elevation: 1001, // For Android
+  },
   commentInput: {
     flex: 1,
     borderWidth: 1,
@@ -1804,42 +1898,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   
-  // Popup Modal Styles
-  popupOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  // Action Sheet Styles
+  modalOverlay: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
-  popupBox: {
+  sheet: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    width: '80%',
-    maxWidth: 300,
+    width: '88%',
+    borderRadius: 16,
+    paddingVertical: 8,
   },
-  popupTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  popupButton: {
-    paddingVertical: 12,
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: '#f8f9fa',
+    paddingVertical: 14,
   },
-  popupButtonText: {
-    fontSize: 14,
-    textAlign: 'center',
+  sheetRowText: {
+    fontSize: 16,
     color: '#111827',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  sheetCancel: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '88%',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  sheetCancelText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   
   // Header Actions Styles
@@ -1928,6 +2025,12 @@ const styles = StyleSheet.create({
   },
   replyContent: {
     flex: 1,
+  },
+  replyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
   replyName: {
     fontSize: 12,

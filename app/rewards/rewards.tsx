@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome } from '@expo/vector-icons';
 import {
   getInventoryItems,
@@ -42,10 +43,11 @@ interface RewardRequest {
   reward_name: string;
   reward_type: string;
   points_cost: number;
-  status: 'pending' | 'approved' | 'claimed' | 'did_not_push_through';
+  status: 'pending' | 'approved' | 'claimed' | 'did_not_push_through' | 'ready_for_pickup';
   requested_at: string;
   approved_at?: string;
   claimed_at?: string;
+  expires_at?: string;
   voucher_code?: string;
   notes?: string;
   instructions?: string;
@@ -54,6 +56,7 @@ interface RewardRequest {
 export default function RewardsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const requestIdParam = params.requestId ? String(params.requestId) : null;
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [userPoints, setUserPoints] = useState<any>(null);
@@ -193,7 +196,7 @@ export default function RewardsScreen() {
           console.log('RewardsScreen: Got access token:', token ? 'Yes' : 'No');
           console.log('RewardsScreen: API_BASE_URL:', API_BASE_URL);
 
-          notificationWs = new NotificationWebSocket(userId, API_BASE_URL, token);
+          notificationWs = new NotificationWebSocket(userId, API_BASE_URL, token || undefined);
           wsRef.current = notificationWs;
           console.log('RewardsScreen: Created NotificationWebSocket instance');
 
@@ -448,8 +451,16 @@ export default function RewardsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Header with Back Button */}
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <FontAwesome name="arrow-left" size={24} color="#000" />
+        </TouchableOpacity>
+      </View>
+      
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={{ paddingTop: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {/* Points Display */}
@@ -899,19 +910,23 @@ export default function RewardsScreen() {
                       style={[
                         styles.statusBadge,
                         { backgroundColor: getStatusColor(selectedRewardDetail.status, 
-                          selectedRewardDetail.expires_at && 
-                          new Date(selectedRewardDetail.expires_at) < new Date() &&
-                          (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') &&
-                          selectedRewardDetail.status !== 'claimed'
+                          (() => {
+                            const isApproved = selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup';
+                            const isNotClaimed = selectedRewardDetail.status !== 'claimed';
+                            const hasExpired = selectedRewardDetail.expires_at ? new Date(selectedRewardDetail.expires_at) < new Date() : false;
+                            return isApproved && isNotClaimed && hasExpired;
+                          })()
                         ) },
                       ]}
                     >
                       <Text style={styles.statusBadgeText}>
                         {getStatusDisplay(selectedRewardDetail.status, 
-                          selectedRewardDetail.expires_at && 
-                          new Date(selectedRewardDetail.expires_at) < new Date() &&
-                          (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') &&
-                          selectedRewardDetail.status !== 'claimed'
+                          (() => {
+                            const isApproved = selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup';
+                            const isNotClaimed = selectedRewardDetail.status !== 'claimed';
+                            const hasExpired = selectedRewardDetail.expires_at ? new Date(selectedRewardDetail.expires_at) < new Date() : false;
+                            return isApproved && isNotClaimed && hasExpired;
+                          })()
                         )}
                       </Text>
                     </View>
@@ -1139,6 +1154,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  header: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
   },
   scrollView: {
     flex: 1,

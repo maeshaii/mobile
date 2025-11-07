@@ -250,16 +250,17 @@ const NotificationScreen = () => {
     const message = item.message?.toLowerCase();
     const fullMessage = item.fullMessage || item.message || '';
 
-    // Special case: tracker notifications - show modal
+    // Special case: tracker notifications - redirect directly to tracker form
     const isTrackerNotification = 
-      type === 'ccict' || 
       type === 'tracker_submission' ||
-      type.includes('tracker') || 
+      (type && type.includes('tracker')) || 
       (item.subject && item.subject.toLowerCase().includes('tracker')) ||
-      (fullMessage && fullMessage.includes('Tracker Form'));
+      (fullMessage && (fullMessage.toLowerCase().includes('tracker form') || fullMessage.toLowerCase().includes('tracker'))) ||
+      (message && (message.toLowerCase().includes('tracker form') || message.toLowerCase().includes('tracker')));
     
     if (isTrackerNotification) {
-      setTrackerNotification(item);
+      // Redirect directly to tracker form instead of showing modal
+      router.push('/forms/forms');
       return;
     }
 
@@ -459,12 +460,28 @@ const NotificationScreen = () => {
 
   const formatNotificationMessage = (item: NotificationItem) => {
     const message = item.message || '';
+    const fullMessage = item.fullMessage || message;
     const name = item.name || '';
     const type = item.notif_type?.toLowerCase() || '';
+    const subject = item.subject || '';
     
     // Use the pre-detected notification source
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
+
+    // Check for tracker notification FIRST (before other admin notifications)
+    const isTrackerNotification = 
+      type === 'tracker_submission' ||
+      type.includes('tracker') ||
+      subject.toLowerCase().includes('tracker') ||
+      fullMessage.toLowerCase().includes('tracker form') ||
+      fullMessage.toLowerCase().includes('tracker') ||
+      message.toLowerCase().includes('tracker form') ||
+      message.toLowerCase().includes('tracker');
+
+    if (isTrackerNotification) {
+      return '📋 Tracker Notification from CCICT';
+    }
 
     // Handle specific notification types
     if (type === 'comment' || name.toLowerCase() === 'comment') {
@@ -481,9 +498,6 @@ const NotificationScreen = () => {
 
     // Format admin/CCICT notifications
     if (isAdminNotification) {
-      if (message.toLowerCase().includes('tracker')) {
-        return '📋 New tracker update from CCICT';
-      }
       if (message.toLowerCase().includes('announcement')) {
         return '📢 New announcement from CCICT';
       }

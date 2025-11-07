@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import NavBar from '../(tabs)/navbar';
 import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL, changePassword } from '../../services/api';
 import * as SecureStore from 'expo-secure-store';
@@ -105,6 +106,7 @@ const LabeledInput = React.memo(({
 LabeledInput.displayName = 'LabeledInput';
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [open, setOpen] = useState({
     personal: false,
     employment: false,
@@ -526,7 +528,11 @@ export default function SettingsPage() {
     <View style={styles.container}>
       <NavBar />
       <View style={styles.headerBar}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <FontAwesome name="arrow-left" size={20} color="#111827" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
+        <View style={styles.backButtonPlaceholder} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -841,15 +847,29 @@ const styles = StyleSheet.create({
   headerBar: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
-    paddingVertical: 20,
-    paddingTop: 20,
+    paddingVertical: 32,
+    paddingTop: 32,
+    paddingBottom: 20,
+    marginTop: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e5e7eb',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  backButtonPlaceholder: {
+    width: 36,
   },
   headerTitle: { 
     fontSize: 18, 
     fontWeight: '700', 
-    color: '#111827' 
+    color: '#111827',
+    flex: 1,
+    textAlign: 'center',
   },
   scrollContent: { 
     padding: 12, 

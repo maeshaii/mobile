@@ -45,6 +45,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
   const [refreshing, setRefreshing] = useState(false);
   const [followStatuses, setFollowStatuses] = useState<{ [key: number]: boolean }>({});
   const [followLoading, setFollowLoading] = useState<{ [key: number]: boolean }>({});
+	const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   const loadUsers = async () => {
     if (!userId) {
@@ -88,11 +89,12 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
       setUsers(normalizedUsers);
       console.log(`Set ${normalizedUsers.length} users for ${type}`);
 
-      if (normalizedUsers.length > 0) {
-        const currentUser = await getUserInfo();
-        const currentUserId = currentUser?.id || currentUser?.user_id;
+			if (normalizedUsers.length > 0) {
+				const currentUser = await getUserInfo();
+				const currentId = currentUser?.id || currentUser?.user_id;
+				setCurrentUserId(typeof currentId === 'number' ? currentId : null);
 
-        const statusPromises = normalizedUsers.map(async (user: FollowUser) => {
+				const statusPromises = normalizedUsers.map(async (user: FollowUser) => {
           try {
             const { checkFollowStatus } = await import('../../services/api');
             const status = await checkFollowStatus(user.user_id);
@@ -104,7 +106,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
 
         const statuses = await Promise.all(statusPromises);
         const statusMap: { [key: number]: boolean } = {};
-        statuses.forEach(status => {
+				statuses.forEach(status => {
           statusMap[status.userId] = status.isFollowing;
         });
         setFollowStatuses(statusMap);
@@ -214,24 +216,26 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                           <Text style={styles.userBatch}>Batch {user.batch}</Text>
                         )}
                       </View>
-                      <TouchableOpacity
-                        style={[
-                          styles.followButton,
-                          followStatuses[user.user_id] && styles.followingButton
-                        ]}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleFollow(user.user_id);
-                        }}
-                        disabled={followLoading[user.user_id]}
-                      >
-                        <Text style={[
-                          styles.followButtonText,
-                          followStatuses[user.user_id] && styles.followingButtonText
-                        ]}>
-                          {followLoading[user.user_id] ? '...' : followStatuses[user.user_id] ? 'Following' : 'Follow'}
-                        </Text>
-                      </TouchableOpacity>
+                      {currentUserId !== user.user_id && (
+                        <TouchableOpacity
+                          style={[
+                            styles.followButton,
+                            followStatuses[user.user_id] && styles.followingButton
+                          ]}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            handleFollow(user.user_id);
+                          }}
+                          disabled={followLoading[user.user_id]}
+                        >
+                          <Text style={[
+                            styles.followButtonText,
+                            followStatuses[user.user_id] && styles.followingButtonText
+                          ]}>
+                            {followLoading[user.user_id] ? '...' : followStatuses[user.user_id] ? 'Following' : 'Follow'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </TouchableOpacity>
                   )}
                   refreshControl={

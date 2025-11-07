@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, Image, Modal, FlatList, KeyboardAvoidingView, Platform, RefreshControl, Dimensions } from 'react-native';
 
@@ -116,6 +116,14 @@ export default function RepostCommentsScreen() {
 
   const [actionFor, setActionFor] = useState<CommentItem | null>(null);
 
+  const [actionForReply, setActionForReply] = useState<{ reply: ReplyItem; commentId: number } | null>(null);
+
+  const [actionForRepost, setActionForRepost] = useState<boolean>(false);
+
+  const [editingRepostCaption, setEditingRepostCaption] = useState(false);
+
+  const [editRepostCaptionText, setEditRepostCaptionText] = useState('');
+
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -128,6 +136,7 @@ export default function RepostCommentsScreen() {
   const [commentImageViewerVisible, setCommentImageViewerVisible] = useState(false);
   const [commentImageIndex, setCommentImageIndex] = useState(0);
   const [commentImages, setCommentImages] = useState<Array<{ image_url: string; order?: number }>>([]);
+  const commentImageScrollRef = useRef<ScrollView>(null);
 
 
 
@@ -151,6 +160,8 @@ export default function RepostCommentsScreen() {
 
   const [now, setNow] = useState(dayjs());
 
+  const flatListRef = useRef<FlatList>(null);
+
   useEffect(() => {
 
     const t = setInterval(() => setNow(dayjs()), 60000);
@@ -158,6 +169,34 @@ export default function RepostCommentsScreen() {
     return () => clearInterval(t);
 
   }, []);
+
+  // Scroll to correct image when modal opens or index changes
+  useEffect(() => {
+    if (commentImageViewerVisible && commentImageScrollRef.current && commentImages.length > 0) {
+      const screenWidth = Dimensions.get('window').width;
+      setTimeout(() => {
+        commentImageScrollRef.current?.scrollTo({
+          x: commentImageIndex * screenWidth,
+          y: 0,
+          animated: false,
+        });
+      }, 100);
+    }
+  }, [commentImageViewerVisible, commentImageIndex, commentImages.length]);
+
+  const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
+    if (showSuggestions && flatListRef.current && inputPosition) {
+      // Scroll to position dropdown at the top of visible area, above keyboard
+      // We need to scroll enough to show the dropdown at the top
+      setTimeout(() => {
+        // Scroll to offset 0 to position dropdown at top
+        flatListRef.current?.scrollToOffset({ 
+          offset: 0, 
+          animated: true 
+        });
+      }, 150);
+    }
+  };
 
 
 
@@ -759,7 +798,7 @@ export default function RepostCommentsScreen() {
 
 
 
-  const hideComposer = !!actionFor || editingId !== null || replyingTo !== null || editingReplyId !== null;
+  const hideComposer = !!actionFor || !!actionForReply || editingId !== null || replyingTo !== null || editingReplyId !== null || editingRepostCaption;
 
   
 
@@ -892,6 +931,8 @@ export default function RepostCommentsScreen() {
                   placeholder="Edit your comment..."
 
                   style={styles.editInput}
+
+                  onSuggestionsChange={handleSuggestionsChange}
 
                   multiline
 
@@ -1072,6 +1113,8 @@ export default function RepostCommentsScreen() {
 
                         style={styles.replyInput}
 
+                        onSuggestionsChange={handleSuggestionsChange}
+
                         multiline
 
                         maxLength={500}
@@ -1156,39 +1199,59 @@ export default function RepostCommentsScreen() {
 
                         <View key={replyIndex} style={styles.replyItem}>
 
-                          <Image source={renderAvatar(reply.user?.profile_pic)} style={styles.replyAvatar} />
+                          <UserAvatar 
+                            profilePic={reply.user?.profile_pic}
+                            firstName={reply.user?.f_name}
+                            lastName={reply.user?.l_name}
+                            size={24}
+                            style={styles.replyAvatar}
+                          />
 
                           <View style={styles.replyContent}>
 
-                            <TouchableOpacity 
+                            <View style={styles.replyHeaderRow}>
 
-                              onPress={() => {
+                              <TouchableOpacity 
 
-                                if (reply.user?.user_id && reply.user.user_id !== meId) {
+                                onPress={() => {
 
-                                  router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
+                                  if (reply.user?.user_id && reply.user.user_id !== meId) {
 
-                                }
+                                    router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
 
-                              }}
+                                  }
 
-                              disabled={!reply.user?.user_id || reply.user.user_id === meId}
+                                }}
 
-                            >
+                                disabled={!reply.user?.user_id || reply.user.user_id === meId}
 
-                              <Text style={[
+                              >
 
-                                styles.replyName,
+                                <Text style={[
 
-                                (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
+                                  styles.replyName,
 
-                              ]}>
+                                  (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
 
-                                {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
+                                ]}>
 
-                              </Text>
+                                  {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
 
-                            </TouchableOpacity>
+                                </Text>
+
+                              </TouchableOpacity>
+
+                              {isMyReply && !isEditingReply && (
+
+                                <TouchableOpacity onPress={() => setActionForReply({ reply, commentId: c.comment_id })} style={{ padding: 4 }}>
+
+                                  <Ionicons name="ellipsis-horizontal" size={16} color="#6b7280" />
+
+                                </TouchableOpacity>
+
+                              )}
+
+                            </View>
 
                             
 
@@ -1211,6 +1274,8 @@ export default function RepostCommentsScreen() {
                                   placeholder="Edit your reply..."
 
                                   style={styles.editReplyInput}
+
+                                  onSuggestionsChange={handleSuggestionsChange}
 
                                   multiline
 
@@ -1310,74 +1375,6 @@ export default function RepostCommentsScreen() {
                             
 
                             <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
-
-                            
-
-                            {/* Reply Actions */}
-
-                            {isMyReply && !isEditingReply && (
-
-                              <View style={styles.replyActions}>
-
-                                <TouchableOpacity
-
-                                  style={styles.replyActionButton}
-
-                                  onPress={() => {
-
-                                    setEditingReplyId(reply.reply_id);
-
-                                    setEditReplyText(reply.reply_content);
-
-                                  }}
-
-                                >
-
-                                  <Text style={styles.replyActionText}>Edit</Text>
-
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-
-                                  style={styles.replyActionButton}
-
-                                  onPress={() => {
-
-                                    Alert.alert(
-
-                                      'Delete Reply',
-
-                                      'Are you sure you want to delete this reply?',
-
-                                      [
-
-                                        { text: 'Cancel', style: 'cancel' },
-
-                                        {
-
-                                          text: 'Delete',
-
-                                          style: 'destructive',
-
-                                          onPress: () => handleReplyDelete(c.comment_id, reply.reply_id)
-
-                                        }
-
-                                      ]
-
-                                    );
-
-                                  }}
-
-                                >
-
-                                  <Text style={[styles.replyActionText, styles.replyDeleteText]}>Delete</Text>
-
-                                </TouchableOpacity>
-
-                              </View>
-
-                            )}
 
                           </View>
 
@@ -1485,6 +1482,8 @@ export default function RepostCommentsScreen() {
 
         <FlatList
 
+          ref={flatListRef}
+
           data={comments}
 
           keyExtractor={(c) => String(c.comment_id)}
@@ -1545,146 +1544,13 @@ export default function RepostCommentsScreen() {
 
                   </View>
 
-                  {repost.user?.user_id === meId && (
+                  {(repost.user?.user_id === meId || repost.user?.id === meId) && (
 
                     <TouchableOpacity 
 
                       onPress={() => {
-
-                        Alert.alert('Repost Options', 'What would you like to do?', [
-
-                          { 
-
-                            text: 'Edit Caption', 
-
-                            onPress: () => {
-
-                              Alert.prompt(
-
-                                'Edit Caption',
-
-                                'Enter new caption:',
-
-                                [
-
-                                  { text: 'Cancel', style: 'cancel' },
-
-                                  { 
-
-                                    text: 'Save', 
-
-                                    onPress: async (newCaption?: string) => {
-
-                                      if (newCaption !== null && newCaption !== undefined && newCaption.trim()) {
-
-                                        try {
-
-                                          console.log('Updating repost caption:', newCaption);
-
-                                          await updateRepost(repost.repost_id, newCaption.trim());
-
-                                          
-
-                                          // Update local repost data
-
-                                          setRepost((prev: any) => ({
-
-                                            ...prev,
-
-                                            caption: newCaption.trim()
-
-                                          }));
-
-                                          
-
-                                          Alert.alert('Success', 'Caption updated successfully!');
-
-                                        } catch (error) {
-
-                                          console.error('Error updating repost caption:', error);
-
-                                          Alert.alert('Error', 'Failed to update caption. Please try again.');
-
-                                        }
-
-                                      }
-
-                                    }
-
-                                  }
-
-                                ],
-
-                                'plain-text',
-
-                                repost.caption || ''
-
-                              );
-
-                            }
-
-                          },
-
-                          { 
-
-                            text: 'Delete Repost', 
-
-                            style: 'destructive',
-
-                            onPress: () => {
-
-                              Alert.alert(
-
-                                'Delete Repost',
-
-                                'Are you sure you want to delete this repost? This action cannot be undone.',
-
-                                [
-
-                                  { text: 'Cancel', style: 'cancel' },
-
-                                  { 
-
-                                    text: 'Delete', 
-
-                                    style: 'destructive',
-
-                                    onPress: async () => {
-
-                                      try {
-
-                                        console.log('Deleting repost:', repost.repost_id);
-
-                                        await deleteRepost(repost.repost_id);
-
-                                        Alert.alert('Success', 'Repost deleted successfully!');
-
-                                        router.back();
-
-                                      } catch (error) {
-
-                                        console.error('Error deleting repost:', error);
-
-                                        Alert.alert('Error', 'Failed to delete repost. Please try again.');
-
-                                      }
-
-                                    }
-
-                                  }
-
-                                ]
-
-                              );
-
-                            }
-
-                          },
-
-                          { text: 'Cancel', style: 'cancel' }
-
-                        ]);
-
+                        console.log('Ellipsis clicked, setting actionForRepost to true');
+                        setActionForRepost(true);
                       }}
 
                       style={{ padding: 4 }}
@@ -1701,11 +1567,58 @@ export default function RepostCommentsScreen() {
 
           
 
-                {repost.caption && repost.caption.trim() ? (
-
-                  <Text style={styles.postContent}>{repost.caption}</Text>
-
-                ) : null}
+                {editingRepostCaption ? (
+                  <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={styles.editRepostCaptionContainer}
+                  >
+                    <MentionInput
+                      value={editRepostCaptionText}
+                      onChange={setEditRepostCaptionText}
+                      placeholder="Edit your repost caption..."
+                      style={styles.editRepostCaptionInput}
+                      multiline
+                      maxLength={500}
+                      onSuggestionsChange={handleSuggestionsChange}
+                    />
+                    <View style={styles.editRepostCaptionActions}>
+                      <TouchableOpacity
+                        style={[styles.editRepostCaptionButton, styles.cancelRepostCaptionButton]}
+                        onPress={() => {
+                          setEditingRepostCaption(false);
+                          setEditRepostCaptionText('');
+                        }}
+                      >
+                        <Text style={styles.cancelRepostCaptionButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.editRepostCaptionButton, styles.saveRepostCaptionButton]}
+                        onPress={async () => {
+                          if (!editRepostCaptionText.trim()) return;
+                          try {
+                            await updateRepost(repost.repost_id, editRepostCaptionText.trim());
+                            setRepost((prev: any) => ({
+                              ...prev,
+                              caption: editRepostCaptionText.trim()
+                            }));
+                            Alert.alert('Success', 'Caption updated successfully!');
+                            setEditingRepostCaption(false);
+                            setEditRepostCaptionText('');
+                          } catch (error) {
+                            console.error('Error updating repost caption:', error);
+                            Alert.alert('Error', 'Failed to update caption. Please try again.');
+                          }
+                        }}
+                      >
+                        <Text style={styles.saveRepostCaptionButtonText}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </KeyboardAvoidingView>
+                ) : (
+                  repost.caption && repost.caption.trim() ? (
+                    <Text style={styles.postContent}>{repost.caption}</Text>
+                  ) : null
+                )}
 
 
 
@@ -1725,10 +1638,13 @@ export default function RepostCommentsScreen() {
                   router.push(`/posts/detail?postId=${original.post_id}`);
                 } else if (original?.forum_id) {
                   console.log('Navigating to original forum detail:', original.forum_id);
-                  router.push(`/posts/detail?postId=${original.forum_id}`);
+                  router.push(`/posts/detail?postId=${original.forum_id}&isForumPost=true`);
                 } else if (original?.donation_id) {
                   console.log('Navigating to original donation detail:', original.donation_id);
-                  router.push(`/posts/detail?postId=${original.donation_id}`);
+                  router.push(`/posts/detail?postId=${original.donation_id}&isDonationPost=true`);
+                } else {
+                  console.error('Unable to determine post type for navigation. Original:', original);
+                  Alert.alert('Error', 'Unable to navigate to post. Post type could not be determined.');
                 }
               }}
 
@@ -1885,21 +1801,9 @@ export default function RepostCommentsScreen() {
 
                       ) : (
 
-                        <View style={[
+                        <View style={styles.originalPostImagesGrid}>
 
-                          styles.originalPostImagesGrid,
-
-                          imagesToRender.length === 2 && styles.originalTwoImagesGrid,
-
-                          imagesToRender.length === 3 && styles.originalThreeImagesGrid,
-
-                          imagesToRender.length === 4 && styles.originalFourImagesGrid,
-
-                          imagesToRender.length >= 5 && styles.originalFivePlusImagesGrid
-
-                        ]}>
-
-                          {imagesToRender.slice(0, 6).map((image, index) => (
+                          {imagesToRender.slice(0, 4).map((image, index) => (
 
                             <TouchableOpacity 
 
@@ -1913,15 +1817,7 @@ export default function RepostCommentsScreen() {
 
                               }}
 
-                              style={[
-
-                                styles.originalGridImageContainer,
-
-                                imagesToRender.length === 3 && index === 0 && styles.originalThreeImagesFirst,
-
-                                imagesToRender.length === 3 && index > 0 && styles.originalThreeImagesRest
-
-                              ]}
+                              style={styles.originalGridImageContainer}
 
                             >
 
@@ -1935,13 +1831,13 @@ export default function RepostCommentsScreen() {
 
                               />
 
-                              {/* Show "+X more" overlay for the 6th image if there are more than 6 */}
+                              {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
 
-                              {index === 5 && imagesToRender.length > 6 && (
+                              {index === 3 && imagesToRender.length > 4 && (
 
                                 <View style={styles.originalMoreImagesOverlay}>
 
-                                  <Text style={styles.originalMoreImagesText}>+{imagesToRender.length - 6}</Text>
+                                  <Text style={styles.originalMoreImagesText}>+{imagesToRender.length - 4}</Text>
 
                                 </View>
 
@@ -2038,6 +1934,8 @@ export default function RepostCommentsScreen() {
                 maxLength={500}
 
                 disabled={!!replyingTo || !!editingReplyId}
+
+                onSuggestionsChange={handleSuggestionsChange}
 
                     />
 
@@ -2189,83 +2087,113 @@ export default function RepostCommentsScreen() {
 
 
 
-      {/* Image Viewer Modal */}
+      {/* Reply Actions Popup Modal */}
 
-      {imageViewerVisible && originalImages.length > 0 && (
+      {actionForReply && (
 
-        <View style={styles.imageViewerOverlay}>
+        <View style={styles.popupOverlay}>
 
-          <TouchableOpacity 
+          <View style={styles.popupBox}>
 
-            style={styles.imageViewerCloseButton}
+            <Text style={styles.popupTitle}>Reply Actions</Text>
 
-            onPress={() => setImageViewerVisible(false)}
 
-          >
 
-            <Text style={styles.imageViewerCloseText}>✕</Text>
+            {/* Edit: only show if reply is mine */}
 
-          </TouchableOpacity>
+            {actionForReply?.reply?.user?.user_id === meId && (
 
-          <View style={styles.imageViewerContainer}>
+              <TouchableOpacity
 
-            {originalImages.length > 1 && (
+                style={styles.popupButton}
 
-              <View style={styles.imageViewerCounter}>
+                onPress={() => {
 
-                <Text style={styles.imageViewerCounterText}>
+                  setEditingReplyId(actionForReply.reply.reply_id);
 
-                  {selectedImageIndex + 1} of {originalImages.length}
+                  setEditReplyText(actionForReply.reply.reply_content);
 
-                </Text>
+                  setActionForReply(null);
 
-              </View>
+                }}
+
+              >
+
+                <Text style={styles.popupButtonText}>✏️ Edit</Text>
+
+              </TouchableOpacity>
 
             )}
 
-            <ScrollView 
 
-              horizontal 
 
-              pagingEnabled 
+            {/* Delete: show if reply is mine */}
 
-              showsHorizontalScrollIndicator={false}
+            {actionForReply?.reply?.user?.user_id === meId && (
 
-              onMomentumScrollEnd={(event) => {
+              <TouchableOpacity
 
-                const index = Math.round(event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width);
+                style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
 
-                setSelectedImageIndex(index);
+                onPress={() => {
 
-              }}
+                  Alert.alert(
+
+                    'Delete Reply',
+
+                    'Are you sure you want to delete this reply? This action cannot be undone.',
+
+                    [
+
+                      { text: 'Cancel', style: 'cancel' },
+
+                      {
+
+                        text: 'Delete',
+
+                        style: 'destructive',
+
+                        onPress: () => {
+
+                          handleReplyDelete(actionForReply.commentId, actionForReply.reply.reply_id);
+
+                          setActionForReply(null);
+
+                        },
+
+                      },
+
+                    ]
+
+                  );
+
+                  setActionForReply(null);
+
+                }}
+
+              >
+
+                <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
+
+              </TouchableOpacity>
+
+            )}
+
+
+
+            {/* Cancel: always show */}
+
+            <TouchableOpacity
+
+              style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
+
+              onPress={() => setActionForReply(null)}
 
             >
 
-              {originalImages.map((image, index) => {
+              <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
 
-                const imageSource = renderPostImage(image.image_url);
-
-                if (!imageSource) return null;
-
-                return (
-
-                  <Image
-
-                    key={index}
-
-                    source={imageSource}
-
-                    style={styles.imageViewerImage}
-
-                    resizeMode="contain"
-
-                  />
-
-                );
-
-              })}
-
-            </ScrollView>
+            </TouchableOpacity>
 
           </View>
 
@@ -2273,14 +2201,71 @@ export default function RepostCommentsScreen() {
 
       )}
 
+
+
+      {/* Original Post Image Viewer Modal */}
+
+      {imageViewerVisible && originalImages.length > 0 && (
+        <Modal visible={imageViewerVisible} transparent animationType="fade" onRequestClose={() => setImageViewerVisible(false)}>
+          <View style={styles.imageViewerOverlay}>
+            <TouchableOpacity 
+              style={styles.imageViewerCloseButton}
+              onPress={() => setImageViewerVisible(false)}
+            >
+              <Text style={styles.imageViewerCloseText}>✕</Text>
+            </TouchableOpacity>
+
+            <View style={styles.imageViewerContainer}>
+              {originalImages.length > 1 && (
+                <View style={styles.imageViewerCounter}>
+                  <Text style={styles.imageViewerCounterText}>
+                    {selectedImageIndex + 1} of {originalImages.length}
+                  </Text>
+                </View>
+              )}
+
+              {(() => {
+                const screenWidth = Dimensions.get('window').width;
+                const screenHeight = Dimensions.get('window').height;
+                return (
+                  <ScrollView 
+                    horizontal 
+                    pagingEnabled 
+                    showsHorizontalScrollIndicator={false}
+                    contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
+                    onMomentumScrollEnd={(event) => {
+                      const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                      setSelectedImageIndex(index);
+                    }}
+                    style={{ flex: 1, width: '100%' }}
+                  >
+                    {originalImages.map((image, index) => {
+                      const imageSource = renderPostImage(image.image_url);
+                      if (!imageSource) return null;
+                      return (
+                        <View key={index} style={{ width: screenWidth, height: screenHeight, justifyContent: 'center', alignItems: 'center' }}>
+                          <Image
+                            source={imageSource}
+                            style={{ width: screenWidth, height: screenHeight * 0.8, maxWidth: '100%', maxHeight: '100%' }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                );
+              })()}
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* Comment/Reply Image Viewer Modal */}
       {commentImageViewerVisible && commentImages.length > 0 && (
         <Modal visible={commentImageViewerVisible} transparent animationType="fade">
           <View style={styles.commentImageViewerOverlay}>
-            <TouchableOpacity
+            <View
               style={styles.commentImageViewerContainer}
-              onPress={() => setCommentImageViewerVisible(false)}
-              activeOpacity={1}
             >
               <View style={styles.commentImageViewerHeader}>
                 <TouchableOpacity
@@ -2298,18 +2283,22 @@ export default function RepostCommentsScreen() {
               {(() => {
                 const screenWidth = Dimensions.get('window').width;
                 const screenHeight = Dimensions.get('window').height;
-                const scrollRef = React.createRef<ScrollView>();
                 return (
                   <ScrollView
-                    ref={scrollRef}
+                    ref={commentImageScrollRef}
                     horizontal
                     pagingEnabled
                     showsHorizontalScrollIndicator={false}
                     style={styles.commentImageViewerScroll}
-                    contentOffset={{ x: commentImageIndex * screenWidth, y: 0 }}
+                    contentContainerStyle={{ width: screenWidth * commentImages.length }}
                     onLayout={() => {
-                      if (scrollRef.current) {
-                        scrollRef.current.scrollTo({ x: commentImageIndex * screenWidth, y: 0, animated: false });
+                      // Scroll to correct position after layout
+                      if (commentImageScrollRef.current) {
+                        commentImageScrollRef.current.scrollTo({
+                          x: commentImageIndex * screenWidth,
+                          y: 0,
+                          animated: false,
+                        });
                       }
                     }}
                     onMomentumScrollEnd={(event) => {
@@ -2346,11 +2335,64 @@ export default function RepostCommentsScreen() {
                   </ScrollView>
                 );
               })()}
-            </TouchableOpacity>
+            </View>
           </View>
         </Modal>
       )}
 
+      {/* Repost Action Sheet Modal */}
+      <Modal visible={!!actionForRepost && !!repost} transparent animationType="fade" onRequestClose={() => setActionForRepost(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.sheet}>
+              <TouchableOpacity
+                style={styles.sheetRow}
+                onPress={() => {
+                  setEditRepostCaptionText(repost.caption || '');
+                  setEditingRepostCaption(true);
+                  setActionForRepost(false);
+                }}
+              >
+                <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+                <Text style={styles.sheetRowText}>Edit Caption</Text>
+              </TouchableOpacity>
+              <View style={styles.sheetDivider} />
+              <TouchableOpacity
+                style={styles.sheetRow}
+                onPress={() => {
+                  setActionForRepost(false);
+                  Alert.alert(
+                    'Delete Repost',
+                    'Are you sure you want to delete this repost?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            console.log('Deleting repost:', repost.repost_id);
+                            await deleteRepost(repost.repost_id);
+                            Alert.alert('Success', 'Repost deleted successfully!');
+                            router.back();
+                          } catch (error) {
+                            console.error('Error deleting repost:', error);
+                            Alert.alert('Error', 'Failed to delete repost. Please try again.');
+                          }
+                        }
+                      }
+                    ]
+                  );
+                }}
+              >
+                <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete Repost</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.sheetCancel} onPress={() => setActionForRepost(false)}>
+              <Text style={styles.sheetCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
     </SafeAreaView>
 
   );
@@ -2937,9 +2979,9 @@ const styles = StyleSheet.create({
 
   imageViewerImage: {
 
-    width: 400,
+    width: '100%',
 
-    height: 400,
+    height: '80%',
 
   },
 
@@ -3263,6 +3305,20 @@ const styles = StyleSheet.create({
 
   },
 
+  replyHeaderRow: {
+
+    flexDirection: 'row',
+
+    alignItems: 'flex-start',
+
+    justifyContent: 'space-between',
+
+    gap: 8,
+
+    marginBottom: 4,
+
+  },
+
   replyName: {
 
     fontSize: 12,
@@ -3509,53 +3565,25 @@ const styles = StyleSheet.create({
 
     gap: 2,
 
-  },
+    justifyContent: 'space-between',
 
-  originalTwoImagesGrid: {
-
-    height: 200,
-
-  },
-
-  originalThreeImagesGrid: {
-
-    height: 200,
-
-  },
-
-  originalFourImagesGrid: {
-
-    height: 200,
-
-  },
-
-  originalFivePlusImagesGrid: {
-
-    height: 200,
+    marginTop: 12,
 
   },
 
   originalGridImageContainer: {
 
+    width: '49%',
+
+    height: 150,
+
     position: 'relative',
 
     overflow: 'hidden',
 
-  },
+    borderRadius: 4,
 
-  originalThreeImagesFirst: {
-
-    width: '50%',
-
-    height: '100%',
-
-  },
-
-  originalThreeImagesRest: {
-
-    width: '50%',
-
-    height: '50%',
+    marginBottom: 2,
 
   },
 
@@ -3732,6 +3760,89 @@ const styles = StyleSheet.create({
   commentImageViewerScroll: {
     flex: 1,
     width: '100%',
+  },
+
+  // Action Sheet Styles
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  sheet: {
+    backgroundColor: '#fff',
+    width: '88%',
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  sheetRowText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  sheetCancel: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '88%',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  sheetCancelText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+
+  // Edit Repost Caption Styles
+  editRepostCaptionContainer: {
+    marginTop: 8,
+  },
+  editRepostCaptionInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#111827',
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  editRepostCaptionActions: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 8,
+    justifyContent: 'flex-end',
+  },
+  editRepostCaptionButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  cancelRepostCaptionButton: {
+    backgroundColor: '#f3f4f6',
+  },
+  cancelRepostCaptionButtonText: {
+    color: '#374151',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  saveRepostCaptionButton: {
+    backgroundColor: '#1e3a8a',
+  },
+  saveRepostCaptionButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 
 });
