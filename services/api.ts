@@ -517,6 +517,12 @@ export const searchAlumni = async (query: string) => {
   return response.data;
 };
 
+// Mobile -> Backend: GET /api/ojt-users/list/
+export const searchOJT = async (query: string) => {
+  const response = await api.get('/api/ojt-users/list/', { params: { search: query, per_page: 20 } });
+  return response.data;
+};
+
 /** Recent Searches */
 export const listRecentSearches = async (limit: number = 10) => {
   try {
@@ -596,6 +602,12 @@ export const getAlumniByBatch = async (batchYear: string | number) => {
 // Mobile -> Backend: GET /api/alumni/{user_id}/
 export const getAlumniDetails = async (userId: number) =>
   (await api.get(`/api/alumni/${userId}/`)).data;
+
+// Mobile -> Backend: GET /api/ojt-users/details/{user_id}/
+export const getOJTUserDetails = async (userId: number) => {
+  const response = await api.get(`/api/ojt-users/details/${userId}/`);
+  return response.data;
+};
 
 // Mobile -> Backend: GET /api/alumni/profile/{user_id}/
 export const getAlumniProfile = async (userId: number) =>

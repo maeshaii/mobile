@@ -306,7 +306,12 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                 if (images.length === 2) {
                   gridStyle = styles.twoImagesGrid;
                 } else if (images.length === 3) {
-                  gridStyle = index === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
+                  // For 3 images: first image takes full width on top, other 2 share bottom row
+                  if (index === 0) {
+                    gridStyle = styles.threeImagesFirst;
+                  } else {
+                    gridStyle = styles.threeImagesRest;
+                  }
                 } else if (images.length === 4) {
                   gridStyle = styles.fourImagesGrid;
                 } else if (images.length >= 5) {
@@ -578,11 +583,12 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   threeImagesFirst: {
-    width: '49%',
+    width: '100%',
     height: 200,
     position: 'relative',
     overflow: 'hidden',
     borderRadius: 4,
+    marginBottom: 2,
   },
   threeImagesRest: {
     width: '49%',

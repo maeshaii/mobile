@@ -978,51 +978,56 @@ export default function RepostCommentsScreen() {
 
                 </Text>
 
-                {/* Comment Images */}
+                {/* Comment Images - Swipeable and Centered */}
                 {(() => {
                   const images = getImagesFromContent(c);
                   if (images.length === 0) return null;
                   
+                  const screenWidth = Dimensions.get('window').width;
+                  const slideWidth = screenWidth - 100; // Account for padding
+                  
                   return (
                     <View style={styles.commentImagesContainer}>
-                      {images.length === 1 ? (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setCommentImages(images);
-                            setCommentImageIndex(0);
-                            setCommentImageViewerVisible(true);
-                          }}
-                        >
-                          <Image
-                            source={renderAvatar(images[0].image_url)}
-                            style={styles.commentSingleImage}
-                            resizeMode="cover"
-                          />
-                        </TouchableOpacity>
-                      ) : (
-                        <View style={styles.commentImagesGrid}>
-                          {images.slice(0, 4).map((image, index) => (
+                      <ScrollView
+                        horizontal
+                        pagingEnabled
+                        showsHorizontalScrollIndicator={false}
+                        style={[styles.commentImagesScroll, { width: slideWidth }]}
+                        contentContainerStyle={{ width: slideWidth * images.length }}
+                        snapToInterval={slideWidth}
+                        decelerationRate="fast"
+                        scrollEventThrottle={16}
+                      >
+                        {images.map((image, index) => (
+                          <View
+                            key={index}
+                            style={[styles.commentImageSlide, { width: slideWidth }]}
+                          >
                             <TouchableOpacity
-                              key={index}
-                              style={styles.commentGridImageItem}
+                              style={styles.commentImageTouchable}
                               onPress={() => {
                                 setCommentImages(images);
                                 setCommentImageIndex(index);
                                 setCommentImageViewerVisible(true);
                               }}
+                              activeOpacity={0.9}
+                              delayPressIn={200}
+                              delayLongPress={500}
                             >
                               <Image
                                 source={renderAvatar(image.image_url)}
-                                style={styles.commentGridImage}
-                                resizeMode="cover"
+                                style={styles.commentSwipeableImage}
+                                resizeMode="contain"
                               />
-                              {index === 3 && images.length > 4 && (
-                                <View style={styles.commentMoreImagesOverlay}>
-                                  <Text style={styles.commentMoreImagesText}>+{images.length - 4}</Text>
-                                </View>
-                              )}
                             </TouchableOpacity>
-                          ))}
+                          </View>
+                        ))}
+                      </ScrollView>
+                      {images.length > 1 && (
+                        <View style={styles.commentImagePagination}>
+                          <Text style={styles.commentImagePaginationText}>
+                            {images.length} {images.length === 1 ? 'image' : 'images'}
+                          </Text>
                         </View>
                       )}
                     </View>
@@ -1319,51 +1324,56 @@ export default function RepostCommentsScreen() {
                                   router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                                 })}
 
-                                {/* Reply Images */}
+                                {/* Reply Images - Swipeable and Centered */}
                                 {(() => {
                                   const images = getImagesFromContent(reply);
                                   if (images.length === 0) return null;
                                   
+                                  const screenWidth = Dimensions.get('window').width;
+                                  const slideWidth = screenWidth - 120; // Account for padding
+                                  
                                   return (
                                     <View style={styles.replyImagesContainer}>
-                                      {images.length === 1 ? (
-                                        <TouchableOpacity
-                                          onPress={() => {
-                                            setCommentImages(images);
-                                            setCommentImageIndex(0);
-                                            setCommentImageViewerVisible(true);
-                                          }}
-                                        >
-                                          <Image
-                                            source={renderAvatar(images[0].image_url)}
-                                            style={styles.replySingleImage}
-                                            resizeMode="cover"
-                                          />
-                                        </TouchableOpacity>
-                                      ) : (
-                                        <View style={styles.replyImagesGrid}>
-                                          {images.slice(0, 4).map((image, index) => (
+                                      <ScrollView
+                                        horizontal
+                                        pagingEnabled
+                                        showsHorizontalScrollIndicator={false}
+                                        style={[styles.replyImagesScroll, { width: slideWidth }]}
+                                        contentContainerStyle={{ width: slideWidth * images.length }}
+                                        snapToInterval={slideWidth}
+                                        decelerationRate="fast"
+                                        scrollEventThrottle={16}
+                                      >
+                                        {images.map((image, index) => (
+                                          <View
+                                            key={index}
+                                            style={[styles.replyImageSlide, { width: slideWidth }]}
+                                          >
                                             <TouchableOpacity
-                                              key={index}
-                                              style={styles.replyGridImageItem}
+                                              style={styles.replyImageTouchable}
                                               onPress={() => {
                                                 setCommentImages(images);
                                                 setCommentImageIndex(index);
                                                 setCommentImageViewerVisible(true);
                                               }}
+                                              activeOpacity={0.9}
+                                              delayPressIn={200}
+                                              delayLongPress={500}
                                             >
                                               <Image
                                                 source={renderAvatar(image.image_url)}
-                                                style={styles.replyGridImage}
-                                                resizeMode="cover"
+                                                style={styles.replySwipeableImage}
+                                                resizeMode="contain"
                                               />
-                                              {index === 3 && images.length > 4 && (
-                                                <View style={styles.replyMoreImagesOverlay}>
-                                                  <Text style={styles.replyMoreImagesText}>+{images.length - 4}</Text>
-                                                </View>
-                                              )}
                                             </TouchableOpacity>
-                                          ))}
+                                          </View>
+                                        ))}
+                                      </ScrollView>
+                                      {images.length > 1 && (
+                                        <View style={styles.replyImagePagination}>
+                                          <Text style={styles.replyImagePaginationText}>
+                                            {images.length} {images.length === 1 ? 'image' : 'images'}
+                                          </Text>
                                         </View>
                                       )}
                                     </View>
@@ -1616,7 +1626,11 @@ export default function RepostCommentsScreen() {
                   </KeyboardAvoidingView>
                 ) : (
                   repost.caption && repost.caption.trim() ? (
-                    <Text style={styles.postContent}>{repost.caption}</Text>
+                    <Text style={styles.postContent}>
+                      {renderTextWithMentions(repost.caption, [], (userId) => {
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                      })}
+                    </Text>
                   ) : null
                 )}
 
@@ -1722,7 +1736,11 @@ export default function RepostCommentsScreen() {
                 const original = repost?.original || (repost as any)?.original_post;
                 const content = (original?.content && original.content.trim()) || (original?.post_content && original.post_content.trim());
                 return content ? (
-                  <Text style={styles.postContent}>{original?.content || original?.post_content}</Text>
+                  <Text style={styles.postContent}>
+                    {renderTextWithMentions(original?.content || original?.post_content, [], (userId) => {
+                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                    })}
+                  </Text>
                 ) : (
                   <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
                     Original post content unavailable
@@ -3627,96 +3645,88 @@ const styles = StyleSheet.create({
 
   },
 
-  // Comment Images Styles
+  // Comment Images Styles - Swipeable and Centered
   commentImagesContainer: {
     marginTop: 8,
     borderRadius: 8,
     overflow: 'hidden',
+    alignItems: 'center',
   },
-  commentSingleImage: {
-    width: '100%',
-    maxWidth: 300,
+  commentImagesScroll: {
     height: 200,
+  },
+  commentImageSlide: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
     borderRadius: 8,
   },
-  commentImagesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    maxWidth: 300,
-  },
-  commentGridImageItem: {
-    width: '48%',
-    height: 100,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  commentGridImage: {
+  commentImageTouchable: {
     width: '100%',
     height: '100%',
-    borderRadius: 4,
-  },
-  commentMoreImagesOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  commentMoreImagesText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+  commentSwipeableImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  commentImagePagination: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  commentImagePaginationText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
   },
 
-  // Reply Images Styles
+  // Reply Images Styles - Swipeable and Centered
   replyImagesContainer: {
     marginTop: 8,
     borderRadius: 8,
     overflow: 'hidden',
+    alignItems: 'center',
   },
-  replySingleImage: {
-    width: '100%',
-    maxWidth: 250,
+  replyImagesScroll: {
     height: 180,
+  },
+  replyImageSlide: {
+    height: 180,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
     borderRadius: 8,
   },
-  replyImagesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    maxWidth: 250,
-  },
-  replyGridImageItem: {
-    width: '48%',
-    height: 90,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  replyGridImage: {
+  replyImageTouchable: {
     width: '100%',
     height: '100%',
-    borderRadius: 4,
-  },
-  replyMoreImagesOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  replyMoreImagesText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: 'bold',
+  replySwipeableImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  replyImagePagination: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  replyImagePaginationText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
   },
 
   // Comment Image Viewer Styles

@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
-import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, clearRecentSearches } from '../../services/api';
+import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, clearRecentSearches, searchAlumni, searchOJT } from '../../services/api';
 import * as SecureStore from 'expo-secure-store';
 import UserAvatar from '../../components/UserAvatar';
 
@@ -38,6 +38,7 @@ const samplePic = require('../../assets/images/sample_pic.jpg');
 export default function SearchPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const router = useRouter();
   const [recent, setRecent] = useState<any[]>([]);
@@ -48,25 +49,6 @@ export default function SearchPage() {
     const load = async () => {
       try {
         setLoading(true);
-        const data = await getAlumniList();
-        const mapped = (data.alumni || []).map((a: any) => {
-          // Split the name into first and last name
-          const nameParts = (a.name || '').trim().split(' ');
-          const f_name = nameParts[0] || '';
-          const l_name = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
-          
-          console.log('Alumni data:', a.name, 'Profile pic:', a.profile_pic);
-          
-          return {
-            id: String(a.id),
-            name: a.name,
-            f_name: f_name,
-            l_name: l_name,
-            profile_pic: a.profile_pic,
-            time: '',
-          };
-        });
-        setUsers(mapped);
         // Load recent searches - prefer server, fall back to local cache
         try {
           const serverRecent = await listRecentSearches(10);
@@ -101,6 +83,72 @@ export default function SearchPage() {
     };
     load();
   }, []);
+
+  // Handle search when query changes - search both alumni and OJT
+  useEffect(() => {
+    const performSearch = async () => {
+      if (!search || search.trim().length < 2) {
+        setUsers([]);
+        setSearching(false);
+        return;
+      }
+
+      setSearching(true);
+      try {
+        // Search both alumni and OJT in parallel
+        const [alumniResults, ojtResults] = await Promise.all([
+          searchAlumni(search.trim()).catch(() => ({ results: [] })),
+          searchOJT(search.trim()).catch(() => ({ users: [] }))
+        ]);
+
+        // Combine results from both searches
+        const combinedResults: any[] = [];
+
+        // Add alumni results
+        if (alumniResults.results && Array.isArray(alumniResults.results)) {
+          alumniResults.results.forEach((u: any) => {
+            combinedResults.push({
+              id: String(u.id || u.user_id),
+              name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim(),
+              f_name: u.f_name || u.first_name || '',
+              l_name: u.l_name || u.last_name || '',
+              profile_pic: u.profile_pic || null,
+              time: '',
+            });
+          });
+        }
+
+        // Add OJT results
+        if (ojtResults.users && Array.isArray(ojtResults.users)) {
+          ojtResults.users.forEach((u: any) => {
+            combinedResults.push({
+              id: String(u.user_id),
+              name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'OJT User',
+              f_name: u.first_name || '',
+              l_name: u.last_name || '',
+              profile_pic: u.profile_pic || null,
+              time: '',
+            });
+          });
+        }
+
+        // Remove duplicates based on user ID
+        const uniqueResults = combinedResults.filter((user, index, self) =>
+          index === self.findIndex((u) => u.id === user.id)
+        );
+
+        setUsers(uniqueResults);
+      } catch (error) {
+        console.error('Search error:', error);
+        setUsers([]);
+      } finally {
+        setSearching(false);
+      }
+    };
+
+    const timeoutId = setTimeout(performSearch, 300); // Debounce search
+    return () => clearTimeout(timeoutId);
+  }, [search]);
 
   const saveRecent = async (items: any[]) => {
     setRecent(items);
@@ -179,10 +227,6 @@ export default function SearchPage() {
       setSelectedIds(allSelected);
     }
   };
-
-  const filteredUsers = search
-    ? users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()))
-    : [];
 
   return (
     <View style={styles.container}>
@@ -269,12 +313,14 @@ export default function SearchPage() {
       )}
 
       {/* Users List (only show when searching) */}
-      {loading ? (
-        <ActivityIndicator style={{ marginTop: 20 }} />
+      {searching ? (
+        <View style={{ paddingTop: 20, alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#174f84" />
+        </View>
       ) : (
         !!search && (
           <FlatList
-            data={filteredUsers}
+            data={users}
             keyExtractor={item => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.userRow} onPress={() => handleOpenUser(item)}>

@@ -523,7 +523,27 @@ const NotificationScreen = () => {
 
     // Format user notifications
     if (type === 'follow' || message.toLowerCase().includes('follow')) {
-      return `👤 ${name} started following you`;
+      // Extract name from message content (format: "Full Name|user_id started following you.")
+      let userName = 'User';
+      if (fullMessage) {
+        const nameMatch = fullMessage.match(/^(.+?)\|(\d+)\s+started following/i);
+        if (nameMatch && nameMatch[1]) {
+          userName = nameMatch[1].trim();
+        } else if (item.first_name && item.last_name) {
+          userName = `${item.first_name} ${item.last_name}`.trim();
+        } else if (item.first_name || item.last_name) {
+          userName = (item.first_name || item.last_name || '').trim();
+        } else if (name) {
+          userName = name;
+        }
+      } else if (item.first_name && item.last_name) {
+        userName = `${item.first_name} ${item.last_name}`.trim();
+      } else if (item.first_name || item.last_name) {
+        userName = (item.first_name || item.last_name || '').trim();
+      } else if (name) {
+        userName = name;
+      }
+      return `👤 ${userName} started following you`;
     }
     if (type === 'repost' || message.toLowerCase().includes('repost')) {
       return `🔄 ${name} shared your post`;

@@ -8,6 +8,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { Ionicons } from '@expo/vector-icons';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 dayjs.extend(relativeTime);
 
@@ -288,7 +289,13 @@ export default function RepostScreen() {
               </View>
             </View>
             {original?.post_title ? <Text style={styles.origTitle}>{original.post_title}</Text> : null}
-            {original?.post_content ? <Text style={styles.origContent}>{original.post_content}</Text> : null}
+            {original?.post_content ? (
+              <Text style={styles.origContent}>
+                {renderTextWithMentions(original.post_content, [], (userId) => {
+                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                })}
+              </Text>
+            ) : null}
             
             {/* Display all images */}
             {allImages.length > 0 && (
@@ -480,7 +487,11 @@ export default function RepostScreen() {
                           </View>
                           {!!original.post_title && <Text style={styles.postTitle}>{original.post_title}</Text>}
                           {!!original.post_content && (
-                            <Text style={styles.postContent}>{original.post_content}</Text>
+                            <Text style={styles.postContent}>
+                              {renderTextWithMentions(original.post_content, [], (userId) => {
+                                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                              })}
+                            </Text>
                           )}
                           {allImages.length > 0 && (
                             <View style={{ marginTop: 10 }}>

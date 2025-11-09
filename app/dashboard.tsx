@@ -461,7 +461,11 @@ export default function DashboardScreen() {
               {post.post_title && (
                 <Text style={styles.postTitle}>{post.post_title}</Text>
               )}
-              <Text style={styles.postContent}>{post.post_content}</Text>
+              <Text style={styles.postContent}>
+                {renderTextWithMentions(post.post_content, [], (userId) => {
+                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                })}
+              </Text>
               {post.original_post && (
                 <TouchableOpacity
                   style={{ alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 }}

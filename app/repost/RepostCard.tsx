@@ -9,6 +9,7 @@ import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updat
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 dayjs.extend(relativeTime);
 
@@ -526,7 +527,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
             {/* Original Content */}
             {/* Note: Backend doesn't provide post_title for original post in repost detail */}
-            <Text style={styles.originalContent}>{repost.original_post.post_content}</Text>
+            <Text style={styles.originalContent}>
+              {renderTextWithMentions(repost.original_post.post_content, [], (userId) => {
+                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+              })}
+            </Text>
           
           {/* Original Images - support multiple images */}
           {originalImages.length > 0 && (

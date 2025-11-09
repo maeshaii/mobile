@@ -613,51 +613,56 @@ export default function CCICTPage() {
                         {renderTextWithMentions(comment.comment_content, [], (userId) => {
                           router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                         })}
-                        {/* Comment Images */}
+                        {/* Comment Images - Swipeable and Centered */}
                         {(() => {
                           const images = getImagesFromContent(comment);
                           if (images.length === 0) return null;
                           
+                          const screenWidth = Dimensions.get('window').width;
+                          const slideWidth = screenWidth - 100; // Account for padding
+                          
                           return (
                             <View style={styles.commentImagesContainer}>
-                              {images.length === 1 ? (
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    setCommentImages(images);
-                                    setCommentImageIndex(0);
-                                    setCommentImageViewerVisible(true);
-                                  }}
-                                >
-                                  <Image
-                                    source={renderAvatar(images[0].image_url)}
-                                    style={styles.commentSingleImage}
-                                    resizeMode="cover"
-                                  />
-                                </TouchableOpacity>
-                              ) : (
-                                <View style={styles.commentImagesGrid}>
-                                  {images.slice(0, 4).map((image, index) => (
+                              <ScrollView
+                                horizontal
+                                pagingEnabled
+                                showsHorizontalScrollIndicator={false}
+                                style={[styles.commentImagesScroll, { width: slideWidth }]}
+                                contentContainerStyle={{ width: slideWidth * images.length }}
+                                snapToInterval={slideWidth}
+                                decelerationRate="fast"
+                                scrollEventThrottle={16}
+                              >
+                                {images.map((image, index) => (
+                                  <View
+                                    key={index}
+                                    style={[styles.commentImageSlide, { width: slideWidth }]}
+                                  >
                                     <TouchableOpacity
-                                      key={index}
-                                      style={styles.commentGridImageItem}
+                                      style={styles.commentImageTouchable}
                                       onPress={() => {
                                         setCommentImages(images);
                                         setCommentImageIndex(index);
                                         setCommentImageViewerVisible(true);
                                       }}
+                                      activeOpacity={0.9}
+                                      delayPressIn={200}
+                                      delayLongPress={500}
                                     >
                                       <Image
                                         source={renderAvatar(image.image_url)}
-                                        style={styles.commentGridImage}
-                                        resizeMode="cover"
+                                        style={styles.commentSwipeableImage}
+                                        resizeMode="contain"
                                       />
-                                      {index === 3 && images.length > 4 && (
-                                        <View style={styles.commentMoreImagesOverlay}>
-                                          <Text style={styles.commentMoreImagesText}>+{images.length - 4}</Text>
-                                        </View>
-                                      )}
                                     </TouchableOpacity>
-                                  ))}
+                                  </View>
+                                ))}
+                              </ScrollView>
+                              {images.length > 1 && (
+                                <View style={styles.commentImagePagination}>
+                                  <Text style={styles.commentImagePaginationText}>
+                                    {images.length} {images.length === 1 ? 'image' : 'images'}
+                                  </Text>
                                 </View>
                               )}
                             </View>
@@ -1081,50 +1086,46 @@ const styles = StyleSheet.create({
   originalPostArrow: {
     marginLeft: 8,
   },
-  // Comment Images Styles
+  // Comment Images Styles - Swipeable and Centered
   commentImagesContainer: {
     marginTop: 8,
     borderRadius: 8,
     overflow: 'hidden',
+    alignItems: 'center',
   },
-  commentSingleImage: {
-    width: '100%',
-    maxWidth: 300,
+  commentImagesScroll: {
     height: 200,
+  },
+  commentImageSlide: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
     borderRadius: 8,
   },
-  commentImagesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    maxWidth: 300,
-  },
-  commentGridImageItem: {
-    width: '48%',
-    height: 100,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 4,
-  },
-  commentGridImage: {
+  commentImageTouchable: {
     width: '100%',
     height: '100%',
-    borderRadius: 4,
-  },
-  commentMoreImagesOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  commentMoreImagesText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+  commentSwipeableImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  commentImagePagination: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  commentImagePaginationText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
   },
   // Comment Image Viewer Styles
   commentImageViewerOverlay: {

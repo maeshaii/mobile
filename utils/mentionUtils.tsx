@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet, Linking } from 'react-native';
 import { searchAlumni } from '../services/api';
 
 interface MentionUser {
@@ -26,18 +26,60 @@ export const renderTextWithMentions = (
   // This matches the format stored by MentionInput: @FirstLast (no spaces)
   // The backend regex r'@([^@\s]+)' doesn't support spaces, so we use @FirstLast format
   const mentionRegex = /@([A-Za-z0-9]+)/g;
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  // Enhanced URL regex that matches:
+  // - http:// or https:// URLs
+  // - www. URLs
+  // - plain domains (like example.com)
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.(com|net|org|edu|gov|io|co|uk|ph|info|biz|xyz|me|tv|cc|ws|name|mobi|asia|jobs|museum|travel)[^\s]*)/gi;
   
   // First, split by URLs
-  const urlParts = text.split(urlRegex);
+  const urlParts: string[] = [];
+  let lastIndex = 0;
+  let match;
+  urlRegex.lastIndex = 0;
+  
+  while ((match = urlRegex.exec(text)) !== null) {
+    // Add text before URL
+    if (match.index > lastIndex) {
+      urlParts.push(text.substring(lastIndex, match.index));
+    }
+    // Add URL
+    urlParts.push(match[0]);
+    lastIndex = urlRegex.lastIndex;
+  }
+  // Add remaining text
+  if (lastIndex < text.length) {
+    urlParts.push(text.substring(lastIndex));
+  }
   
   const result: React.ReactNode[] = [];
   
   urlParts.forEach((urlPart, urlIndex) => {
-    // Check if this is a URL
-    if (/^https?:\/\/[^\s]+$/.test(urlPart)) {
+    // Check if this is a URL (using the same regex pattern)
+    if (/(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.(com|net|org|edu|gov|io|co|uk|ph|info|biz|xyz|me|tv|cc|ws|name|mobi|asia|jobs|museum|travel)[^\s]*)/i.test(urlPart)) {
+      // Create clickable link
+      let url = urlPart;
+      // Add protocol if missing
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
       result.push(
-        <Text key={`url-${urlIndex}`} style={{ color: '#007bff', textDecorationLine: 'underline' }}>
+        <Text
+          key={`url-${urlIndex}`}
+          onPress={async () => {
+            try {
+              const canOpen = await Linking.canOpenURL(url);
+              if (canOpen) {
+                await Linking.openURL(url);
+              } else {
+                console.error('Cannot open URL:', url);
+              }
+            } catch (error) {
+              console.error('Error opening URL:', error);
+            }
+          }}
+          style={{ color: '#007bff', textDecorationLine: 'underline' }}
+        >
           {urlPart}
         </Text>
       );
