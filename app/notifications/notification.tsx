@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,9 @@ import { useRouter } from 'expo-router';
 import { deleteNotifications } from '../../services/api';
 import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
-<<<<<<< HEAD
 import TrackerNotificationModal from '../../components/TrackerNotificationModal';
 import NotificationModal from '../../components/NotificationModal';
-=======
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
->>>>>>> 688b1d365973e5bd3b9b7278f1749c67c6c7ef5e
 
 interface NotificationItem {
   id?: number;
@@ -73,7 +70,7 @@ const NotificationScreen = () => {
   const router = useRouter();
 
   // Transform real-time notifications to match component's expected format
-  const notifications = realTimeNotifications.map((n: any) => {
+  const notifications = realTimeNotifications.map((n: any, index: number) => {
     try {
       const fullMessage = n.content || n.message || n.notifi_content || '';
       const shortMessage =
@@ -87,233 +84,67 @@ const NotificationScreen = () => {
       let donationId = n.donation_id || n.donationId;
       let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
 
-      if (!userId) {
-        setError('User not found');
-        setNotifications([]);
-        return;
-      }
-
-      const data = await getNotifications(userId);
-
-      if (!data || !Array.isArray(data.notifications)) {
-        setNotifications([]);
-        return;
-      }
-
-      const transformedData = data.notifications.map((n: any, index: number) => {
-        try {
-          const fullMessage = n.content || n.message || '';
-          const shortMessage =
-            fullMessage.length > 80 ? fullMessage.substring(0, 80) + '...' : fullMessage;
-
-          // Debug: Log the raw notification data
-          console.log('Raw notification data:', n);
-
-          // Extract post ID, forum ID, comment ID, repost ID, donation ID and user ID from various possible fields
-          let postId = n.post_id || n.postId || n.post_id || n.target_id || n.object_id;
-          let forumId = n.forum_id || n.forumId;
-          let commentId = n.comment_id || n.commentId;
-          let repostId = n.repost_id || n.repostId;
-          let donationId = n.donation_id || n.donationId;
-          let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
-
-          // Try to extract IDs from the message content if not found in fields
-          if (!postId && fullMessage) {
-            const postIdMatch = fullMessage.match(/<!--POST_ID:(\d+)-->/i) || fullMessage.match(/post[\/\s]*(\d+)/i) || fullMessage.match(/\/posts\/(\d+)/i);
-            if (postIdMatch) {
-              postId = parseInt(postIdMatch[1]);
-            }
-          }
-
-          if (!forumId && fullMessage) {
-            const forumIdMatch = fullMessage.match(/<!--FORUM_ID:(\d+)-->/i);
-            if (forumIdMatch) {
-              forumId = parseInt(forumIdMatch[1]);
-            }
-          }
-
-          if (!commentId && fullMessage) {
-            const commentIdMatch = fullMessage.match(/<!--COMMENT_ID:(\d+)-->/i);
-            if (commentIdMatch) {
-              commentId = parseInt(commentIdMatch[1]);
-            }
-          }
-
-          if (!repostId && fullMessage) {
-            const repostIdMatch = fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) || fullMessage.match(/repost[\/\s]*(\d+)/i) || fullMessage.match(/\/repost\/(\d+)/i);
-            if (repostIdMatch) {
-              repostId = parseInt(repostIdMatch[1]);
-            }
-          }
-
-          if (!donationId && fullMessage) {
-            const donationIdMatch = fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) || fullMessage.match(/donation[\/\s]*(\d+)/i) || fullMessage.match(/\/donation\/(\d+)/i);
-            if (donationIdMatch) {
-              donationId = parseInt(donationIdMatch[1]);
-            }
-          }
-
-          if (!userId && fullMessage) {
-            // Try different patterns for user ID extraction
-            const userIdMatch = fullMessage.match(/\|(\d+)\s+started following/i) || 
-                               fullMessage.match(/profile[\/\s]*(\d+)/i) || 
-                               fullMessage.match(/\/alumni\/profile\/(\d+)/i);
-            if (userIdMatch) {
-              userId = parseInt(userIdMatch[1]);
-            }
-          }
-
-          // Determine notification source for better naming
-          const rawType = n.type || n.notification_type || n.action_type || '';
-          const rawName = n.name || n.title || '';
-          const rawMessage = n.content || n.message || '';
-          
-          // Check if it's from admin/CCICT user
-          const isAdminNotification = 
-            rawType.toLowerCase() === 'ccict' ||
-            rawName.toLowerCase().includes('admin') ||
-            rawName.toLowerCase().includes('ccict') ||
-            rawMessage.toLowerCase().includes('admin') ||
-            rawMessage.toLowerCase().includes('ccict') ||
-            // Check if the notification is FROM a CCICT user (not about CCICT content)
-            (n.f_name && (n.f_name.toLowerCase().includes('admin') || n.f_name.toLowerCase().includes('ccict'))) ||
-            (n.l_name && (n.l_name.toLowerCase().includes('admin') || n.l_name.toLowerCase().includes('ccict')));
-
-          // Check if it's from PESO user
-          const isPesoNotification = 
-            rawType.toLowerCase() === 'peso' ||
-            rawName.toLowerCase().includes('peso') ||
-            rawMessage.toLowerCase().includes('peso') ||
-            rawMessage.toLowerCase().includes('employment') ||
-            rawMessage.toLowerCase().includes('job') ||
-            // Check if the notification is FROM a PESO user
-            (n.f_name && n.f_name.toLowerCase().includes('peso')) ||
-            (n.l_name && n.l_name.toLowerCase().includes('peso'));
-
-          // Debug logging
-          console.log('Notification detection:', {
-            rawType,
-            rawName,
-            rawMessage,
-            isAdminNotification,
-            isPesoNotification
-          });
-
-          // Set appropriate name based on source
-          let displayName = 'Notification';
-          if (n.f_name || n.first_name) {
-            displayName = `${n.f_name || n.first_name || ''} ${n.l_name || n.last_name || ''}`.trim();
-          } else if (isAdminNotification) {
-            displayName = 'CCICT';
-          } else if (isPesoNotification) {
-            displayName = 'PESO';
-          } else {
-            displayName = rawName || 'User';
-          }
-
-          return {
-            id: n.id || index,
-            name: displayName,
-            message: shortMessage,
-            fullMessage: fullMessage, // Store full message for modal display
-            date: n.date || n.created_at || new Date().toLocaleDateString(),
-            notif_type: rawType,
-            subject: n.subject,
-            post_id: postId,
-            forum_id: forumId,
-            comment_id: commentId,
-            user_id: userId,
-            repost_id: repostId,
-            donation_id: donationId,
-            profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic,
-            first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
-            last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
-            // Store the detected source for avatar rendering
-            isAdminNotification,
-            isPesoNotification,
-          };
-        } catch (transformError) {
-          console.warn('Error transforming notification:', transformError);
-          return {
-            id: index,
-            name: 'Notification',
-            message: 'Error loading notification',
-            date: new Date().toLocaleDateString(),
-          };
       // Try to extract IDs from the message content if not found in fields
       if (!postId && fullMessage) {
-        const postIdMatch = fullMessage.match(/<!--POST_ID:(\d+)-->/i) || fullMessage.match(/post[\/\s]*(\d+)/i) || fullMessage.match(/\/posts\/(\d+)/i);
-        if (postIdMatch) {
-          postId = parseInt(postIdMatch[1]);
-        }
+        const postIdMatch =
+          fullMessage.match(/<!--POST_ID:(\d+)-->/i) ||
+          fullMessage.match(/post[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/posts\/(\d+)/i);
+        if (postIdMatch) postId = parseInt(postIdMatch[1]);
       }
-
       if (!forumId && fullMessage) {
         const forumIdMatch = fullMessage.match(/<!--FORUM_ID:(\d+)-->/i);
-        if (forumIdMatch) {
-          forumId = parseInt(forumIdMatch[1]);
-        }
+        if (forumIdMatch) forumId = parseInt(forumIdMatch[1]);
       }
-
       if (!commentId && fullMessage) {
         const commentIdMatch = fullMessage.match(/<!--COMMENT_ID:(\d+)-->/i);
-        if (commentIdMatch) {
-          commentId = parseInt(commentIdMatch[1]);
-        }
+        if (commentIdMatch) commentId = parseInt(commentIdMatch[1]);
       }
-
       if (!repostId && fullMessage) {
-        const repostIdMatch = fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) || fullMessage.match(/repost[\/\s]*(\d+)/i) || fullMessage.match(/\/repost\/(\d+)/i);
-        if (repostIdMatch) {
-          repostId = parseInt(repostIdMatch[1]);
-        }
+        const repostIdMatch =
+          fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) ||
+          fullMessage.match(/repost[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/repost\/(\d+)/i);
+        if (repostIdMatch) repostId = parseInt(repostIdMatch[1]);
       }
-
       if (!donationId && fullMessage) {
-        const donationIdMatch = fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) || fullMessage.match(/donation[\/\s]*(\d+)/i) || fullMessage.match(/\/donation\/(\d+)/i);
-        if (donationIdMatch) {
-          donationId = parseInt(donationIdMatch[1]);
-        }
+        const donationIdMatch =
+          fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) ||
+          fullMessage.match(/donation[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/donation\/(\d+)/i);
+        if (donationIdMatch) donationId = parseInt(donationIdMatch[1]);
       }
-
       if (!userId && fullMessage) {
-        // Try different patterns for user ID extraction
-        const userIdMatch = fullMessage.match(/\|(\d+)\s+started following/i) || 
-                           fullMessage.match(/profile[\/\s]*(\d+)/i) || 
-                           fullMessage.match(/\/alumni\/profile\/(\d+)/i);
-        if (userIdMatch) {
-          userId = parseInt(userIdMatch[1]);
-        }
+        const userIdMatch =
+          fullMessage.match(/\|(\d+)\s+started following/i) ||
+          fullMessage.match(/profile[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/alumni\/profile\/(\d+)/i);
+        if (userIdMatch) userId = parseInt(userIdMatch[1]);
       }
 
       // Determine notification source for better naming
       const rawType = n.type || n.notification_type || n.action_type || '';
       const rawName = n.name || n.title || '';
-      const rawMessage = n.content || n.message || '';
-      
-      // Check if it's from admin/CCICT user
-      const isAdminNotification = 
+      const rawMsg = n.content || n.message || '';
+
+      const isAdminNotification =
         rawType.toLowerCase() === 'ccict' ||
         rawName.toLowerCase().includes('admin') ||
         rawName.toLowerCase().includes('ccict') ||
-        rawMessage.toLowerCase().includes('admin') ||
-        rawMessage.toLowerCase().includes('ccict') ||
-        // Check if the notification is FROM a CCICT user (not about CCICT content)
+        rawMsg.toLowerCase().includes('admin') ||
+        rawMsg.toLowerCase().includes('ccict') ||
         (n.f_name && (n.f_name.toLowerCase().includes('admin') || n.f_name.toLowerCase().includes('ccict'))) ||
         (n.l_name && (n.l_name.toLowerCase().includes('admin') || n.l_name.toLowerCase().includes('ccict')));
 
-      // Check if it's from PESO user
-      const isPesoNotification = 
+      const isPesoNotification =
         rawType.toLowerCase() === 'peso' ||
         rawName.toLowerCase().includes('peso') ||
-        rawMessage.toLowerCase().includes('peso') ||
-        rawMessage.toLowerCase().includes('employment') ||
-        rawMessage.toLowerCase().includes('job') ||
-        // Check if the notification is FROM a PESO user
+        rawMsg.toLowerCase().includes('peso') ||
+        rawMsg.toLowerCase().includes('employment') ||
+        rawMsg.toLowerCase().includes('job') ||
         (n.f_name && n.f_name.toLowerCase().includes('peso')) ||
         (n.l_name && n.l_name.toLowerCase().includes('peso'));
 
-      // Set appropriate name based on source
       let displayName = 'Notification';
       if (n.f_name || n.first_name) {
         displayName = `${n.f_name || n.first_name || ''} ${n.l_name || n.last_name || ''}`.trim();
@@ -326,9 +157,10 @@ const NotificationScreen = () => {
       }
 
       return {
-        id: n.id || n.notification_id || 0,
+        id: n.id || n.notification_id || index,
         name: displayName,
         message: shortMessage,
+        fullMessage,
         date: n.date || n.created_at || n.notif_date || new Date().toLocaleDateString(),
         notif_type: rawType,
         subject: n.subject,
@@ -342,14 +174,13 @@ const NotificationScreen = () => {
         first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
         last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
         read: n.is_read || n.read || false,
-        // Store the detected source for avatar rendering
         isAdminNotification,
         isPesoNotification,
       };
     } catch (transformError) {
       console.warn('Error transforming notification:', transformError);
       return {
-        id: 0,
+        id: index,
         name: 'Notification',
         message: 'Error loading notification',
         date: new Date().toLocaleDateString(),
@@ -368,9 +199,6 @@ const NotificationScreen = () => {
       toggleSelect(item.id || 0);
       return;
     }
-  
-<<<<<<< HEAD
-=======
     // Mark notification as read when tapped
     if (item.id && !item.read) {
       console.log('📖 Marking notification as read:', item.id);
@@ -386,8 +214,6 @@ const NotificationScreen = () => {
       subject: item.subject,
       message: item.message
     });
-  
->>>>>>> 688b1d365973e5bd3b9b7278f1749c67c6c7ef5e
     const type = item.notif_type?.toLowerCase();
     const name = item.name?.toLowerCase();
     const message = item.message?.toLowerCase();

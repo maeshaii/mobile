@@ -13,6 +13,7 @@ interface MentionInputProps {
   multiline?: boolean;
   maxLength?: number;
   onSuggestionsChange?: (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => void;
+  textInputStyle?: any; // Allow overriding TextInput styles
 }
 
 interface User {
@@ -33,7 +34,8 @@ const MentionInput: React.FC<MentionInputProps> = ({
   style = {},
   multiline = true,
   maxLength,
-  onSuggestionsChange
+  onSuggestionsChange,
+  textInputStyle = {}
 }) => {
   const [following, setFollowing] = useState<User[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -288,11 +290,13 @@ const MentionInput: React.FC<MentionInputProps> = ({
         onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
         onKeyPress={handleKeyPress}
         placeholder={placeholder}
+        placeholderTextColor="#9ca3af"
         editable={!disabled}
         multiline={multiline}
         maxLength={maxLength}
         style={[
           styles.textInput,
+          textInputStyle, // Apply custom TextInput styles
           disabled && styles.disabledInput
         ]}
         onFocus={() => {

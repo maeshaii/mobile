@@ -275,20 +275,21 @@ export default function CCICTPage() {
       </View>
 
       {/* Posts */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#174f84" />
-          <Text style={styles.loadingText}>Loading posts...</Text>
-        </View>
-      ) : posts.length === 0 ? (
-        <View style={styles.noPostsContainer}>
-          <Text style={styles.noPostsText}>No CCICT posts yet</Text>
-          <Text style={styles.noPostsSubtext}>
-            Posts from CCICT admin users will appear here
-          </Text>
-        </View>
-      ) : (
-        posts.map(post => (
+      <View style={styles.postsContainer}>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#174f84" />
+            <Text style={styles.loadingText}>Loading posts...</Text>
+          </View>
+        ) : posts.length === 0 ? (
+          <View style={styles.noPostsContainer}>
+            <Text style={styles.noPostsText}>No CCICT posts yet</Text>
+            <Text style={styles.noPostsSubtext}>
+              Posts from CCICT admin users will appear here
+            </Text>
+          </View>
+        ) : (
+          posts.map(post => (
           <PostCard
             key={post.post_id}
             post={post}
@@ -330,8 +331,9 @@ export default function CCICTPage() {
               ));
             }}
           />
-        ))
-      )}
+          ))
+        )}
+      </View>
 
       {/* Viewer Modal */}
       <Modal
@@ -404,6 +406,9 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  postsContainer: {
+    paddingHorizontal: 10,
   },
   headerContainer: {
     position: 'relative',

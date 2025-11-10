@@ -114,14 +114,62 @@ export default function DashboardScreen() {
       } catch {}
       const me: any = await getUserInfo().catch(() => null);
       const meId = me?.user_id || me?.id;
+      // Load persisted donation post likes (same key format as donation page)
+      let likedDonationPostsSet = new Set<number>();
+      try {
+        const donationKey = `DONATION_LIKED_POST_IDS_${meId ?? 'anon'}`;
+        const donationRaw = await AsyncStorage.getItem(donationKey);
+        if (donationRaw) {
+          const arr: number[] = JSON.parse(donationRaw);
+          likedDonationPostsSet = new Set(arr.map(Number));
+        }
+      } catch {}
       const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
         if (it?.item_type === 'repost') {
-          const likesArr = Array.isArray(it.likes) ? it.likes : [];
-          const backendLiked = meId ? likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId) : false;
-          const locallyLiked = likedRepostsSet.has(it.repost_id);
-          return { ...it, is_liked: backendLiked || locallyLiked };
+          // Prioritize backend is_liked field for reposts
+          let repostLikedByMe = it.is_liked !== undefined ? it.is_liked : false;
+          if (repostLikedByMe === false && meId) {
+            // Fallback: check likes array if is_liked not provided
+            const likesArr = Array.isArray(it.likes) ? it.likes : [];
+            repostLikedByMe = likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId);
+          }
+          // Also check local storage as final fallback
+          if (!repostLikedByMe) {
+            repostLikedByMe = likedRepostsSet.has(it.repost_id);
+          }
+          return { ...it, is_liked: !!repostLikedByMe };
+        } else if (it?.item_type === 'donation_post') {
+          // Handle donation posts - prioritize AsyncStorage (like reposts) to ensure likes persist
+          let likedByMe = false;
+          // First check AsyncStorage (user's local like state)
+          if (it.post_id && likedDonationPostsSet.has(Number(it.post_id))) {
+            likedByMe = true;
+          } else if (meId) {
+            // Check likes array first (most reliable - user appears in list means they liked it)
+            const likesArr = Array.isArray(it.likes) ? it.likes : [];
+            likedByMe = likesArr.some((l: any) => {
+              const userId = l?.user?.user_id || l?.user_id;
+              return userId === meId;
+            });
+            // If not in likes array, check backend is_liked field
+            if (!likedByMe) {
+              likedByMe = it.is_liked !== undefined ? it.is_liked : false;
+            }
+          } else {
+            // No user ID, just use backend is_liked field
+            likedByMe = it.is_liked !== undefined ? it.is_liked : false;
+          }
+          return { ...it, is_liked: !!likedByMe };
+        } else {
+          // Handle regular posts - prioritize backend is_liked field
+          let likedByMe = it.is_liked !== undefined ? it.is_liked : false;
+          if (likedByMe === false && meId) {
+            // Fallback: check likes array if is_liked not provided
+            const likesArr = Array.isArray(it.likes) ? it.likes : [];
+            likedByMe = likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId);
+          }
+          return { ...it, is_liked: !!likedByMe };
         }
-        return it;
       }) : [];
       setPosts(normalized || []);
       console.log('Posts loaded successfully:', postsData?.length || 0);
@@ -170,14 +218,62 @@ export default function DashboardScreen() {
         likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
       } catch {}
       const meId = userInfo?.user_id || userInfo?.id;
+      // Load persisted donation post likes (same key format as donation page)
+      let likedDonationPostsSet = new Set<number>();
+      try {
+        const donationKey = `DONATION_LIKED_POST_IDS_${meId ?? 'anon'}`;
+        const donationRaw = await AsyncStorage.getItem(donationKey);
+        if (donationRaw) {
+          const arr: number[] = JSON.parse(donationRaw);
+          likedDonationPostsSet = new Set(arr.map(Number));
+        }
+      } catch {}
       const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
         if (it?.item_type === 'repost') {
-          const likesArr = Array.isArray(it.likes) ? it.likes : [];
-          const backendLiked = meId ? likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId) : false;
-          const locallyLiked = likedRepostsSet.has(it.repost_id);
-          return { ...it, is_liked: backendLiked || locallyLiked };
+          // Prioritize backend is_liked field for reposts
+          let repostLikedByMe = it.is_liked !== undefined ? it.is_liked : false;
+          if (repostLikedByMe === false && meId) {
+            // Fallback: check likes array if is_liked not provided
+            const likesArr = Array.isArray(it.likes) ? it.likes : [];
+            repostLikedByMe = likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId);
+          }
+          // Also check local storage as final fallback
+          if (!repostLikedByMe) {
+            repostLikedByMe = likedRepostsSet.has(it.repost_id);
+          }
+          return { ...it, is_liked: !!repostLikedByMe };
+        } else if (it?.item_type === 'donation_post') {
+          // Handle donation posts - prioritize AsyncStorage (like reposts) to ensure likes persist
+          let likedByMe = false;
+          // First check AsyncStorage (user's local like state)
+          if (it.post_id && likedDonationPostsSet.has(Number(it.post_id))) {
+            likedByMe = true;
+          } else if (meId) {
+            // Check likes array first (most reliable - user appears in list means they liked it)
+            const likesArr = Array.isArray(it.likes) ? it.likes : [];
+            likedByMe = likesArr.some((l: any) => {
+              const userId = l?.user?.user_id || l?.user_id;
+              return userId === meId;
+            });
+            // If not in likes array, check backend is_liked field
+            if (!likedByMe) {
+              likedByMe = it.is_liked !== undefined ? it.is_liked : false;
+            }
+          } else {
+            // No user ID, just use backend is_liked field
+            likedByMe = it.is_liked !== undefined ? it.is_liked : false;
+          }
+          return { ...it, is_liked: !!likedByMe };
+        } else {
+          // Handle regular posts - prioritize backend is_liked field
+          let likedByMe = it.is_liked !== undefined ? it.is_liked : false;
+          if (likedByMe === false && meId) {
+            // Fallback: check likes array if is_liked not provided
+            const likesArr = Array.isArray(it.likes) ? it.likes : [];
+            likedByMe = likesArr.some((l: any) => (l?.user_id || l?.user?.user_id) === meId);
+          }
+          return { ...it, is_liked: !!likedByMe };
         }
-        return it;
       }) : [];
       setPosts(normalized || []);
     } catch (err: any) {
@@ -592,11 +688,21 @@ export default function DashboardScreen() {
                   onPress={async () => {
                     try {
                       const isRepost = post?.item_type === 'repost' || typeof post?.repost_id === 'number';
+                      const me: any = await getUserInfo().catch(() => null);
+                      const meId = me?.user_id || me?.id;
                       if (post.is_liked) {
                         if (post.item_type === 'donation_post') {
                           // Handle donation post unlike
                           const { unlikeDonationPost } = await import('../services/api');
                           await unlikeDonationPost(post.post_id);
+                          // Remove from AsyncStorage (same key format as donation page)
+                          try {
+                            const donationKey = `DONATION_LIKED_POST_IDS_${meId ?? 'anon'}`;
+                            const raw = await AsyncStorage.getItem(donationKey);
+                            const set = new Set<number>(raw ? JSON.parse(raw).map(Number) : []);
+                            set.delete(Number(post.post_id));
+                            await AsyncStorage.setItem(donationKey, JSON.stringify(Array.from(set)));
+                          } catch {}
                         } else if (isRepost) {
                           await unlikeRepost(post.repost_id);
                           try {
@@ -619,6 +725,14 @@ export default function DashboardScreen() {
                           // Handle donation post like
                           const { likeDonationPost } = await import('../services/api');
                           await likeDonationPost(post.post_id);
+                          // Save to AsyncStorage (same key format as donation page)
+                          try {
+                            const donationKey = `DONATION_LIKED_POST_IDS_${meId ?? 'anon'}`;
+                            const raw = await AsyncStorage.getItem(donationKey);
+                            const set = new Set<number>(raw ? JSON.parse(raw).map(Number) : []);
+                            set.add(Number(post.post_id));
+                            await AsyncStorage.setItem(donationKey, JSON.stringify(Array.from(set)));
+                          } catch {}
                         } else if (isRepost) {
                           await likeRepost(post.repost_id);
                           try {

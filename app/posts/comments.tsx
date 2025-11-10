@@ -226,6 +226,7 @@ export default function PostCommentsScreen() {
   // Image viewer state for post
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const postImageScrollRef = useRef<ScrollView>(null);
 
   // Image viewer state for comments and replies
   const [commentImageViewerVisible, setCommentImageViewerVisible] = useState(false);
@@ -797,19 +798,9 @@ export default function PostCommentsScreen() {
 
 
     return (
-
-      <TouchableOpacity
-
+      <View
         key={c.comment_id}
-
-        onLongPress={() => setActionFor(c)}
-
-        delayLongPress={300}
-
-        activeOpacity={1}
-
       >
-
         <View style={styles.commentRow}>
 
           <UserAvatar 
@@ -933,30 +924,29 @@ export default function PostCommentsScreen() {
                         snapToInterval={slideWidth}
                         decelerationRate="fast"
                         scrollEventThrottle={16}
+                        nestedScrollEnabled
+                        directionalLockEnabled
+                        bounces={false}
+                        scrollEnabled={images.length > 1}
                       >
                         {images.map((image, index) => (
-                          <View
+                          <TouchableOpacity
                             key={index}
                             style={[styles.commentImageSlide, { width: slideWidth }]}
+                            onPress={() => {
+                              setCommentImages(images);
+                              setCommentImageIndex(index);
+                              setCommentImageViewerVisible(true);
+                            }}
+                            activeOpacity={0.9}
+                            delayPressIn={100}
                           >
-                            <TouchableOpacity
-                              style={styles.commentImageTouchable}
-                              onPress={() => {
-                                setCommentImages(images);
-                                setCommentImageIndex(index);
-                                setCommentImageViewerVisible(true);
-                              }}
-                              activeOpacity={0.9}
-                              delayPressIn={200}
-                              delayLongPress={500}
-                            >
-                              <Image
-                                source={renderAvatar(image.image_url)}
-                                style={styles.commentSwipeableImage}
-                                resizeMode="contain"
-                              />
-                            </TouchableOpacity>
-                          </View>
+                            <Image
+                              source={renderAvatar(image.image_url)}
+                              style={styles.commentSwipeableImage}
+                              resizeMode="contain"
+                            />
+                          </TouchableOpacity>
                         ))}
                       </ScrollView>
                       {images.length > 1 && (
@@ -1265,30 +1255,29 @@ export default function PostCommentsScreen() {
                                         snapToInterval={slideWidth}
                                         decelerationRate="fast"
                                         scrollEventThrottle={16}
+                                        nestedScrollEnabled
+                                        directionalLockEnabled
+                                        bounces={false}
+                                        scrollEnabled={images.length > 1}
                                       >
                                         {images.map((image, index) => (
-                                          <View
+                                          <TouchableOpacity
                                             key={index}
                                             style={[styles.replyImageSlide, { width: slideWidth }]}
+                                            onPress={() => {
+                                              setCommentImages(images);
+                                              setCommentImageIndex(index);
+                                              setCommentImageViewerVisible(true);
+                                            }}
+                                            activeOpacity={0.9}
+                                            delayPressIn={100}
                                           >
-                                            <TouchableOpacity
-                                              style={styles.replyImageTouchable}
-                                              onPress={() => {
-                                                setCommentImages(images);
-                                                setCommentImageIndex(index);
-                                                setCommentImageViewerVisible(true);
-                                              }}
-                                              activeOpacity={0.9}
-                                              delayPressIn={200}
-                                              delayLongPress={500}
-                                            >
-                                              <Image
-                                                source={renderAvatar(image.image_url)}
-                                                style={styles.replySwipeableImage}
-                                                resizeMode="contain"
-                                              />
-                                            </TouchableOpacity>
-                                          </View>
+                                            <Image
+                                              source={renderAvatar(image.image_url)}
+                                              style={styles.replySwipeableImage}
+                                              resizeMode="contain"
+                                            />
+                                          </TouchableOpacity>
                                         ))}
                                       </ScrollView>
                                       {images.length > 1 && (
@@ -1327,8 +1316,7 @@ export default function PostCommentsScreen() {
           </View>
 
         </View>
-
-      </TouchableOpacity>
+      </View>
 
     );
 
@@ -1361,13 +1349,9 @@ export default function PostCommentsScreen() {
 
 
       <KeyboardAvoidingView
-
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-
+        behavior={Platform.select({ ios: 'padding', android: 'height' })}
         style={{ flex: 1 }}
-
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 48 : 0}
       >
 
         {/* Comments list */}
@@ -1391,9 +1375,7 @@ export default function PostCommentsScreen() {
           contentContainerStyle={{
 
             paddingHorizontal: 12,
-
-            paddingBottom: hideComposer ? insets.bottom + 12 : insets.bottom + 12,
-
+            paddingBottom: (hideComposer ? 0 : composerHeight + 24) + insets.bottom + 12,
           }}
 
           ListHeaderComponent={
@@ -1592,49 +1574,29 @@ export default function PostCommentsScreen() {
 
           >
 
-            <View style={styles.composerInputRow}>
-
+            <View style={styles.mentionInputWrapper}>
               <MentionInput
-
                 value={commentText}
-
                 onChange={setCommentText}
-
                 placeholder="Write a comment…"
-
-                style={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
-
+                style={styles.mentionInputContainer}
+                textInputStyle={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
                 multiline
-
                 maxLength={500}
-
                 disabled={!!editingReplyId}
-
                 onSuggestionsChange={handleSuggestionsChange}
               />
-
               <TouchableOpacity
-
                 disabled={!!editingReplyId || !canSend}
-
                 onPress={handleSend}
-
                 style={[styles.sendBtn, (!!editingReplyId || !canSend) && { opacity: 0.5 }]}
-
               >
-
                 {submitting ? (
-
                   <ActivityIndicator color="#fff" size="small" />
-
                 ) : (
-
                   <Ionicons name="send" size={18} color="#fff" />
-
                 )}
-
               </TouchableOpacity>
-
             </View>
 
           </View>
@@ -1827,55 +1789,47 @@ export default function PostCommentsScreen() {
 
             <View style={styles.imageViewerOverlay}>
 
-              <TouchableOpacity 
+              <View style={styles.imageViewerHeader}>
 
-                style={styles.imageViewerContainer}
+                <TouchableOpacity
 
-                onPress={() => setImageViewerVisible(false)}
+                  onPress={() => setImageViewerVisible(false)}
 
-              >
+                  style={styles.imageViewerCloseButton}
 
-                <View style={styles.imageViewerHeader}>
+                >
 
-                  <TouchableOpacity
+                  <Ionicons name="close" size={24} color="#fff" />
 
-                    onPress={() => setImageViewerVisible(false)}
+                </TouchableOpacity>
 
-                    style={styles.imageViewerCloseButton}
+                {sortedImages.length > 1 && (
 
-                  >
+                  <Text style={styles.imageViewerPagination}>
 
-                    <Ionicons name="close" size={24} color="#fff" />
+                    {selectedImageIndex + 1} of {sortedImages.length}
 
-                  </TouchableOpacity>
+                  </Text>
 
-                  {sortedImages.length > 1 && (
+                )}
 
-                    <Text style={styles.imageViewerPagination}>
+              </View>
 
-                      {selectedImageIndex + 1} of {sortedImages.length}
-
-                    </Text>
-
-                  )}
-
-                </View>
-
+              <View style={styles.imageViewerContainer}>
                 {(() => {
                   const screenWidth = Dimensions.get('window').width;
                   const screenHeight = Dimensions.get('window').height;
-                  const scrollRef = React.createRef<ScrollView>();
                   return (
                     <ScrollView 
-                      ref={scrollRef}
+                      ref={postImageScrollRef}
                       horizontal 
                       pagingEnabled 
                       showsHorizontalScrollIndicator={false}
                       style={styles.imageViewerScroll}
                       contentOffset={{ x: selectedImageIndex * screenWidth, y: 0 }}
                       onLayout={() => {
-                        if (scrollRef.current) {
-                          scrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
+                        if (postImageScrollRef.current) {
+                          postImageScrollRef.current.scrollTo({ x: selectedImageIndex * screenWidth, y: 0, animated: false });
                         }
                       }}
                       onMomentumScrollEnd={(event) => {
@@ -1895,8 +1849,7 @@ export default function PostCommentsScreen() {
                     </ScrollView>
                   );
                 })()}
-
-              </TouchableOpacity>
+              </View>
 
             </View>
 
@@ -2253,41 +2206,73 @@ const styles = StyleSheet.create({
   // Composer
 
   composerWrap: {
-
     backgroundColor: '#fff',
-
     borderTopWidth: StyleSheet.hairlineWidth,
-
     borderTopColor: '#e5e7eb',
-
     paddingHorizontal: 12,
-
     paddingTop: 8,
-
+    paddingBottom: 8,
+    width: '100%',
+    maxWidth: '100%',
   },
 
-  composerInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  composerInputRow: { 
+    flexDirection: 'row', 
+    alignItems: 'flex-end', 
+    gap: 8,
+    width: '100%',
+  },
+
+  mentionInputWrapper: {
+    width: '100%',
+    position: 'relative',
+    zIndex: 1001,
+    elevation: 1001, // For Android
+    backgroundColor: '#f9fafb',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingRight: 4,
+    paddingBottom: 4,
+    paddingTop: 4,
+    minHeight: 44,
+  },
+
+  mentionInputContainer: {
+    flex: 1,
+    margin: 0,
+    padding: 0,
+  },
 
   inputText: {
-
-    flex: 1,
-
     textAlignVertical: 'top',
-
     color: '#111827',
-
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    flex: 1,
+    minHeight: 44,
+    paddingRight: 8,
+    margin: 0,
+    fontSize: 15,
   },
 
   sendBtn: {
-
     backgroundColor: '#1e3a8a',
-
-    paddingHorizontal: 14,
-
+    paddingHorizontal: 12,
     paddingVertical: 10,
-
-    borderRadius: 10,
-
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0, // Prevents button from shrinking
+    marginLeft: 4,
   },
 
   sendBtnText: { color: '#fff', fontWeight: '700' },

@@ -1,6 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
+import { View, StyleSheet, Image } from 'react-native';
 import CachedImage from './CachedImage';
 import { API_BASE_URL } from '../services/api';
 
@@ -53,14 +52,6 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
     return `${API_BASE_URL}${relativePath}`;
   };
 
-  const getInitials = () => {
-    const name = `${firstName || ''} ${lastName || ''}`.trim();
-    if (!name) return '?';
-    const parts = name.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-  };
-
   const uri = buildUri(profilePic);
 
   if (uri) {
@@ -75,12 +66,14 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
     );
   }
 
-  // Fallback to initials when no profile picture
+  // Fallback to CTU logo when no profile picture
   return (
     <View style={[avatarStyle, style, styles.fallback]}>
-      <Text style={[styles.initials, { fontSize: safeSize * 0.4 }]}>
-        {getInitials()}
-      </Text>
+      <Image
+        source={require('../assets/images/ctu_logo.png')}
+        style={avatarStyle}
+        resizeMode="cover"
+      />
     </View>
   );
 };
@@ -96,10 +89,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#174f84',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  initials: {
-    color: 'white',
-    fontWeight: '700',
+    overflow: 'hidden',
   },
 });
 

@@ -1,7 +1,7 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator, Dimensions } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost, getDonationLikes, getDonationReposts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import DonationPostCard from './DonationPostCard';
@@ -11,13 +11,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import MentionInput from '../../components/MentionInput';
 import { convertImageToBase64 } from '../../utils/imageUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const donationLogo = require('../../assets/images/wny_logo.jpg');
-
-const orgInfo = {
-  name: 'Donation Page',
-  profile_pic: donationLogo,
-};
+const ctuLogo = require('../../assets/images/ctu_logo.png');
 
 interface PostItem {
   post_id: number;
@@ -54,6 +50,38 @@ export default function DonationPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const scrollViewRef = useRef<ScrollView>(null);
+  const [swipeableCardIndex, setSwipeableCardIndex] = useState(0);
+  const swipeableCardRef = useRef<ScrollView>(null);
+  const screenWidth = Dimensions.get('window').width;
+  const [persistedLikedPostIds, setPersistedLikedPostIds] = useState<Set<number>>(new Set());
+
+  const storageKeyForUser = useCallback((userId?: number | null) => {
+    return `DONATION_LIKED_POST_IDS_${userId ?? 'anon'}`;
+  }, []);
+
+  const loadPersistedLikes = useCallback(async (userId?: number | null) => {
+    try {
+      const key = storageKeyForUser(userId);
+      const raw = await AsyncStorage.getItem(key);
+      if (raw) {
+        const arr: number[] = JSON.parse(raw);
+        setPersistedLikedPostIds(new Set(arr));
+      } else {
+        setPersistedLikedPostIds(new Set());
+      }
+    } catch {
+      setPersistedLikedPostIds(new Set());
+    }
+  }, [storageKeyForUser]);
+
+  const savePersistedLikes = useCallback(async (ids: Set<number>, userId?: number | null) => {
+    try {
+      const key = storageKeyForUser(userId);
+      await AsyncStorage.setItem(key, JSON.stringify(Array.from(ids)));
+    } catch {
+      // ignore storage errors
+    }
+  }, [storageKeyForUser]);
 
   const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
     if (showSuggestions && scrollViewRef.current && inputPosition) {
@@ -102,6 +130,18 @@ export default function DonationPage() {
         setUser(userInfo);
       const meId = (userInfo as any)?.id || (userInfo as any)?.user_id || null;
       setCurrentUserId(meId);
+        // Load persisted likes for this user and use them immediately
+        let localLikedIds = new Set<number>();
+        try {
+          const key = storageKeyForUser(meId);
+          const raw = await AsyncStorage.getItem(key);
+          const arr: number[] = raw ? JSON.parse(raw) : [];
+          localLikedIds = new Set(arr.map(Number));
+          // keep state in sync for subsequent interactions
+          setPersistedLikedPostIds(localLikedIds);
+        } catch {
+          setPersistedLikedPostIds(new Set());
+        }
         const donationPosts = await getDonationPosts();
         console.log('Donation page - Raw donation posts:', donationPosts);
         const arr = Array.isArray(donationPosts)
@@ -122,6 +162,11 @@ export default function DonationPage() {
               }))
             : [];
           
+          const postId = d.donation_id ?? d.post_id ?? d.id;
+          // Prioritize backend is_liked field - it's the source of truth
+          const backendIsLiked = d.is_liked !== undefined ? !!d.is_liked : false;
+          // Only use local storage as fallback if backend doesn't provide is_liked
+          const localIsLiked = backendIsLiked === false ? localLikedIds.has(Number(postId)) : false;
           feedItems.push({
             post_id: d.donation_id ?? d.post_id ?? d.id,
             post_title: d.post_title ?? undefined,
@@ -134,15 +179,18 @@ export default function DonationPage() {
             likes_count: d.likes_count ?? (Array.isArray(d.likes) ? d.likes.length : 0),
             comments_count: d.comments_count ?? (Array.isArray(d.comments) ? d.comments.length : 0),
             reposts_count: d.reposts_count ?? (Array.isArray(d.reposts) ? d.reposts.length : 0),
-            is_liked: !!d.is_liked,
+            // Backend is_liked is the source of truth; local storage is only a fallback
+            is_liked: backendIsLiked || localIsLiked,
             user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
             item_type: 'post'
           });
-          console.log(`Donation post ${feedItems[feedItems.length - 1].post_id} - is_liked: ${feedItems[feedItems.length - 1].is_liked} (from backend: ${d.is_liked})`);
+          console.log(`Donation post ${feedItems[feedItems.length - 1].post_id} - is_liked: ${feedItems[feedItems.length - 1].is_liked} (backend: ${backendIsLiked}, local: ${localIsLiked})`);
 
           // Add donation reposts as separate feed items
           const reposts = Array.isArray(d.reposts) ? d.reposts : [];
           reposts.forEach((r: any) => {
+            // Prioritize backend is_liked field for reposts
+            const repostIsLiked = r.is_liked !== undefined ? !!r.is_liked : false;
             feedItems.push({
               ...r,
               item_type: 'repost',
@@ -154,10 +202,10 @@ export default function DonationPage() {
                 images: imagesArray, // Also add as 'images' for compatibility
                 user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
                 created_at: d.created_at ?? d.donation_date ?? d.date_created ?? null,
-                likes_count: d.likes_count || 0,
-                comments_count: d.comments_count || 0,
-                reposts_count: d.reposts_count || 0,
-                is_liked: d.is_liked || false,
+                likes_count: r.likes_count || d.likes_count || 0,
+                comments_count: r.comments_count || d.comments_count || 0,
+                reposts_count: r.reposts_count || d.reposts_count || 0,
+                is_liked: repostIsLiked,
               }
             });
           });
@@ -363,9 +411,9 @@ export default function DonationPage() {
       ref={scrollViewRef}
       style={styles.scrollContainer}
       contentContainerStyle={{ flexGrow: 1 }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#1e3a8a"]} tintColor="#1e3a8a" />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#c62828"]} tintColor="#c62828" />}
     >
-      {/* Blue Header with Back Button */}
+      {/* Red Header with Back Button */}
       <View style={styles.headerContainer}>
         <View style={styles.headerBg} />
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -376,72 +424,139 @@ export default function DonationPage() {
       {/* Org Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileImageWrapper}>
-          <Image source={orgInfo.profile_pic} style={styles.profileImage} />
+          <Image source={ctuLogo} style={styles.profileImage} />
         </View>
       </View>
 
-      {/* About Card */}
-      <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>About</Text>
-          <Text style={styles.infoText}>
-            Connect with your fellow alumni for mutual support. Share your needs and help others in their time of need - 
-            whether it's medical expenses, therapy, emergencies, or other important causes.
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>          
+      {/* Swipeable Info Cards */}
+      <View style={styles.swipeableContainer}>
+        <ScrollView
+          ref={swipeableCardRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(event) => {
+            const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+            setSwipeableCardIndex(index);
+          }}
+          style={styles.swipeableScrollView}
+        >
+          {/* About Donations Card */}
+          <View style={[styles.swipeableCard, { width: screenWidth }]}>
+            <View style={styles.infoCard}>
+              <View style={styles.infoTitleContainer}>
+                <Text style={styles.infoTitleEmoji}>❤️</Text>
+                <Text style={[styles.infoTitle, { color: '#c62828' }]}>About Donations</Text>
+              </View>
+              <Text style={styles.infoText}>
+                A dedicated space for CTU alumni to connect and support each other through donations. Whether you need assistance or want to help fellow alumni, this platform brings our community together for mutual aid and solidarity.
+              </Text>
+              <View style={styles.bulletSection}>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#c62828' }]} />
+                  <Text style={styles.bulletText}>Connect with alumni from your batch and beyond</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#c62828' }]} />
+                  <Text style={styles.bulletText}>Support causes that matter to our community</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#c62828' }]} />
+                  <Text style={styles.bulletText}>Build stronger alumni relationships</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#c62828' }]} />
+                  <Text style={styles.bulletText}>Share resources and opportunities</Text>
+                </View>
+              </View>
+              <View style={styles.quoteBox}>
+                <Text style={styles.quoteText}>"Together we can make a difference in each other's lives."</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Tips for Effective Requests Card */}
+          <View style={[styles.swipeableCard, { width: screenWidth }]}>
+            <View style={styles.infoCard}>
+              <Text style={[styles.infoTitle, { color: '#059669' }]}>💡 Tips for Effective Requests</Text>
+              <View style={[styles.bulletSection, { borderTopColor: 'rgba(5, 150, 105, 0.1)' }]}>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Provide clear details about your situation</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Include relevant photos or documents</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Set realistic timelines if applicable</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Update your request as circumstances change</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* How to Help Card */}
+          <View style={[styles.swipeableCard, { width: screenWidth }]}>
+            <View style={styles.infoCard}>
+              <Text style={[styles.infoTitle, { color: '#059669' }]}>🤝 How to Help</Text>
+              <View style={[styles.bulletSection, { borderTopColor: 'rgba(5, 150, 105, 0.1)' }]}>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Share requests to increase visibility</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Reach out privately to offer assistance</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Connect requesters with relevant resources</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: '#059669' }]} />
+                  <Text style={styles.bulletText}>Follow up to see how you can continue helping</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+        
+        {/* Pagination Dots */}
+        <View style={styles.paginationContainer}>
+          {[0, 1, 2].map((index) => (
+            <View
+              key={index}
+              style={[
+                styles.paginationDot,
+                swipeableCardIndex === index && styles.paginationDotActive,
+              ]}
+            />
+          ))}
+        </View>
+      </View>
+      {/* Start a Post and Posts */}
+      <View style={styles.postsContainer}>
+        <View style={styles.startPostCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <UserAvatar 
+              profilePic={user?.profile_pic}
+              firstName={user?.f_name}
+              lastName={user?.l_name}
+              size={48}
+              style={styles.avatar}
+            />
+            <TouchableOpacity style={styles.startPostInput} onPress={() => setShowDonationCreate(true)}>
+              <Text style={{ color: '#888', fontSize: 15 }}>Share what you need or how you can help...</Text>
+            </TouchableOpacity>
           </View>
         </View>
-
-      {/* Info Cards: Donation Request and About */}
-      <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
-        {/* Donation Request Card */}
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Donation Request</Text>
-          <Text style={styles.infoText}>
-          Support your fellow alumni by helping with their needs - 
-          medical expenses, therapy, emergencies, and other important causes.
-          </Text>
-          <View style={styles.bulletRow}>
-              <FontAwesome name="check" size={14} color="#1e3a8a" />
-              <Text style={styles.bulletText}> Medical expenses</Text>
-            </View>
-            <View style={styles.bulletRow}>
-              <FontAwesome name="check" size={14} color="#1e3a8a" />
-              <Text style={styles.bulletText}>Therapy sessions</Text>
-            </View>
-            <View style={styles.bulletRow}>
-              <FontAwesome name="check" size={14} color="#1e3a8a" />
-              <Text style={styles.bulletText}>Emergency funds</Text>
-            </View>
-            <View style={styles.bulletRow}>
-              <FontAwesome name="check" size={14} color="#1e3a8a" />
-              <Text style={styles.bulletText}>Educational support</Text>
-            </View>
-          <TouchableOpacity
-            style={styles.infoPrimaryBtn}
-            onPress={() => setShowDonationCreate(true)}
-          >
-            <Text style={styles.infoPrimaryBtnText}>Create Donation Request</Text>
-          </TouchableOpacity>
-        </View>
-
-      </View>
-      {/* Start a Post */}
-      <View style={styles.startPostCard}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <UserAvatar 
-            profilePic={user?.profile_pic}
-            firstName={user?.f_name}
-            lastName={user?.l_name}
-            size={40}
-            style={styles.avatar}
-          />
-          <TouchableOpacity style={styles.startPostInput} onPress={() => setShowDonationCreate(true)}>
-            <Text style={{ color: '#888' }}>Request help from your fellow alumni...</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-      {/* Posts and Reposts */}
-      {loading ? null : posts.map((item: any, index) => {
+        {/* Posts and Reposts */}
+        {loading ? null : posts.map((item: any, index) => {
         if (item.item_type === 'repost') {
           return (
             <RepostCard
@@ -487,6 +602,7 @@ export default function DonationPage() {
               currentUserId={currentUserId || undefined}
               onLikeToggle={(postId, isLiked) => {
                 console.log(`Like toggle for post ${postId}: ${isLiked}`);
+                // Update UI immediately
                 setPosts(prev => prev.map((p: any) => {
                   if (p.post_id === postId) {
                     const updated = { ...p, is_liked: isLiked, likes_count: isLiked ? p.likes_count + 1 : Math.max(0, p.likes_count - 1) };
@@ -495,6 +611,18 @@ export default function DonationPage() {
                   }
                   return p;
                 }));
+                // Persist like state locally per user
+                setPersistedLikedPostIds(prev => {
+                  const next = new Set(prev);
+                  if (isLiked) {
+                    next.add(Number(postId));
+                  } else {
+                    next.delete(Number(postId));
+                  }
+                  // Fire-and-forget save
+                  savePersistedLikes(next, currentUserId).catch(() => {});
+                  return next;
+                });
                 // Refresh donation posts after like/unlike to get updated state from backend
                 setTimeout(() => {
                   console.log(`Refreshing donation posts after like toggle for post ${postId}`);
@@ -546,7 +674,8 @@ export default function DonationPage() {
             />
           );
         }
-      })}
+        })}
+      </View>
 
       {/* Likes/Reposts Viewer Modal */}
       <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
@@ -689,14 +818,16 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingHorizontal: 0,
+  },
+  postsContainer: {
+    paddingHorizontal: 10,
   },
   headerContainer: {
     position: 'relative',
   },
   headerBg: {
     height: 160,
-    backgroundColor: '#174f84',
+    backgroundColor: '#c62828',
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     width: '100%',
@@ -734,33 +865,46 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 50,
   },
+  swipeableContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  swipeableScrollView: {
+    marginHorizontal: 0,
+  },
+  swipeableCard: {
+    paddingHorizontal: 16,
+  },
   startPostCard: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 12,
     marginTop: 16,
     marginBottom: 8,
-    padding: 12,
+    padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.06,
     shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     elevation: 2,
-    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
-    backgroundColor: '#ccc',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    backgroundColor: '#eee',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
   },
   startPostInput: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 20,
-    height: 40,
+    backgroundColor: '#f5f7fa',
+    borderRadius: 30,
+    height: 48,
     justifyContent: 'center',
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
   },
   backButton: {
     position: 'absolute',
@@ -770,6 +914,24 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     padding: 8,
     borderRadius: 20,
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  paginationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ccc',
+    marginHorizontal: 3,
+  },
+  paginationDotActive: {
+    width: 18,
+    backgroundColor: '#c62828',
   },
   modalOverlay: {
     flex: 1,
@@ -963,44 +1125,73 @@ const styles = StyleSheet.create({
   infoCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    padding: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  infoTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  infoTitleEmoji: {
+    fontSize: 24,
+    marginRight: 8,
   },
   infoTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 6,
+    marginBottom: 12,
   },
   infoText: {
-    color: '#4b5563',
-    fontSize: 13,
-    lineHeight: 18,
+    color: '#5a6c7d',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
   },
-  infoPrimaryBtn: {
-    backgroundColor: '#1e3a8a',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    alignSelf: 'flex-start',
-    marginTop: 10,
-  },
-  infoPrimaryBtnText: {
-    color: '#fff',
-    fontWeight: '700',
+  bulletSection: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(198, 40, 40, 0.1)',
   },
   bulletRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  bulletDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 12,
+    marginTop: 6,
   },
   bulletText: {
-    color: '#4b5563',
-    fontSize: 12,
+    color: '#5a6c7d',
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
+  quoteBox: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  quoteText: {
+    color: '#6b7280',
+    fontSize: 13,
+    lineHeight: 18,
+    fontStyle: 'italic',
   },
 });

@@ -24,7 +24,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <UserProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack initialRouteName="login/login">
+          <Stack>
+            <Stack.Screen name="login/index" options={{ title: 'landing', headerShown: false }} />
+            <Stack.Screen name="logout" options={{ title: 'logout', headerShown: false }} />
             <Stack.Screen name="login/login" options={{ title: 'login', headerShown: false }} />
             <Stack.Screen name="(tabs)/index" options={{ title: 'index', headerShown: false }} />
             <Stack.Screen name="forgot-password/forgot-password" options={{ title: 'forgot-password', headerShown: false }} />

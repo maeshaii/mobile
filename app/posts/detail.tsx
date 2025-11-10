@@ -1145,33 +1145,36 @@ export default function PostDetailScreen() {
                 </TouchableOpacity>
               </View>
             )}
-            <View style={styles.commentInputRow}>
-              <View style={styles.mentionInputWrapper}>
-                <MentionInput
-                  value={replyingTo ? replyText : commentText}
-                  onChange={replyingTo ? setReplyText : setCommentText}
-                  placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
-                  style={styles.commentInput}
-                  multiline
-                  maxLength={500}
-                  disabled={!!editingReplyId || !!editingId}
-                  onSuggestionsChange={handleSuggestionsChange}
-                />
+            <View style={styles.commentInputContainer}>
+              <View style={styles.commentInputRow}>
+                <View style={styles.mentionInputWrapper}>
+                  <MentionInput
+                    value={replyingTo ? replyText : commentText}
+                    onChange={replyingTo ? setReplyText : setCommentText}
+                    placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
+                    style={{ backgroundColor: 'transparent' }}
+                    textInputStyle={[styles.commentInput, { backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, paddingRight: 8, fontSize: 14, color: '#111827' }]}
+                    multiline
+                    maxLength={500}
+                    disabled={!!editingReplyId || !!editingId}
+                    onSuggestionsChange={handleSuggestionsChange}
+                  />
+                </View>
+                <TouchableOpacity
+                  disabled={!!editingReplyId || !!editingId || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))}
+                  onPress={replyingTo ? handleSendReply : handleSendComment}
+                  style={[
+                    styles.sendButton, 
+                    ((!!editingReplyId) || (!!editingId) || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))) ? { opacity: 0.5 } : undefined
+                  ]}
+                >
+                  {(replyingTo ? submittingReply : submittingComment) ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Ionicons name="send" size={18} color="#fff" />
+                  )}
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                disabled={!!editingReplyId || !!editingId || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))}
-                onPress={replyingTo ? handleSendReply : handleSendComment}
-                style={[
-                  styles.sendButton, 
-                  ((!!editingReplyId) || (!!editingId) || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))) ? { opacity: 0.5 } : undefined
-                ]}
-              >
-                {(replyingTo ? submittingReply : submittingComment) ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Ionicons name="send" size={18} color="#fff" />
-                )}
-              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -1848,33 +1851,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  commentInputContainer: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
   commentInputRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
+    alignItems: 'center',
+    width: '100%',
+    flex: 1,
   },
   mentionInputWrapper: {
     flex: 1,
     position: 'relative',
     zIndex: 1001,
     elevation: 1001, // For Android
+    minWidth: 0, // Prevents flex item from overflowing
+    maxWidth: '100%',
+    overflow: 'hidden', // Prevents content from overflowing
+    marginRight: 8, // Add spacing between input and button
+    backgroundColor: 'transparent', // Ensure wrapper is transparent
   },
   commentInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingHorizontal: 12,
     paddingVertical: 10,
+    paddingRight: 8, // Ensure text doesn't get cut off
     fontSize: 14,
     color: '#111827',
+    backgroundColor: 'transparent',
+    width: '100%',
+    minHeight: 44,
     maxHeight: 100,
+    maxWidth: '100%',
+    minWidth: 0, // Prevents flex item from overflowing
+    textAlignVertical: 'top',
   },
   sendButton: {
     backgroundColor: '#1e3a8a',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: 16,
+    width: 40,
+    height: 40,
+    minWidth: 40,
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0, // Prevents button from shrinking
   },
   
   // Edit Comment Styles

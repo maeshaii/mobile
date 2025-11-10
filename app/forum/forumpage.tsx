@@ -10,11 +10,11 @@ import MentionInput from '../../components/MentionInput';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { getImagesFromContent } from '../../utils/imageUtils';
 
-const forumLogo = require('../../assets/images/wny_logo.jpg');
+const ctuLogo = require('../../assets/images/ctu_logo.png');
 
 const orgInfo = {
   name: 'CCICT Forum',
-  profile_pic: forumLogo,
+  profile_pic: ctuLogo,
 };
 
 interface PostItem {
@@ -284,16 +284,33 @@ export default function CCICTPage() {
         </View>
       </View>
 
-      {/* About Card */}
-      <View style={styles.aboutCard}>
-        <Text style={styles.aboutTitle}>About</Text>
-        <Text style={styles.aboutText}>
-        Connect with fellow alumni from your batch and share experiences, memories, and updates about your journey after graduation.
-        </Text>
+      {/* About Forum Card */}
+      <View style={styles.infoCardContainer}>
+        <View style={styles.infoCard}>
+          <View style={styles.infoTitleContainer}>
+            <Text style={styles.infoTitleEmoji}>📢</Text>
+            <Text style={[styles.infoTitle, { color: '#174f84' }]}>About Forum</Text>
+          </View>
+          <Text style={styles.infoText}>
+            Connect with fellow alumni from your batch and share experiences, memories, and updates about your journey after graduation.
+          </Text>
+          <View style={styles.bulletSection}>
+            <View style={styles.bulletRow}>
+              <View style={[styles.bulletDot, { backgroundColor: '#174f84' }]} />
+              <Text style={styles.bulletText}>Share achievements & milestones</Text>
+            </View>
+            <View style={styles.bulletRow}>
+              <View style={[styles.bulletDot, { backgroundColor: '#174f84' }]} />
+              <Text style={styles.bulletText}>Network with your batch</Text>
+            </View>
+            <View style={styles.bulletRow}>
+              <View style={[styles.bulletDot, { backgroundColor: '#174f84' }]} />
+              <Text style={styles.bulletText}>Stay connected & engaged</Text>
+            </View>
+          </View>
+        </View>
       </View>
 
-
-      
       {/* Members Card */}
       {membersYear && (
         <View style={styles.membersCard}>
@@ -333,23 +350,24 @@ export default function CCICTPage() {
           </ScrollView>
         </View>
       )}
-      {/* Start a Post */}
-      <View style={styles.startPostCard}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <UserAvatar 
-            profilePic={user?.profile_pic}
-            firstName={user?.f_name}
-            lastName={user?.l_name}
-            size={40}
-            style={styles.avatar}
-          />
-          <TouchableOpacity style={styles.startPostInput} onPress={() => router.push({ pathname: '/posts/post', params: { type: 'forum' } })}>
-            <Text style={{ color: '#888' }}>Start a post</Text>
-          </TouchableOpacity>
+      {/* Start a Post and Posts */}
+      <View style={styles.postsContainer}>
+        <View style={styles.startPostCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <UserAvatar 
+              profilePic={user?.profile_pic}
+              firstName={user?.f_name}
+              lastName={user?.l_name}
+              size={40}
+              style={styles.avatar}
+            />
+            <TouchableOpacity style={styles.startPostInput} onPress={() => router.push({ pathname: '/posts/post', params: { type: 'forum' } })}>
+              <Text style={{ color: '#888' }}>Start a post</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-      {/* Feed: forum posts and forum reposts (forum-only) */}
-      {loading ? null : posts.map((item) => {
+        {/* Feed: forum posts and forum reposts (forum-only) */}
+        {loading ? null : posts.map((item) => {
         if (item?.item_type === 'repost' || typeof item?.repost_id === 'number') {
           return (
             <RepostCard
@@ -464,7 +482,8 @@ export default function CCICTPage() {
             }}
           />
         );
-      })}
+        })}
+      </View>
 
       {/* Likes/Reposts Viewer Modal */}
       <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
@@ -790,7 +809,9 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingHorizontal: 0,
+  },
+  postsContainer: {
+    paddingHorizontal: 10,
   },
   headerContainer: {
     position: 'relative',
@@ -801,6 +822,8 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     width: '100%',
+    // Note: React Native doesn't support CSS gradients directly
+    // Using solid color that matches web's gradient start color
   },
   profileCard: {
     backgroundColor: '#fff',
@@ -911,44 +934,67 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
   },
-  aboutCard: {
+  infoCardContainer: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  infoCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    marginTop: 12,
-    padding: 12,
+    padding: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
     elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
-  aboutTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#174f84',
-    marginBottom: 6,
-  },
-  aboutText: {
-    fontSize: 13,
-    color: '#333',
-    marginBottom: 10,
-  },
-  aboutRow: {
+  infoTitleContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    marginBottom: 12,
   },
-  aboutLabel: {
-    fontSize: 13,
-    color: '#666',
+  infoTitleEmoji: {
+    fontSize: 24,
+    marginRight: 8,
   },
-  aboutValue: {
-    fontSize: 13,
-    fontWeight: '600',
+  infoTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#111827',
+    marginBottom: 12,
+  },
+  infoText: {
+    color: '#5a6c7d',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  bulletSection: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 2,
+    borderTopColor: 'rgba(23, 79, 132, 0.1)',
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  bulletDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  bulletText: {
+    color: '#5a6c7d',
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
   },
   membersCard: {
     backgroundColor: '#fff',

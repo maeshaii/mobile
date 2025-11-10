@@ -449,11 +449,17 @@ const HomeScreen = () => {
         .filter((item: any) => item.type !== 'forum') // Exclude forum posts from home feed
         .forEach((item: any) => {
           if (item.item_type === 'repost') {
-            // Handle reposts
-            const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
-            const backendLiked = meId ? repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
-            const locallyLiked = likedRepostsSet.has(item.repost_id);
-            const repostLikedByMe = backendLiked || locallyLiked;
+            // Handle reposts - prioritize backend is_liked field
+            let repostLikedByMe = item.is_liked !== undefined ? item.is_liked : false;
+            if (repostLikedByMe === false && meId) {
+              // Fallback: check likes array if is_liked not provided
+              const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
+              repostLikedByMe = repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId);
+            }
+            // Also check local storage as final fallback
+            if (!repostLikedByMe) {
+              repostLikedByMe = likedRepostsSet.has(item.repost_id);
+            }
             
             feedItems.push({
               ...item,
@@ -461,9 +467,13 @@ const HomeScreen = () => {
               item_type: 'repost'
             });
           } else {
-            // Handle original posts
-            const likesArr = Array.isArray(item?.likes) ? item.likes : [];
-            const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+            // Handle original posts - prioritize backend is_liked field
+            let likedByMe = item.is_liked !== undefined ? item.is_liked : false;
+            if (likedByMe === false && meId) {
+              // Fallback: check likes array if is_liked not provided
+              const likesArr = Array.isArray(item?.likes) ? item.likes : [];
+              likedByMe = likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId);
+            }
             
             feedItems.push({
               ...item,

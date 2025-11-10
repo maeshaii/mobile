@@ -97,7 +97,7 @@ console.log('Ngrok URL:', ngrokUrl);
 /** Axios instance */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 180000, // Increased to 180 seconds for compressed image uploads
+  timeout: 30000, // 30 seconds timeout for most requests (reduced from 180s)
   withCredentials: true, // Enable for session-based WebSocket auth
   headers: { 
     Accept: 'application/json',
@@ -197,6 +197,10 @@ api.interceptors.request.use(
     // Ensure ngrok header is always present for ngrok URLs
     if (API_BASE_URL.includes('ngrok')) {
       config.headers['ngrok-skip-browser-warning'] = 'true';
+      // For login requests, increase timeout slightly
+      if (config.url?.includes('/api/token/') && config.method === 'post') {
+        config.timeout = 15000; // 15 seconds for login
+      }
     }
     
     // Don't add Authorization header for login/token endpoints
@@ -338,9 +342,11 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
       statusText: error.response?.statusText,
       data: error.response?.data,
       message: error.message,
+      code: error.code,
       config: {
         url: error.config?.url,
         method: error.config?.method,
+        baseURL: error.config?.baseURL,
         headers: error.config?.headers
       }
     });
@@ -350,13 +356,22 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
       return { success: false, message: 'Invalid credentials or request format' };
     } else if (error.response?.status === 500) {
       return { success: false, message: 'Server error - please try again later' };
-    } else if (error.code === 'ERR_NETWORK') {
-      return { success: false, message: 'Network error - check your connection' };
+    } else if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      // Network error - could be ngrok tunnel down, SSL issue, or connectivity problem
+      const errorMsg = API_BASE_URL.includes('ngrok') 
+        ? 'Network error - ngrok tunnel may be down. Please check if the backend is running and the ngrok URL is correct.'
+        : 'Network error - check your connection and ensure the backend server is running.';
+      console.error('Mobile: Network error detected. API Base URL:', API_BASE_URL);
+      return { success: false, message: errorMsg };
+    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      return { success: false, message: 'Request timeout - the server took too long to respond' };
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      return { success: false, message: 'Cannot connect to server - check if the backend is running and the URL is correct' };
     } else if (error.response?.status === 0) {
       return { success: false, message: 'CORS error - backend may not be running' };
     }
     
-    return { success: false, message: 'Login failed - please try again' };
+    return { success: false, message: `Login failed: ${error.message || 'Unknown error'}` };
   }
 };
 
@@ -765,6 +780,7 @@ export const getFeed = async () => {
       comments_count: donation.comments_count || 0,
       reposts_count: donation.reposts_count || 0,
       is_liked: donation.is_liked || false,
+      likes: donation.likes || [], // Include likes array so we can check if user is in it
       user: donation.user,
       item_type: 'donation_post'
     }));

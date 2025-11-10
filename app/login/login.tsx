@@ -5,14 +5,11 @@ import {
   TouchableOpacity,
   Text,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  ImageBackground,
 } from 'react-native';
 import { loginUser, clearAllTokens, checkUserTrackerStatus } from '../../services/api';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
 
@@ -96,26 +93,24 @@ export default function LoginScreen() {
 
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/ctu.jpg')}
-      style={styles.background}
-      blurRadius={3}
-    >
-      <View style={styles.overlay} />
+    <View style={styles.background}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.innerContent}>
-          <Text style={styles.title}>Welcome</Text>
-          <Text style={styles.subtitle}>Technologist</Text>
-          <Text style={styles.tagline}>Connect & Collaborate</Text>
+        <View style={styles.formContainer}>
+          <View style={styles.welcomeSection}>
+            <Text style={styles.welcomeText}>Welcome</Text>
+            <Text style={styles.technologistText}>Technologist</Text>
+            <Text style={styles.tagline}>Connect & Collaborate with your community</Text>
+          </View>
+          
           <View style={styles.inputContainer}>
             <Text style={styles.label}>CTU ID</Text>
             <TextInput
               style={[styles.input, error && styles.inputError]}
               placeholder="Enter your CTU ID"
-              placeholderTextColor="#ddd"
+              placeholderTextColor="rgba(255, 255, 255, 0.6)"
               value={ctuId}
               onChangeText={(text) => {
                 setCtuId(text);
@@ -125,13 +120,13 @@ export default function LoginScreen() {
               autoCorrect={false}
               editable={!loading}
             />
-            {/* CHANGED: Password field instead of birthdate */}
+            
             <Text style={styles.label}>Password</Text>
-            <View style={styles.inputWithIcon}>
+            <View style={styles.passwordContainer}>
               <TextInput
-                style={[styles.input, error && styles.inputError]}
+                style={[styles.input, styles.passwordInput, error && styles.inputError]}
                 placeholder="Enter your password"
-                placeholderTextColor="#ddd"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
                 value={password}
                 onChangeText={(text) => {
                   setPassword(text);
@@ -143,23 +138,25 @@ export default function LoginScreen() {
                 editable={!loading}
               />
               <TouchableOpacity style={styles.eyeButton} onPress={() => setShow((s) => !s)}>
-                <PasswordVisibilityIcon show={show} size={24} color="#000000" />
+                <PasswordVisibilityIcon show={show} size={20} color="#ffffff" />
               </TouchableOpacity>
             </View>
+            
             {error ? (
               <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
+            
             <TouchableOpacity
               style={[styles.button, loading && styles.buttonDisabled]}
               onPress={handleLogin}
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#1e3a8a" size="small" />
+                <ActivityIndicator color="#003366" size="small" />
               ) : (
-                <Text style={styles.buttonText}>Log In</Text>
+                <Text style={styles.buttonText}>Sign In</Text>
               )}
             </TouchableOpacity>
             
@@ -173,206 +170,139 @@ export default function LoginScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   background: {
     flex: 1,
+    backgroundColor: '#003366',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 45, 98, 0.5)',
   },
   container: {
     flex: 1,
     width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
-  innerContent: {
-    width: '80%',
+  formContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.1,
+    shadowRadius: 40,
+    elevation: 8,
+  },
+  welcomeSection: {
     alignItems: 'center',
+    marginBottom: 24,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#fff',
+  welcomeText: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 8,
   },
-  subtitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
+  technologistText: {
+    fontSize: 40,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 8,
   },
   tagline: {
-    fontSize: 14,
-    color: '#fff',
-    marginBottom: 30,
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
   },
   inputContainer: {
     width: '100%',
-    marginBottom: 20,
   },
   label: {
-    color: '#fff',
     fontSize: 14,
-    marginBottom: 5,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 8,
     marginTop: 16,
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    height: 40,
-    marginBottom: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 16,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    color: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    marginBottom: 10,
   },
-  inputWithIcon: {
+  passwordContainer: {
     position: 'relative',
-    justifyContent: 'center',
+    width: '100%',
+  },
+  passwordInput: {
+    paddingRight: 48,
   },
   eyeButton: {
     position: 'absolute',
     right: 12,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  eyeText: {
-    color: '#333',
-    fontSize: 16,
-  },
-  dateInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  calendarIcon: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderRadius: 20,
-    padding: 10,
-    marginLeft: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  calendarIconText: {
-    fontSize: 20,
+    top: '50%',
+    transform: [{ translateY: -12 }],
+    padding: 4,
   },
   inputError: {
     borderColor: '#e74c3c',
+    borderWidth: 1,
   },
   errorContainer: {
-    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderWidth: 1,
-    borderColor: '#e74c3c',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
     borderRadius: 8,
     padding: 12,
-    marginTop: 16,
+    marginTop: 8,
   },
   errorText: {
-    color: '#e74c3c',
+    color: '#fca5a5',
     fontSize: 14,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#fff',
-    paddingVertical: 10,
-    paddingHorizontal: 40,
-    borderRadius: 20,
-    marginBottom: 20,
+    backgroundColor: '#ffffff',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginTop: 24,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 4,
   },
   buttonDisabled: {
-    opacity: 0.6,
+    opacity: 0.8,
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000',
+    fontWeight: '600',
+    color: '#003366',
   },
   forgotPasswordButton: {
-    marginTop: 12,
+    marginTop: 16,
     paddingVertical: 8,
-    paddingHorizontal: 16,
     alignItems: 'center',
   },
   forgotPasswordText: {
     fontSize: 14,
-    color: '#fff',
-    textDecorationLine: 'underline',
-    opacity: 0.9,
-  },
-  signupText: {
-    color: '#fff',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  signupLink: {
-    fontWeight: 'bold',
-    textDecorationLine: 'underline',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 24,
-    width: '80%',
-    maxWidth: 300,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  modalButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-  modalButtonPrimary: {
-    backgroundColor: '#1e3a8a',
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalButtonTextPrimary: {
-    color: 'white',
+    color: 'rgba(255, 255, 255, 0.8)',
   },
 }); 

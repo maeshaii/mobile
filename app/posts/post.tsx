@@ -72,7 +72,7 @@ export default function PostScreen() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         console.log(`Selected ${result.assets.length} images`);
-        const maxImages = 15;
+        const maxImages = 30;
         const newImages = result.assets.slice(0, maxImages - selectedImages.length);
         console.log(`Adding ${newImages.length} new images (max: ${maxImages}, current: ${selectedImages.length})`);
         
