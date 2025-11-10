@@ -99,13 +99,13 @@ export default function CCICTPage() {
         const adminDetails = await getAlumniDetails(adminUserId);
         console.log('CCICT page - Admin details:', adminDetails);
         
-        // Create admin profile object
+        // Create admin profile object using actual user data
         const adminProfileData = {
           name: adminDetails?.f_name && adminDetails?.l_name 
-            ? `${adminDetails.f_name} ${adminDetails.l_name}` 
-            : 'CCICT Admin',
+            ? `${adminDetails.f_name} ${adminDetails.m_name ? adminDetails.m_name + ' ' : ''}${adminDetails.l_name}`.trim()
+            : adminDetails?.acc_username || 'CCICT Admin',
           username: adminDetails?.acc_username || '@CCICT_CTU_MAIN_CAMPUS',
-          bio: adminDetails?.profile_bio || 'College of Computing, Information and Communication Technology',
+          bio: adminDetails?.profile_bio || '', // Use actual profile_bio, empty string if not set
           profile_pic: adminDetails?.profile_pic 
             ? (String(adminDetails.profile_pic).startsWith('http') || String(adminDetails.profile_pic).startsWith('data:'))
               ? adminDetails.profile_pic 
@@ -121,7 +121,7 @@ export default function CCICTPage() {
         setAdminProfile({
           name: 'CCICT',
           username: '@CCICT_CTU_MAIN_CAMPUS',
-          bio: 'College of Computing, Information and Communication Technology',
+          bio: '', // No hardcoded bio, use empty string
           profile_pic: ccictLogo,
         });
       }
@@ -131,7 +131,7 @@ export default function CCICTPage() {
       setAdminProfile({
         name: 'CCICT',
         username: '@CCICT_CTU_MAIN_CAMPUS',
-        bio: 'College of Computing, Information and Communication Technology',
+        bio: '', // No hardcoded bio, use empty string
         profile_pic: ccictLogo,
       });
     }
@@ -269,9 +269,11 @@ export default function CCICTPage() {
         </View>
         <Text style={styles.profileName}>{adminProfile?.name || 'CCICT'}</Text>
         <Text style={styles.profileUsername}>{adminProfile?.username || '@CCICT_CTU_MAIN_CAMPUS'}</Text>
-        <View style={styles.bioRow}>
-          <Text style={styles.bioText}>{adminProfile?.bio || 'College of Computing, Information and Communication Technology'}</Text>
-        </View>
+        {adminProfile?.bio && adminProfile.bio.trim() ? (
+          <View style={styles.bioRow}>
+            <Text style={styles.bioText}>{adminProfile.bio}</Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Posts */}

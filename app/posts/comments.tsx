@@ -167,6 +167,8 @@ export default function PostCommentsScreen() {
 
   const highlightCommentId = params.highlightCommentId ? Number(params.highlightCommentId) : null;
 
+  const highlightReplyId = params.highlightReplyId ? Number(params.highlightReplyId) : null;
+
   const insets = useSafeAreaInsets();
 
 
@@ -203,6 +205,8 @@ export default function PostCommentsScreen() {
 
   const [highlightedCommentId, setHighlightedCommentId] = useState<number | null>(null);
 
+  const [highlightedReplyId, setHighlightedReplyId] = useState<number | null>(null);
+
 
 
   // Reply state management
@@ -212,6 +216,8 @@ export default function PostCommentsScreen() {
   const [showReplies, setShowReplies] = useState<{ [commentId: number]: boolean }>({});
 
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
+
+  const [replyingToReply, setReplyingToReply] = useState<{ replyId: number; commentId: number } | null>(null);
 
   const [replyText, setReplyText] = useState('');
 
@@ -409,6 +415,24 @@ export default function PostCommentsScreen() {
 
         }
 
+      }
+
+      // Highlight specific reply if provided
+      if (highlightReplyId && highlightCommentId) {
+        // Load replies for the comment containing the reply to highlight
+        loadReplies(highlightCommentId).then(() => {
+          // Ensure the comment's replies are shown
+          setShowReplies(prev => ({ ...prev, [highlightCommentId]: true }));
+          
+          // Set the highlighted reply after a short delay to ensure replies are loaded
+          setTimeout(() => {
+            setHighlightedReplyId(highlightReplyId);
+            // Remove highlight after 3 seconds
+            setTimeout(() => {
+              setHighlightedReplyId(null);
+            }, 3000);
+          }, 500);
+        });
       }
 
     } catch (e) {
@@ -618,21 +642,44 @@ export default function PostCommentsScreen() {
 
     try {
 
-      // Find the comment to get the user info for mention
-
-      const comment = comments.find(c => c.comment_id === commentId);
-
-      const mentionText = comment ? `@${comment.user?.f_name || 'User'} ` : '';
-
-      const replyWithMention = `${mentionText}${replyText.trim()}`;
-
+      // Check if replyText already starts with a mention (user already typed it or it was pre-filled)
+      const alreadyHasMention = replyText.trim().startsWith('@');
       
+      let finalReplyText = replyText.trim();
+      
+      // Only add mention if it's not already there
+      if (!alreadyHasMention) {
+        let mentionText = '';
 
-      await createCommentReply(commentId, replyWithMention);
+        // Check if we're replying to a reply or a comment
+        if (replyingToReply && replyingToReply.commentId === commentId) {
+          // Replying to a reply - mention the reply author
+          const reply = commentReplies[commentId]?.find(r => r.reply_id === replyingToReply.replyId);
+          if (reply) {
+            const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+            mentionText = `@${replyAuthorName} `;
+          }
+        } else {
+          // Replying to a comment - mention the comment author
+          const comment = comments.find(c => c.comment_id === commentId);
+          if (comment) {
+            const commentAuthorName = `${comment.user?.f_name || ''} ${comment.user?.l_name || ''}`.trim() || 'User';
+            mentionText = `@${commentAuthorName} `;
+          } else {
+            mentionText = '';
+          }
+        }
+
+        finalReplyText = `${mentionText}${replyText.trim()}`;
+      }
+
+      await createCommentReply(commentId, finalReplyText);
 
       setReplyText('');
 
       setReplyingTo(null);
+
+      setReplyingToReply(null);
 
       // Show replies after submitting a new reply
 
@@ -733,7 +780,7 @@ export default function PostCommentsScreen() {
 
 
 
-  const hideComposer = !!actionFor || !!actionForReply || editingId !== null || replyingTo !== null || editingReplyId !== null;
+  const hideComposer = !!actionFor || !!actionForReply || editingId !== null || replyingTo !== null || replyingToReply !== null || editingReplyId !== null;
 
   const composerHeight = Math.min(Math.max(inputHeight, 44), 120);
 
@@ -974,11 +1021,23 @@ export default function PostCommentsScreen() {
 
                 {/* Reply button */}
 
-                <TouchableOpacity 
+                <TouchableOpacity
 
                   style={styles.replyButton}
 
-                  onPress={() => setReplyingTo(replyingTo === c.comment_id ? null : c.comment_id)}
+                  onPress={() => {
+                    if (replyingTo === c.comment_id) {
+                      // Cancel replying
+                      setReplyingTo(null);
+                      setReplyingToReply(null);
+                      setReplyText('');
+                    } else {
+                      // Start replying to comment
+                      setReplyingTo(c.comment_id);
+                      setReplyingToReply(null);
+                      setReplyText('');
+                    }
+                  }}
 
                 >
 
@@ -1016,9 +1075,9 @@ export default function PostCommentsScreen() {
 
 
 
-                {/* Reply input */}
+                {/* Reply input - only show when replying to comment (not a reply) */}
 
-                {replyingTo === c.comment_id && (
+                {replyingTo === c.comment_id && !replyingToReply && (
 
                   <View style={styles.replyInputContainer}>
 
@@ -1026,11 +1085,15 @@ export default function PostCommentsScreen() {
 
                       <Text style={styles.replyingToText}>
 
-                        Replying to {c.user?.f_name || 'User'}
+                        {`Replying to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}`}
 
                       </Text>
 
-                      <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                      <TouchableOpacity onPress={() => {
+                        setReplyingTo(null);
+                        setReplyingToReply(null);
+                        setReplyText('');
+                      }}>
 
                         <Ionicons name="close" size={16} color="#6b7280" />
 
@@ -1038,17 +1101,26 @@ export default function PostCommentsScreen() {
 
                     </View>
 
-                    <View style={styles.replyInputRow}>
-
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
                       <MentionInput
 
                         value={replyText}
 
                         onChange={setReplyText}
 
-                        placeholder={`Reply to ${c.user?.f_name || 'User'}...`}
+                        placeholder={`Reply to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}...`}
 
-                        style={styles.replyInput}
+                        style={{ flex: 1, backgroundColor: 'transparent' }}
+                        textInputStyle={{ 
+                          backgroundColor: '#fff', 
+                          borderRadius: 6, 
+                          padding: 8, 
+                          fontSize: 14, 
+                          minHeight: 40, 
+                          maxHeight: 100, 
+                          borderWidth: 1, 
+                          borderColor: '#e5e7eb' 
+                        }}
 
                         onSuggestionsChange={handleSuggestionsChange}
 
@@ -1110,7 +1182,10 @@ export default function PostCommentsScreen() {
 
                       return (
 
-                        <View key={replyIndex} style={styles.replyItem}>
+                        <View key={replyIndex} style={[
+                          styles.replyItem,
+                          highlightedReplyId === reply.reply_id && styles.highlightedBubble
+                        ]}>
 
                           <UserAvatar
                             profilePic={reply.user?.profile_pic}
@@ -1295,7 +1370,80 @@ export default function PostCommentsScreen() {
 
                             
 
-                            <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                              <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
+                              
+                              {!isEditingReply && (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    if (replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id) {
+                                      // Cancel replying to this reply
+                                      setReplyingToReply(null);
+                                      setReplyText('');
+                                    } else {
+                                      // Start replying to this reply
+                                      setReplyingToReply({ replyId: reply.reply_id, commentId: c.comment_id });
+                                      setReplyingTo(c.comment_id);
+                                      const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                      setReplyText(`@${replyAuthorName} `);
+                                    }
+                                  }}
+                                  style={{ paddingHorizontal: 4 }}
+                                >
+                                  <Text style={[styles.replyTime, { color: '#1d4ed8', fontWeight: '600' }]}>
+                                    {replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id ? 'Cancel' : 'Reply'}
+                                  </Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+
+                            {/* Reply input - show directly under this reply when replying to it */}
+                            {replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id && (
+                              <View style={[styles.replyInputContainer, { marginTop: 8, marginLeft: 0 }]}>
+                                <View style={styles.replyingToContainer}>
+                                  <Text style={styles.replyingToText}>
+                                    {(() => {
+                                      const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                      return `Replying to ${replyAuthorName}`;
+                                    })()}
+                                  </Text>
+                                  <TouchableOpacity onPress={() => {
+                                    setReplyingToReply(null);
+                                    setReplyText('');
+                                  }}>
+                                    <Ionicons name="close" size={16} color="#6b7280" />
+                                  </TouchableOpacity>
+                                </View>
+                                <MentionInput
+                                  value={replyText}
+                                  onChange={setReplyText}
+                                  placeholder={(() => {
+                                    const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                    return `Reply to ${replyAuthorName}...`;
+                                  })()}
+                                  style={styles.replyInput}
+                                  onSuggestionsChange={handleSuggestionsChange}
+                                  multiline
+                                  maxLength={500}
+                                />
+                                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+                                  <TouchableOpacity
+                                    disabled={!replyText.trim() || submittingReply}
+                                    onPress={() => handleReplySubmit(c.comment_id)}
+                                    style={[
+                                      styles.replySendButton,
+                                      (!replyText.trim() || submittingReply) && { opacity: 0.5 }
+                                    ]}
+                                  >
+                                    {submittingReply ? (
+                                      <ActivityIndicator color="#fff" size="small" />
+                                    ) : (
+                                      <Ionicons name="send" size={18} color="#fff" />
+                                    )}
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            )}
 
                           </View>
 
@@ -1574,13 +1722,13 @@ export default function PostCommentsScreen() {
 
           >
 
-            <View style={styles.mentionInputWrapper}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
               <MentionInput
                 value={commentText}
                 onChange={setCommentText}
                 placeholder="Write a comment…"
-                style={styles.mentionInputContainer}
-                textInputStyle={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight }]}
+                style={{ flex: 1, backgroundColor: 'transparent' }}
+                textInputStyle={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10 }]}
                 multiline
                 maxLength={500}
                 disabled={!!editingReplyId}

@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment } from '../../services/api';
+import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment, getRepostDetail } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,19 +40,120 @@ export default function RepostScreen() {
     const run = async () => {
       try {
         setLoading(true);
-        const [u, detail] = await Promise.all([
-          getUserInfo(),
-          postId ? (isForumPost ? getForumDetail(postId) : getPostDetail(postId)) : Promise.resolve(null),
-        ]);
+        const u = await getUserInfo();
         setMe(u);
-        setOriginal(detail);
-        // Detect if current user already reposted
+        
+        if (!postId) {
+          setLoading(false);
+          return;
+        }
+        
+        // First try to get as regular post/forum
+        let detail = null;
         try {
-          const meId = (u?.id || u?.user_id);
-          const mine = Array.isArray(detail?.reposts) ? detail.reposts.find((r:any)=> (r.user?.user_id) === meId) : null;
-          setMyRepostId(mine?.repost_id || null);
-          if (mine?.repost_caption) setCaption(String(mine.repost_caption));
-        } catch {}
+          detail = isForumPost ? await getForumDetail(postId) : await getPostDetail(postId);
+        } catch (error: any) {
+          // If 404, it might be a repost ID - try to get repost detail and extract original post
+          // This handles the case where someone accidentally passes a repost ID instead of a post ID
+          if (error?.response?.status === 404) {
+            try {
+              console.log('RepostScreen - Post not found (404), checking if it\'s a repost ID:', postId);
+              const repostData = await getRepostDetail(postId);
+              
+              // Check if we got valid repost data (not fallback)
+              // Fallback data has repost_id: 0 or no original data
+              if (repostData?.original && repostData.repost_id && repostData.repost_id !== 0 && repostData.repost_id === postId) {
+                // Use the original post from the repost
+                const original = repostData.original;
+                
+                // Get the original post ID based on type
+                const originalPostId = original.post_id || original.forum_id || original.donation_id;
+                
+                // Check if we got valid original post data (not fallback)
+                if (!originalPostId || originalPostId === 0) {
+                  // This means getRepostDetail returned fallback data, which means the repost doesn't exist
+                  // So the postId is not a repost ID, it's just a non-existent post ID
+                  console.error('RepostScreen - Invalid repost data, original post ID is 0 or missing');
+                  throw new Error('Post not found');
+                }
+                
+                console.log('RepostScreen - Found repost, loading original post:', originalPostId, 'type:', original.type);
+                
+                // Now load the actual original post detail to get full data including reposts
+                try {
+                  if (original.type === 'forum') {
+                    detail = await getForumDetail(originalPostId);
+                  } else if (original.type === 'donation') {
+                    const { getDonationDetail } = await import('../../services/api');
+                    detail = await getDonationDetail(originalPostId);
+                    // Normalize donation data
+                    detail = {
+                      ...detail,
+                      post_id: detail.donation_id,
+                      post_content: detail.description || detail.post_content || '',
+                      post_title: detail.post_title || '',
+                      post_image: detail.post_image || (detail.images?.[0]?.image_url || null),
+                      post_images: detail.images || [],
+                    };
+                  } else {
+                    detail = await getPostDetail(originalPostId);
+                  }
+                  console.log('RepostScreen - Successfully loaded original post detail');
+                } catch (loadError: any) {
+                  // If we can't load the original post, use the data from repost detail
+                  // Transform the repost detail original data to match post detail format
+                  console.warn('RepostScreen - Could not load original post detail, using repost data:', loadError);
+                  
+                  // Handle different content types - backend returns 'content' not 'post_content'
+                  const postContent = original.content || original.post_content || original.description || '';
+                  // Backend returns 'post_images' for posts, 'images' for forums/donations
+                  const postImages = original.post_images || original.images || [];
+                  const postImage = original.post_image || (postImages.length > 0 ? postImages[0]?.image_url : null);
+                  
+                  detail = {
+                    post_id: originalPostId,
+                    post_content: postContent,
+                    post_title: original.post_title || '',
+                    post_image: postImage,
+                    post_images: postImages,
+                    created_at: original.created_at,
+                    user: original.user || {
+                      user_id: 0,
+                      f_name: 'Unknown',
+                      l_name: 'User',
+                      profile_pic: null
+                    },
+                    likes_count: 0,
+                    comments_count: 0,
+                    reposts_count: 0,
+                    likes: [],
+                    comments: [],
+                    reposts: [],
+                    is_liked: false,
+                  };
+                  
+                  console.log('RepostScreen - Using repost detail fallback data:', detail);
+                }
+              } else {
+                // Not a valid repost, just a non-existent post
+                console.error('RepostScreen - Not a valid repost ID, post not found. Repost data:', repostData);
+                throw new Error('Post not found');
+              }
+            } catch (repostError: any) {
+              console.error('RepostScreen - Error loading repost detail:', repostError);
+              // Re-throw the original 404 error, not the repost error
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
+        
+        setOriginal(detail);
+        // Don't check if user already reposted - allow multiple reposts
+        // Users can repost the same post multiple times, each creating a new repost
+        setMyRepostId(null);
+        setCaption('');
       } catch (e) {
         console.error('RepostScreen - Error loading post:', e);
         Alert.alert('Error', 'Failed to load post');
@@ -61,7 +162,7 @@ export default function RepostScreen() {
       }
     };
     run();
-  }, [postId]);
+  }, [postId, isForumPost]);
 
   // Use the utility function to extract all images from the original post
   const allImages = getImagesFromContent(original);
@@ -178,38 +279,22 @@ export default function RepostScreen() {
             setSubmitting(true);
             const cleaned = caption.trim();
         
-            if (myRepostId) {
-              // update my existing repost caption
-              console.log('Updating existing repost with ID:', myRepostId);
-              if (isForumPost) {
-                // For forum posts, we need to delete and recreate the repost
-                await deleteForumRepost(myRepostId);
-                await repostForumPost(postId, cleaned);
-              } else {
-                await updateRepost(myRepostId, cleaned);
-              }
+            // Always create a new repost - users can repost the same post multiple times
+            // Each repost will be of the original post, not the repost itself
+            console.log('Creating new repost for postId:', postId, 'isForumPost:', isForumPost);
+            const response = isForumPost 
+              ? await repostForumPost(postId, cleaned)
+              : await repostPost(postId, cleaned);
+            console.log('Repost response:', response);
+            
+            if (response.success !== false) {
               Alert.alert(
                 'Success',
-                'Your repost caption has been updated',
+                'Your repost has been published',
                 [{ text: 'OK', onPress: () => router.back() }],
               );
             } else {
-              // create repost; helper will omit caption if empty
-              console.log('Creating new repost for postId:', postId, 'isForumPost:', isForumPost);
-              const response = isForumPost 
-                ? await repostForumPost(postId, cleaned)
-                : await repostPost(postId, cleaned);
-              console.log('Repost response:', response);
-              
-              if (response.success !== false) {
-                Alert.alert(
-                  'Success',
-                  'Your repost has been published',
-                  [{ text: 'OK', onPress: () => router.back() }],
-                );
-              } else {
-                Alert.alert('Error', response.message || 'Failed to repost');
-              }
+              Alert.alert('Error', response.message || 'Failed to repost');
             }
           } catch (e: any) {
             console.error('Repost error:', e);
@@ -261,17 +346,6 @@ export default function RepostScreen() {
             placeholder="Add an optional caption..."
             multiline
           />
-          
-          
-          {myRepostId ? (
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
-              <TouchableOpacity
-                onPress={async () => { try { await deleteRepost(myRepostId); setMyRepostId(null); setCaption(''); Alert.alert('Deleted','Your repost was removed'); } catch { Alert.alert('Error','Failed to delete'); } }}
-              >
-                <Text style={{ color: 'red', fontWeight: 'bold' }}>Delete Repost</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
 
           {/* Nested original post card (tap to open original post detail) */}
           <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/detail?postId=${original.post_id}`); }}>

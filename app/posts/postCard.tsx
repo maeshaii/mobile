@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import CachedImage from '../../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { API_BASE_URL, likePost, unlikePost, repostPost, deleteRepost, editPost,
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { screenWidth, screenHeight, wp, hp, getResponsiveFontSize, getResponsivePadding, getPercentageWidth } from '../../utils/responsive';
 
 interface Post {
   post_id: number;
@@ -57,8 +58,6 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   const [editLoading, setEditLoading] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-  const screenWidth = Dimensions.get('window').width;
-  const screenHeight = Dimensions.get('window').height;
   const imageScrollRef = React.useRef<ScrollView>(null);
 
   // Update edit content when post content changes
@@ -504,10 +503,10 @@ export default PostCard;
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
-    padding: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    borderRadius: 16,
+    padding: getResponsivePadding(16),
+    marginTop: hp(16),
+    marginBottom: hp(8),
+    borderRadius: wp(16),
     elevation: 2,
     shadowColor: '#000',
     shadowOpacity: 0.08,
@@ -519,23 +518,23 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: hp(10),
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
+    width: wp(40),
+    height: wp(40),
+    borderRadius: wp(20),
+    marginRight: wp(10),
     backgroundColor: '#ccc',
   },
-  name: { fontWeight: 'bold', fontSize: 14 },
-  meta: { fontSize: 12, color: '#666' },
-  postTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, color: '#333' },
-  content: { fontSize: 14, marginTop: 10, color: '#333' },
-  postImage: { width: 200, height: 200, borderRadius: 10, marginTop: 10, marginRight: 10, backgroundColor: '#ccc' },
+  name: { fontWeight: 'bold', fontSize: getResponsiveFontSize(14) },
+  meta: { fontSize: getResponsiveFontSize(12), color: '#666' },
+  postTitle: { fontSize: getResponsiveFontSize(18), fontWeight: 'bold', marginTop: hp(10), color: '#333' },
+  content: { fontSize: getResponsiveFontSize(14), marginTop: hp(10), color: '#333' },
+  postImage: { width: wp(200), height: wp(200), borderRadius: wp(10), marginTop: hp(10), marginRight: wp(10), backgroundColor: '#ccc' },
   imagesContainer: {
-    marginTop: 10,
-    borderRadius: 8,
+    marginTop: hp(10),
+    borderRadius: wp(8),
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -543,64 +542,64 @@ const styles = StyleSheet.create({
   singleImage: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 8,
+    borderRadius: wp(8),
     alignSelf: 'center',
   },
   imagesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 2,
+    gap: wp(2),
     justifyContent: 'space-between',
   },
   // Facebook-style grid layouts
   twoImagesGrid: {
     width: '49%',
-    height: 200,
+    height: hp(200),
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 4,
+    borderRadius: wp(4),
   },
   threeImagesGrid: {
     // Container style - individual images have their own styles
   },
   fourImagesGrid: {
     width: '49%',
-    height: 150,
+    height: hp(150),
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 4,
+    borderRadius: wp(4),
   },
   fivePlusImagesGrid: {
     width: '49%',
-    height: 120,
+    height: hp(120),
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 4,
+    borderRadius: wp(4),
   },
   gridImageContainer: {
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 4,
+    borderRadius: wp(4),
   },
   threeImagesFirst: {
     width: '100%',
-    height: 200,
+    height: hp(200),
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 4,
-    marginBottom: 2,
+    borderRadius: wp(4),
+    marginBottom: hp(2),
   },
   threeImagesRest: {
     width: '49%',
-    height: 100,
+    height: hp(100),
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 4,
+    borderRadius: wp(4),
   },
   gridImage: {
     width: '100%',
     height: '100%',
-    minHeight: 100,
+    minHeight: hp(100),
   },
   moreImagesOverlay: {
     position: 'absolute',
@@ -614,53 +613,53 @@ const styles = StyleSheet.create({
   },
   moreImagesText: {
     color: 'white',
-    fontSize: 20,
+    fontSize: getResponsiveFontSize(20),
     fontWeight: 'bold',
   },
   imagesScroll: {
-    maxHeight: 200,
+    maxHeight: hp(200),
   },
   actionsCountsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    marginTop: 8,
+    paddingHorizontal: wp(8),
+    marginTop: hp(8),
   },
-  countText: { fontSize: 12, color: '#666' },
+  countText: { fontSize: getResponsiveFontSize(12), color: '#666' },
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: 15,
+    marginTop: hp(15),
     borderTopWidth: 1,
     borderTopColor: '#eee',
-    paddingTop: 10,
+    paddingTop: hp(10),
   },
-  actionIcon: { alignItems: 'center', gap: 2 },
-  actionText: { fontSize: 12, color: '#555' },
+  actionIcon: { alignItems: 'center', gap: wp(2) },
+  actionText: { fontSize: getResponsiveFontSize(12), color: '#555' },
   likedText: { color: '#1e3a8a', fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#fff', width: '90%', borderRadius: 12, padding: 20 },
-  modalTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 12 },
-  modalButton: { padding: 12, borderRadius: 8, marginVertical: 6, backgroundColor: '#1e3a8a' },
+  modalContent: { backgroundColor: '#fff', width: getPercentageWidth(90), borderRadius: wp(12), padding: getResponsivePadding(20) },
+  modalTitle: { fontSize: getResponsiveFontSize(16), fontWeight: 'bold', marginBottom: hp(12) },
+  modalButton: { padding: getResponsivePadding(12), borderRadius: wp(8), marginVertical: hp(6), backgroundColor: '#1e3a8a' },
   modalButtonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, minHeight: 80, textAlignVertical: 'top' },
-  button: { backgroundColor: '#1e3a8a', borderRadius: 8, padding: 12, marginVertical: 6 },
+  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: wp(8), padding: getResponsivePadding(10), minHeight: hp(80), textAlignVertical: 'top' },
+  button: { backgroundColor: '#1e3a8a', borderRadius: wp(8), padding: getResponsivePadding(12), marginVertical: hp(6) },
   buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
   // Unified Action Sheet styles
   sheet: {
     backgroundColor: '#fff',
-    width: '88%',
-    borderRadius: 16,
-    paddingVertical: 8,
+    width: getPercentageWidth(88),
+    borderRadius: wp(16),
+    paddingVertical: hp(8),
   },
   sheetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: wp(16),
+    paddingVertical: hp(14),
   },
   sheetRowText: {
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     color: '#111827',
   },
   sheetDivider: {
@@ -668,15 +667,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#e5e7eb',
   },
   sheetCancel: {
-    marginTop: 10,
+    marginTop: hp(10),
     backgroundColor: '#fff',
-    borderRadius: 16,
-    width: '88%',
-    paddingVertical: 14,
+    borderRadius: wp(16),
+    width: getPercentageWidth(88),
+    paddingVertical: hp(14),
     alignItems: 'center',
   },
   sheetCancelText: {
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     color: '#6b7280',
     fontWeight: '500',
   },
@@ -684,8 +683,8 @@ const styles = StyleSheet.create({
   // Standardized Edit Modal Styles
   editModalContent: {
     backgroundColor: '#fff',
-    width: '90%',
-    borderRadius: 16,
+    width: getPercentageWidth(90),
+    borderRadius: wp(16),
     padding: 0,
     maxHeight: '80%',
   },
@@ -693,37 +692,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp(16),
+    paddingVertical: hp(12),
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
   editModalCloseButton: {
-    padding: 8,
-    borderRadius: 20,
+    padding: wp(8),
+    borderRadius: wp(20),
     backgroundColor: '#f3f4f6',
   },
   editModalTitle: {
-    fontSize: 18,
+    fontSize: getResponsiveFontSize(18),
     fontWeight: '700',
     color: '#111827',
   },
   editModalSaveButton: {
     backgroundColor: '#1e3a8a',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: wp(16),
+    paddingVertical: hp(8),
+    borderRadius: wp(20),
   },
   editModalSaveText: {
     color: '#fff',
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
   },
   editModalInput: {
-    padding: 16,
-    fontSize: 16,
+    padding: wp(16),
+    fontSize: getResponsiveFontSize(16),
     color: '#111827',
-    minHeight: 120,
+    minHeight: hp(120),
     textAlignVertical: 'top',
   },
   // Image Viewer Styles
@@ -735,19 +734,19 @@ const styles = StyleSheet.create({
   },
   imageViewerCloseButton: {
     position: 'absolute',
-    top: 60,
-    right: 20,
+    top: hp(60),
+    right: wp(20),
     zIndex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
+    borderRadius: wp(20),
+    width: wp(40),
+    height: wp(40),
     justifyContent: 'center',
     alignItems: 'center',
   },
   imageViewerCloseText: {
     color: '#fff',
-    fontSize: 20,
+    fontSize: getResponsiveFontSize(20),
     fontWeight: 'bold',
   },
   imageViewerContainer: {
@@ -758,17 +757,17 @@ const styles = StyleSheet.create({
   },
   imageViewerCounter: {
     position: 'absolute',
-    top: 50,
-    left: 20,
+    top: hp(50),
+    left: wp(20),
     backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 15,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: wp(15),
+    paddingHorizontal: wp(12),
+    paddingVertical: hp(6),
     zIndex: 1,
   },
   imageViewerCounterText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     fontWeight: 'bold',
   },
   imageViewerImage: {
@@ -789,10 +788,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   priorityBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginLeft: 8,
+    paddingHorizontal: wp(6),
+    paddingVertical: hp(2),
+    borderRadius: wp(10),
+    marginLeft: wp(8),
   },
   adminBadge: {
     backgroundColor: '#dc2626', // Red for admin
@@ -802,7 +801,7 @@ const styles = StyleSheet.create({
   },
   priorityBadgeText: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: getResponsiveFontSize(10),
     fontWeight: 'bold',
   },
 });

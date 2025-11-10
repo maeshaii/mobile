@@ -9,15 +9,13 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  Dimensions,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import UserAvatar from '../../components/UserAvatar';
 import { fetchFollowers, fetchFollowing, followUser, unfollowUser, getUserInfo } from '../../services/api';
 import api from '../../services/api';
-
-const { width } = Dimensions.get('window');
+import { wp, hp, rf, getPercentageWidth, getResponsivePadding, getResponsiveFontSize, isTablet } from '../../utils/responsive';
 
 interface FollowUser {
   user_id: number;
@@ -182,11 +180,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
             </View>
           ) : (
             <View style={styles.contentContainer}>
-              {/* Debug info to ensure data is loaded */}
-              <Text style={styles.debugText}>
-                Found {users.length} {type}
-              </Text>
-              
               {users.length > 0 ? (
                 <FlatList
                   data={users}
@@ -282,9 +275,9 @@ const styles = StyleSheet.create({
   },
   container: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    width: width * 0.9,
-    maxWidth: 400,
+    borderRadius: wp(16),
+    width: getPercentageWidth(90),
+    maxWidth: isTablet() ? wp(500) : wp(400),
     maxHeight: '80%',
     overflow: 'hidden',
   },
@@ -292,56 +285,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: getResponsivePadding(20),
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
   title: {
-    fontSize: 20,
+    fontSize: getResponsiveFontSize(20),
     fontWeight: 'bold',
     color: '#222',
   },
   closeButton: {
-    padding: 8,
+    padding: wp(8),
   },
   loadingContainer: {
-    padding: 40,
+    padding: hp(40),
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 10,
-    fontSize: 16,
+    marginTop: hp(10),
+    fontSize: getResponsiveFontSize(16),
     color: '#666',
   },
   contentContainer: {
     flex: 1,
-    padding: 16,
-  },
-  debugText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 10,
-    backgroundColor: '#e9ecef',
-    padding: 8,
-    borderRadius: 4,
+    padding: getResponsivePadding(16),
   },
   list: {
     flex: 1,
   },
   listContent: {
-    paddingBottom: 20,
+    paddingBottom: hp(20),
   },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: getResponsivePadding(16),
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
-    minHeight: 80,
-    marginBottom: 8,
-    borderRadius: 8,
+    minHeight: hp(80),
+    marginBottom: hp(8),
+    borderRadius: wp(8),
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -352,32 +336,33 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   avatar: {
-    marginRight: 12,
+    marginRight: wp(12),
   },
   userInfo: {
     flex: 1,
+    marginRight: wp(8),
   },
   userName: {
-    fontSize: 15,
+    fontSize: getResponsiveFontSize(15),
     fontWeight: '600',
     color: '#1a1a1a',
-    marginBottom: 2,
+    marginBottom: hp(2),
   },
   userHandle: {
-    fontSize: 13,
+    fontSize: getResponsiveFontSize(13),
     color: '#666',
-    marginBottom: 2,
+    marginBottom: hp(2),
   },
   userBatch: {
-    fontSize: 11,
+    fontSize: getResponsiveFontSize(11),
     color: '#999',
   },
   followButton: {
     backgroundColor: '#174f84',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    minWidth: 80,
+    paddingHorizontal: wp(16),
+    paddingVertical: hp(8),
+    borderRadius: wp(20),
+    minWidth: wp(80),
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
@@ -393,26 +378,26 @@ const styles = StyleSheet.create({
   },
   followButtonText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: getResponsiveFontSize(12),
     fontWeight: '600',
   },
   followingButtonText: {
     color: '#fff',
   },
   emptyContainer: {
-    padding: 40,
+    padding: hp(40),
     alignItems: 'center',
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: getResponsiveFontSize(18),
     fontWeight: '600',
     color: '#666',
-    marginTop: 16,
+    marginTop: hp(16),
   },
   emptySubText: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     color: '#999',
-    marginTop: 8,
+    marginTop: hp(8),
     textAlign: 'center',
   },
 });

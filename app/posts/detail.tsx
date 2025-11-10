@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Dimensions, Image, Modal } from 'react-native';
+import { View, ActivityIndicator, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, Dimensions, Image, Modal, Linking } from 'react-native';
 import CachedImage from '../../components/CachedImage';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -44,6 +44,7 @@ export default function PostDetailScreen() {
   const [editingPost, setEditingPost] = useState(false);
   const [editPostContent, setEditPostContent] = useState('');
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [replyingToReply, setReplyingToReply] = useState<{ replyId: number; commentId: number } | null>(null);
   const [replyText, setReplyText] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
   const [commentReplies, setCommentReplies] = useState<{ [commentId: number]: any[] }>({});
@@ -315,14 +316,41 @@ export default function PostDetailScreen() {
     try {
       setSubmittingReply(true);
       
-      // Find the comment to get the user info for mention
-      const comment = comments.find(c => c.comment_id === replyingTo);
-      const mentionText = comment ? `@${comment.user?.f_name || 'User'} ` : '';
-      const replyWithMention = `${mentionText}${replyText.trim()}`;
+      // Check if replyText already starts with a mention (user already typed it or it was pre-filled)
+      const alreadyHasMention = replyText.trim().startsWith('@');
       
-      await createCommentReply(replyingTo, replyWithMention);
+      let finalReplyText = replyText.trim();
+      
+      // Only add mention if it's not already there
+      if (!alreadyHasMention) {
+        let mentionText = '';
+        
+        // Check if we're replying to a reply or a comment
+        if (replyingToReply && replyingToReply.commentId === replyingTo) {
+          // Replying to a reply - mention the reply author
+          const reply = commentReplies[replyingTo]?.find(r => r.reply_id === replyingToReply.replyId);
+          if (reply) {
+            const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+            mentionText = `@${replyAuthorName} `;
+          }
+        } else {
+          // Replying to a comment - mention the comment author
+          const comment = comments.find(c => c.comment_id === replyingTo);
+          if (comment) {
+            const commentAuthorName = `${comment.user?.f_name || ''} ${comment.user?.l_name || ''}`.trim() || 'User';
+            mentionText = `@${commentAuthorName} `;
+          } else {
+            mentionText = '';
+          }
+        }
+        
+        finalReplyText = `${mentionText}${replyText.trim()}`;
+      }
+      
+      await createCommentReply(replyingTo, finalReplyText);
       setReplyText('');
       setReplyingTo(null);
+      setReplyingToReply(null);
       
       // Update comment's replies_count
       setComments(prev => prev.map(c => 
@@ -634,7 +662,11 @@ export default function PostDetailScreen() {
               </View>
             </KeyboardAvoidingView>
           ) : (
-            <Text style={styles.postText}>{post.post_content}</Text>
+            <View>
+              {renderTextWithMentions(post.post_content, [], (userId) => {
+                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+              }, styles.postText)}
+            </View>
           )}
           {(() => {
             const images = getPostImages(post);
@@ -854,7 +886,7 @@ export default function PostDetailScreen() {
                           <TouchableOpacity 
                             onPress={() => {
                               if (c.user?.user_id && c.user.user_id !== meId) {
-                                router.push(`/otheruser/otheruser?userId=${c.user.user_id}`);
+                                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: c.user.user_id } });
                               }
                             }}
                             disabled={!c.user?.user_id || c.user.user_id === meId}
@@ -965,10 +997,75 @@ export default function PostDetailScreen() {
                       {!isEditing && (
                         <TouchableOpacity
                           style={styles.replyButton}
-                          onPress={() => setReplyingTo(c.comment_id)}
+                          onPress={() => {
+                            if (replyingTo === c.comment_id) {
+                              // Cancel replying
+                              setReplyingTo(null);
+                              setReplyingToReply(null);
+                              setReplyText('');
+                            } else {
+                              // Start replying to comment
+                              setReplyingTo(c.comment_id);
+                              setReplyingToReply(null);
+                              setReplyText('');
+                            }
+                          }}
                         >
-                          <Text style={styles.replyButtonText}>Reply</Text>
+                          <Text style={styles.replyButtonText}>{replyingTo === c.comment_id ? 'Cancel Reply' : 'Reply'}</Text>
                         </TouchableOpacity>
+                      )}
+
+                      {/* Reply input - only show when replying to comment (not a reply) */}
+                      {replyingTo === c.comment_id && !replyingToReply && (
+                        <View style={styles.replyInputContainer}>
+                          <View style={styles.replyingToContainer}>
+                            <Text style={styles.replyingToText}>
+                              {`Replying to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}`}
+                            </Text>
+                            <TouchableOpacity onPress={() => {
+                              setReplyingTo(null);
+                              setReplyingToReply(null);
+                              setReplyText('');
+                            }}>
+                              <Ionicons name="close" size={16} color="#6b7280" />
+                            </TouchableOpacity>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                            <MentionInput
+                              value={replyText}
+                              onChange={setReplyText}
+                              placeholder={`Reply to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}...`}
+                              style={{ flex: 1, backgroundColor: 'transparent' }}
+                              textInputStyle={{ 
+                                backgroundColor: '#fff', 
+                                borderRadius: 6, 
+                                padding: 8, 
+                                fontSize: 14, 
+                                minHeight: 40, 
+                                maxHeight: 100, 
+                                borderWidth: 1, 
+                                borderColor: '#e5e7eb' 
+                              }}
+                              onSuggestionsChange={handleSuggestionsChange}
+                              multiline
+                              maxLength={500}
+                            />
+                            <TouchableOpacity
+                              disabled={!replyText.trim() || submittingReply}
+                              onPress={handleSendReply}
+                              style={[
+                                styles.replySendButton,
+                                (!replyText.trim() || submittingReply) && { opacity: 0.5 }
+                              ]}
+                            >
+                              {submittingReply ? (
+                                <ActivityIndicator color="#fff" size="small" />
+                              ) : (
+                                <Ionicons name="send" size={18} color="#fff" />
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </View>
                       )}
 
                       {/* Replies Section */}
@@ -1003,7 +1100,7 @@ export default function PostDetailScreen() {
                                         <TouchableOpacity 
                                           onPress={() => {
                                             if (reply.user?.user_id && reply.user.user_id !== meId) {
-                                              router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
+                                              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: reply.user.user_id } });
                                             }
                                           }}
                                           disabled={!reply.user?.user_id || reply.user.user_id === meId}
@@ -1114,7 +1211,80 @@ export default function PostDetailScreen() {
                                         </View>
                                       )}
                                       
-                                      <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                                        <Text style={styles.replyTime}>{dayjs(reply.date_created).fromNow()}</Text>
+                                        
+                                        {!isEditingReply && (
+                                          <TouchableOpacity
+                                            onPress={() => {
+                                              if (replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id) {
+                                                // Cancel replying to this reply
+                                                setReplyingToReply(null);
+                                                setReplyText('');
+                                              } else {
+                                                // Start replying to this reply
+                                                setReplyingToReply({ replyId: reply.reply_id, commentId: c.comment_id });
+                                                setReplyingTo(c.comment_id);
+                                                const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                                setReplyText(`@${replyAuthorName} `);
+                                              }
+                                            }}
+                                            style={{ paddingHorizontal: 4 }}
+                                          >
+                                            <Text style={[styles.replyTime, { color: '#1d4ed8', fontWeight: '600' }]}>
+                                              {replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id ? 'Cancel' : 'Reply'}
+                                            </Text>
+                                          </TouchableOpacity>
+                                        )}
+                                      </View>
+
+                                      {/* Reply input - show directly under this reply when replying to it */}
+                                      {replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id && (
+                                        <View style={[styles.replyInputContainer, { marginTop: 8, marginLeft: 0 }]}>
+                                          <View style={styles.replyingToContainer}>
+                                            <Text style={styles.replyingToText}>
+                                              {(() => {
+                                                const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                                return `Replying to ${replyAuthorName}`;
+                                              })()}
+                                            </Text>
+                                            <TouchableOpacity onPress={() => {
+                                              setReplyingToReply(null);
+                                              setReplyText('');
+                                            }}>
+                                              <Ionicons name="close" size={16} color="#6b7280" />
+                                            </TouchableOpacity>
+                                          </View>
+                                          <MentionInput
+                                            value={replyText}
+                                            onChange={setReplyText}
+                                            placeholder={(() => {
+                                              const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                              return `Reply to ${replyAuthorName}...`;
+                                            })()}
+                                            style={styles.replyInput}
+                                            onSuggestionsChange={handleSuggestionsChange}
+                                            multiline
+                                            maxLength={500}
+                                          />
+                                          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+                                            <TouchableOpacity
+                                              disabled={!replyText.trim() || submittingReply}
+                                              onPress={handleSendReply}
+                                              style={[
+                                                styles.replySendButton,
+                                                (!replyText.trim() || submittingReply) && { opacity: 0.5 }
+                                              ]}
+                                            >
+                                              {submittingReply ? (
+                                                <ActivityIndicator color="#fff" size="small" />
+                                              ) : (
+                                                <Ionicons name="send" size={18} color="#fff" />
+                                              )}
+                                            </TouchableOpacity>
+                                          </View>
+                                        </View>
+                                      )}
                                     </View>
                                   </View>
                                 );
@@ -1133,49 +1303,46 @@ export default function PostDetailScreen() {
         </ScrollView>
         
         {/* Comment Input - hide while editing a comment or reply */}
-        {!hideComposer && (
+        {!hideComposer && !replyingTo && (
           <View style={styles.commentInputContainer}>
-            {replyingTo && (
-              <View style={styles.replyingToContainer}>
-                <Text style={styles.replyingToText}>
-                  Replying to comment
-                </Text>
-                <TouchableOpacity onPress={() => setReplyingTo(null)}>
-                  <Ionicons name="close" size={16} color="#6b7280" />
-                </TouchableOpacity>
-              </View>
-            )}
-            <View style={styles.commentInputContainer}>
-              <View style={styles.commentInputRow}>
-                <View style={styles.mentionInputWrapper}>
-                  <MentionInput
-                    value={replyingTo ? replyText : commentText}
-                    onChange={replyingTo ? setReplyText : setCommentText}
-                    placeholder={replyingTo ? `Reply to ${comments.find(c => c.comment_id === replyingTo)?.user?.f_name || 'User'}...` : "Write a comment..."}
-                    style={{ backgroundColor: 'transparent' }}
-                    textInputStyle={[styles.commentInput, { backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, paddingRight: 8, fontSize: 14, color: '#111827' }]}
-                    multiline
-                    maxLength={500}
-                    disabled={!!editingReplyId || !!editingId}
-                    onSuggestionsChange={handleSuggestionsChange}
-                  />
-                </View>
-                <TouchableOpacity
-                  disabled={!!editingReplyId || !!editingId || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))}
-                  onPress={replyingTo ? handleSendReply : handleSendComment}
-                  style={[
-                    styles.sendButton, 
-                    ((!!editingReplyId) || (!!editingId) || (replyingTo ? (!replyText.trim() || submittingReply) : (!commentText.trim() || submittingComment))) ? { opacity: 0.5 } : undefined
-                  ]}
-                >
-                  {(replyingTo ? submittingReply : submittingComment) ? (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 16, paddingVertical: 8 }}>
+              <MentionInput
+                value={commentText}
+                onChange={setCommentText}
+                placeholder="Write a comment..."
+                style={{ flex: 1, backgroundColor: 'transparent' }}
+                textInputStyle={{ 
+                  backgroundColor: '#fff', 
+                  borderWidth: 1, 
+                  borderColor: '#e5e7eb', 
+                  borderRadius: 20, 
+                  paddingHorizontal: 14, 
+                  paddingVertical: 10, 
+                  fontSize: 14, 
+                  color: '#111827',
+                  minHeight: 44,
+                  maxHeight: 120
+                }}
+                multiline
+                maxLength={500}
+                disabled={!!editingReplyId || !!editingId}
+                onSuggestionsChange={handleSuggestionsChange}
+              />
+              <TouchableOpacity
+                disabled={!!editingReplyId || !!editingId || !commentText.trim() || submittingComment}
+                onPress={handleSendComment}
+                style={[
+                  styles.sendButton, 
+                  ((!!editingReplyId) || (!!editingId) || !commentText.trim() || submittingComment) ? { opacity: 0.5 } : undefined
+                ]}
+              >
+                  {submittingComment ? (
                     <ActivityIndicator color="#fff" size="small" />
                   ) : (
                     <Ionicons name="send" size={18} color="#fff" />
                   )}
                 </TouchableOpacity>
               </View>
-            </View>
           </View>
         )}
       </KeyboardAvoidingView>
@@ -1198,18 +1365,28 @@ export default function PostDetailScreen() {
                 <>
                   {selectedPost.likes && selectedPost.likes.length > 0 ? (
                     selectedPost.likes.map((like: any, index: number) => (
-                      <View key={index} style={styles.viewerItem}>
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.viewerItem}
+                        onPress={() => {
+                          setViewerVisible(false);
+                          const uid = like.user_id || like.user?.user_id || like.user?.id;
+                          if (uid) {
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                          }
+                        }}
+                      >
                         <UserAvatar
-                          profilePic={like.profile_pic}
-                          firstName={like.f_name}
-                          lastName={like.l_name}
+                          profilePic={like.profile_pic || like.user?.profile_pic}
+                          firstName={like.f_name || like.user?.f_name}
+                          lastName={like.l_name || like.user?.l_name}
                           size={36}
                           style={styles.viewerAvatar}
                         />
                         <Text style={styles.viewerItemText}>
-                          {like.f_name} {like.l_name}
+                          {like.f_name || like.user?.f_name} {like.l_name || like.user?.l_name}
                         </Text>
-                      </View>
+                      </TouchableOpacity>
                     ))
                   ) : (
                     <View style={styles.emptyState}>
@@ -1223,7 +1400,17 @@ export default function PostDetailScreen() {
                 <>
                   {selectedPost.reposts && selectedPost.reposts.length > 0 ? (
                     selectedPost.reposts.map((repost: any, index: number) => (
-                      <View key={index} style={styles.viewerItem}>
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.viewerItem}
+                        onPress={() => {
+                          setViewerVisible(false);
+                          const uid = repost.user?.user_id || repost.user?.id || repost.user_id;
+                          if (uid) {
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                          }
+                        }}
+                      >
                         <UserAvatar
                           profilePic={repost.user?.profile_pic}
                           firstName={repost.user?.f_name}
@@ -1239,7 +1426,7 @@ export default function PostDetailScreen() {
                             <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>
                           )}
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     ))
                   ) : (
                     <View style={styles.emptyState}>
@@ -2100,16 +2287,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#f3f4f6',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    marginBottom: 8,
   },
   replyingToText: {
     fontSize: 12,
     color: '#6b7280',
     fontStyle: 'italic',
+  },
+  replyInputContainer: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  replyInput: {
+    backgroundColor: '#fff',
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 14,
+    minHeight: 40,
+    maxHeight: 100,
+  },
+  replySendButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   
   // Reply Section Styles

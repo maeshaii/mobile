@@ -18,14 +18,17 @@ interface MentionUser {
 export const renderTextWithMentions = (
   text: string, 
   users: MentionUser[] = [], 
-  onMentionPress?: (userId: number) => void
+  onMentionPress?: (userId: number) => void,
+  baseStyle?: any
 ): React.ReactNode => {
-  if (!text) return <Text>{text}</Text>;
+  if (!text) return <Text style={baseStyle}>{text}</Text>;
 
-  // Updated regex to match @mentions without spaces (e.g., @FirstLast, @JohnDoe)
-  // This matches the format stored by MentionInput: @FirstLast (no spaces)
-  // The backend regex r'@([^@\s]+)' doesn't support spaces, so we use @FirstLast format
-  const mentionRegex = /@([A-Za-z0-9]+)/g;
+  // Updated regex to match @mentions with or without spaces (e.g., @FirstLast, @John Doe, @Harlene Ortega)
+  // The backend regex r'@([^@\s]+)' matches @ followed by non-whitespace characters
+  // But mentions can be stored as "@FirstName LastName" so we need to match until whitespace or end
+  // We'll match @ followed by one or more words (allowing spaces between words)
+  // This pattern matches: @ followed by word(s) with optional spaces, stopping at punctuation or end of string
+  const mentionRegex = /@([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)/g;
   // Enhanced URL regex that matches:
   // - http:// or https:// URLs
   // - www. URLs
@@ -78,7 +81,7 @@ export const renderTextWithMentions = (
               console.error('Error opening URL:', error);
             }
           }}
-          style={{ color: '#007bff', textDecorationLine: 'underline' }}
+          style={[baseStyle, { color: '#007bff', textDecorationLine: 'underline' }]}
         >
           {urlPart}
         </Text>
@@ -89,14 +92,16 @@ export const renderTextWithMentions = (
     // Process mentions in this part
     let lastIndex = 0;
     let match;
-    // Match @ followed by name without spaces (matches backend format)
-    const mentionRegexLocal = /@([A-Za-z0-9]+)/g;
+    // Match @ followed by name with or without spaces (e.g., @Harlene Ortega, @JohnDoe)
+    // Match up to 2 words (first name and last name) and stop at the next space or end
+    // This ensures we only match the mention, not the rest of the text
+    const mentionRegexLocal = /@([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)(?=\s|$)/g;
     
     while ((match = mentionRegexLocal.exec(urlPart)) !== null) {
       // Add text before the mention
       if (match.index > lastIndex) {
         result.push(
-          <Text key={`text-${urlIndex}-${lastIndex}`}>
+          <Text key={`text-${urlIndex}-${lastIndex}`} style={baseStyle}>
             {urlPart.substring(lastIndex, match.index)}
           </Text>
         );
@@ -106,19 +111,29 @@ export const renderTextWithMentions = (
       const mentionText = match[0]; // Full match including @
       const username = match[1]; // Captured group (username without @)
       
+      // Display the name as-is (it may already have spaces like "Harlene Ortega")
+      // If it doesn't have spaces, try to split camelCase (e.g., "JohnDoe" -> "John Doe")
+      let displayName = username;
+      if (!username.includes(' ')) {
+        // Only try to split if there are no spaces
+        const splitName = username.replace(/([a-z])([A-Z])/g, '$1 $2');
+        if (splitName !== username && splitName.includes(' ')) {
+          displayName = splitName;
+        }
+      }
+      
       result.push(
         <TouchableOpacity
           key={`mention-${urlIndex}-${match.index}`}
           onPress={async () => {
             if (onMentionPress) {
               try {
-                // The username might be in format "FirstLast" (no space)
+                // The username might be in format "Harlene Ortega" (with space) or "FirstLast" (no space)
                 // Try searching with the username as-is first
                 let response = await searchAlumni(username);
                 
-                // If no results, try splitting camelCase (e.g., "JohnDoe" -> "John Doe")
-                if (!response.results || response.results.length === 0) {
-                  // Try to split camelCase: "JohnDoe" -> "John Doe"
+                // If no results and username doesn't have spaces, try splitting camelCase (e.g., "JohnDoe" -> "John Doe")
+                if ((!response.results || response.results.length === 0) && !username.includes(' ')) {
                   const splitName = username.replace(/([a-z])([A-Z])/g, '$1 $2');
                   if (splitName !== username) {
                     response = await searchAlumni(splitName);
@@ -144,7 +159,7 @@ export const renderTextWithMentions = (
           }}
         >
           <Text style={styles.mentionText}>
-            {mentionText}
+            {displayName}
           </Text>
         </TouchableOpacity>
       );
@@ -152,17 +167,17 @@ export const renderTextWithMentions = (
       lastIndex = mentionRegexLocal.lastIndex;
     }
     
-    // Add remaining text after last mention
-    if (lastIndex < urlPart.length) {
-      result.push(
-        <Text key={`text-${urlIndex}-${lastIndex}`}>
-          {urlPart.substring(lastIndex)}
-        </Text>
-      );
-    }
+      // Add remaining text after last mention
+      if (lastIndex < urlPart.length) {
+        result.push(
+          <Text key={`text-${urlIndex}-${lastIndex}`} style={baseStyle}>
+            {urlPart.substring(lastIndex)}
+          </Text>
+        );
+      }
   });
   
-  return <Text>{result}</Text>;
+  return <Text style={baseStyle}>{result}</Text>;
 };
 
 /**
@@ -191,6 +206,6 @@ const styles = StyleSheet.create({
   mentionText: {
     color: '#007bff',
     fontWeight: '600',
-    textDecorationLine: 'underline',
+    // No underline - just highlighted name like web
   },
 });

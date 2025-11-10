@@ -337,19 +337,35 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
     
     return { success: true, ...response.data };
   } catch (error: any) {
-    console.error('Mobile: Login error details:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      message: error.message,
-      code: error.code,
-      config: {
+    // Safely log error without circular references and truncate large error messages
+    try {
+      let errorData = error.response?.data;
+      // If error data is a string and too long, truncate it
+      if (typeof errorData === 'string' && errorData.length > 500) {
+        errorData = errorData.substring(0, 500) + '... (truncated)';
+      } else if (typeof errorData === 'object') {
+        // If it's an object, try to stringify but limit size
+        const dataStr = JSON.stringify(errorData);
+        if (dataStr.length > 500) {
+          errorData = dataStr.substring(0, 500) + '... (truncated)';
+        }
+      }
+      
+      const errorDetails = {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: errorData,
+        message: error.message,
+        code: error.code,
         url: error.config?.url,
         method: error.config?.method,
         baseURL: error.config?.baseURL,
-        headers: error.config?.headers
-      }
-    });
+      };
+      console.error('Mobile: Login error details:', JSON.stringify(errorDetails, null, 2));
+    } catch (logError) {
+      // If logging fails, just log the message
+      console.error('Mobile: Login error:', error.message || 'Unknown error');
+    }
     
     // Provide more specific error messages (SAME AS WEB)
     if (error.response?.status === 400) {

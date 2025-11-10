@@ -695,12 +695,24 @@ export default function CCICTPage() {
             </ScrollView>
 
             {selectedRepost && (
-              <View style={styles.commentInputRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 12 }}>
                 <MentionInput
                   value={repostCommentText}
                   onChange={setRepostCommentText}
                   placeholder="Write a comment..."
-                  style={styles.commentInput}
+                  style={{ flex: 1, backgroundColor: 'transparent' }}
+                  textInputStyle={{ 
+                    backgroundColor: '#fff', 
+                    borderWidth: 1, 
+                    borderColor: '#eee', 
+                    borderRadius: 20, 
+                    paddingHorizontal: 14, 
+                    paddingVertical: 10, 
+                    fontSize: 14, 
+                    color: '#111827',
+                    minHeight: 44,
+                    maxHeight: 120
+                  }}
                   onSuggestionsChange={handleSuggestionsChange}
                 />
                 <TouchableOpacity

@@ -5,12 +5,10 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Dimensions,
   Platform,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-
-const { width } = Dimensions.get('window');
+import { wp, hp, getPercentageWidth, getResponsiveFontSize, getResponsivePadding } from '../utils/responsive';
 
 // Common emojis organized by category
 const EMOJI_DATA = {
@@ -121,35 +119,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: wp(12),
+    paddingVertical: hp(8),
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
   title: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     fontWeight: 'bold',
     color: '#333',
   },
   closeButton: {
-    padding: 8,
+    padding: wp(8),
   },
   categoryTabs: {
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
-    maxHeight: 36,
+    maxHeight: hp(36),
   },
   categoryTab: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginHorizontal: 3,
+    paddingHorizontal: wp(10),
+    paddingVertical: hp(6),
+    marginHorizontal: wp(3),
   },
   categoryTabActive: {
     borderBottomWidth: 2,
     borderBottomColor: '#1C4E80',
   },
   categoryTabText: {
-    fontSize: 12,
+    fontSize: getResponsiveFontSize(12),
     color: '#666',
   },
   categoryTabTextActive: {
@@ -161,33 +159,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   emojiScrollContent: {
-    paddingBottom: 10,
+    paddingBottom: hp(10),
   },
   emojiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 6,
+    padding: wp(6),
     justifyContent: 'flex-start',
   },
   emojiButton: {
-    width: width / 8,
-    height: width / 8,
+    width: getPercentageWidth(12.5), // 100 / 8 = 12.5%
+    height: getPercentageWidth(12.5),
     justifyContent: 'center',
     alignItems: 'center',
-    margin: 1,
+    margin: wp(1),
   },
   emoji: {
-    fontSize: 24,
+    fontSize: getResponsiveFontSize(24),
     textAlign: 'center',
   },
   hintContainer: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: wp(10),
+    paddingVertical: hp(4),
     borderTopWidth: 1,
     borderTopColor: '#eee',
   },
   hintText: {
-    fontSize: 9,
+    fontSize: getResponsiveFontSize(9),
     color: '#999',
     textAlign: 'center',
   },

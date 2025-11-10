@@ -35,6 +35,7 @@ interface NotificationItem {
   post_id?: number;
   forum_id?: number;
   comment_id?: number;
+  reply_id?: number;
   user_id?: number;
   repost_id?: number;
   donation_id?: number;
@@ -76,10 +77,11 @@ const NotificationScreen = () => {
       const shortMessage =
         fullMessage.length > 80 ? fullMessage.substring(0, 80) + '...' : fullMessage;
 
-      // Extract post ID, forum ID, comment ID, repost ID, donation ID and user ID from various possible fields
+      // Extract post ID, forum ID, comment ID, reply ID, repost ID, donation ID and user ID from various possible fields
       let postId = n.post_id || n.postId || n.target_id || n.object_id;
       let forumId = n.forum_id || n.forumId;
       let commentId = n.comment_id || n.commentId;
+      let replyId = n.reply_id || n.replyId;
       let repostId = n.repost_id || n.repostId;
       let donationId = n.donation_id || n.donationId;
       let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
@@ -99,6 +101,10 @@ const NotificationScreen = () => {
       if (!commentId && fullMessage) {
         const commentIdMatch = fullMessage.match(/<!--COMMENT_ID:(\d+)-->/i);
         if (commentIdMatch) commentId = parseInt(commentIdMatch[1]);
+      }
+      if (!replyId && fullMessage) {
+        const replyIdMatch = fullMessage.match(/<!--REPLY_ID:(\d+)-->/i);
+        if (replyIdMatch) replyId = parseInt(replyIdMatch[1]);
       }
       if (!repostId && fullMessage) {
         const repostIdMatch =
@@ -167,6 +173,7 @@ const NotificationScreen = () => {
         post_id: postId,
         forum_id: forumId,
         comment_id: commentId,
+        reply_id: replyId,
         user_id: userId,
         repost_id: repostId,
         donation_id: donationId,
@@ -274,6 +281,95 @@ const NotificationScreen = () => {
         return;
       } else {
         Alert.alert('Like Notification', 'Unable to navigate to post - post ID not found.');
+        return;
+      }
+    }
+
+    // When user replies to my comment → go to that post's comments with reply highlighted
+    if (type === 'reply' || (message?.includes('replied to your comment'))) {
+      if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.post_id,
+            highlightCommentId: item.comment_id?.toString(),
+            highlightReplyId: item.reply_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.forum_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.forum_id,
+            isForumPost: 'true',
+            highlightCommentId: item.comment_id?.toString(),
+            highlightReplyId: item.reply_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.repost_id) {
+        router.push({
+          pathname: '/repost/repost-comments',
+          params: { 
+            repostId: item.repost_id,
+            highlightCommentId: item.comment_id?.toString(),
+            highlightReplyId: item.reply_id?.toString(),
+          },
+        });
+        return;
+      } else {
+        Alert.alert('Reply Notification', 'Unable to navigate to post - post ID not found.');
+        return;
+      }
+    }
+
+    // When user mentions me in a comment or reply → go to that post's comments with comment/reply highlighted
+    if (type === 'mention' || message?.includes('mentioned')) {
+      if (item.post_id) {
+        const params: any = { postId: item.post_id };
+        if (item.reply_id) {
+          params.highlightReplyId = item.reply_id.toString();
+          params.highlightCommentId = item.comment_id?.toString();
+        } else if (item.comment_id) {
+          params.highlightCommentId = item.comment_id.toString();
+        }
+        router.push({
+          pathname: '/posts/comments',
+          params,
+        });
+        return;
+      } else if (item.forum_id) {
+        const params: any = { 
+          postId: item.forum_id,
+          isForumPost: 'true',
+        };
+        if (item.reply_id) {
+          params.highlightReplyId = item.reply_id.toString();
+          params.highlightCommentId = item.comment_id?.toString();
+        } else if (item.comment_id) {
+          params.highlightCommentId = item.comment_id.toString();
+        }
+        router.push({
+          pathname: '/posts/comments',
+          params,
+        });
+        return;
+      } else if (item.repost_id) {
+        const params: any = { repostId: item.repost_id };
+        if (item.reply_id) {
+          params.highlightReplyId = item.reply_id.toString();
+          params.highlightCommentId = item.comment_id?.toString();
+        } else if (item.comment_id) {
+          params.highlightCommentId = item.comment_id.toString();
+        }
+        router.push({
+          pathname: '/repost/repost-comments',
+          params,
+        });
+        return;
+      } else {
+        Alert.alert('Mention Notification', 'Unable to navigate to post - post ID not found.');
         return;
       }
     }
@@ -436,6 +532,26 @@ const NotificationScreen = () => {
     const type = item.notif_type?.toLowerCase() || '';
     const subject = item.subject || '';
     
+    // Extract user name from notification message if available
+    // Pattern: "Full Name liked/commented/reposted/mentioned..."
+    let userName = name;
+    if (fullMessage) {
+      // Try to extract name from the beginning of the message
+      // Pattern: "Full Name action..." or "Full Name|ID action..."
+      const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started)/i);
+      if (nameMatch && nameMatch[1]) {
+        userName = nameMatch[1].trim();
+      } else if (item.first_name && item.last_name) {
+        userName = `${item.first_name} ${item.last_name}`.trim();
+      } else if (item.first_name || item.last_name) {
+        userName = (item.first_name || item.last_name || '').trim();
+      }
+    } else if (item.first_name && item.last_name) {
+      userName = `${item.first_name} ${item.last_name}`.trim();
+    } else if (item.first_name || item.last_name) {
+      userName = (item.first_name || item.last_name || '').trim();
+    }
+    
     // Use the pre-detected notification source
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
@@ -455,12 +571,12 @@ const NotificationScreen = () => {
     }
 
     // Handle specific notification types
-    if (type === 'comment' || name.toLowerCase() === 'comment') {
-      return `💬 ${name} commented on your post`;
+    if (type === 'comment' || message.toLowerCase().includes('commented')) {
+      return `💬 ${userName} commented on your post`;
     }
 
-    if (type === 'like' || name.toLowerCase() === 'like') {
-      return `❤️ ${name} liked your post`;
+    if (type === 'like' || message.toLowerCase().includes('liked')) {
+      return `❤️ ${userName} liked your post`;
     }
 
     if (type === 'admin_peso_post' || name.toLowerCase() === 'admin_peso_post') {
@@ -494,33 +610,30 @@ const NotificationScreen = () => {
 
     // Format user notifications
     if (type === 'follow' || message.toLowerCase().includes('follow')) {
-      // Extract name from message content (format: "Full Name|user_id started following you.")
-      let userName = 'User';
+      // Extract name from message content (format: "Full Name started following you" or "Full Name|user_id started following you")
+      let followUserName = userName;
       if (fullMessage) {
-        const nameMatch = fullMessage.match(/^(.+?)\|(\d+)\s+started following/i);
+        const nameMatch = fullMessage.match(/^(.+?)\s+started following/i);
         if (nameMatch && nameMatch[1]) {
-          userName = nameMatch[1].trim();
-        } else if (item.first_name && item.last_name) {
-          userName = `${item.first_name} ${item.last_name}`.trim();
-        } else if (item.first_name || item.last_name) {
-          userName = (item.first_name || item.last_name || '').trim();
-        } else if (name) {
-          userName = name;
+          followUserName = nameMatch[1].split('|')[0].trim(); // Remove user_id if present
         }
-      } else if (item.first_name && item.last_name) {
-        userName = `${item.first_name} ${item.last_name}`.trim();
-      } else if (item.first_name || item.last_name) {
-        userName = (item.first_name || item.last_name || '').trim();
-      } else if (name) {
-        userName = name;
       }
-      return `👤 ${userName} started following you`;
+      return `👤 ${followUserName} started following you`;
     }
-    if (type === 'repost' || message.toLowerCase().includes('repost')) {
-      return `🔄 ${name} shared your post`;
+    if (type === 'repost' || message.toLowerCase().includes('repost') || message.toLowerCase().includes('shared')) {
+      return `🔄 ${userName} shared your post`;
     }
     if (type === 'donation' || message.toLowerCase().includes('donation')) {
-      return `💰 ${name} interacted with your donation post`;
+      return `💰 ${userName} interacted with your donation post`;
+    }
+
+    // Format mention notifications
+    if (type === 'mention' || message.toLowerCase().includes('mentioned')) {
+      // Extract the full mention message from the backend
+      // The backend sends: "Full Name mentioned you in their comment/post/reply/etc"
+      // Remove HTML comments and return the clean message
+      const cleanMessage = fullMessage.replace(/<!--[^>]+-->/g, '').trim();
+      return cleanMessage || `🔔 ${userName} mentioned you`;
     }
 
     // Format reward notifications
@@ -528,8 +641,9 @@ const NotificationScreen = () => {
       return '🎁 Reward request update';
     }
 
-    // Default formatting
-    return message.length > 80 ? message.substring(0, 80) + '...' : message;
+    // Default formatting - clean HTML comments and return
+    const cleanMessage = fullMessage.replace(/<!--[^>]+-->/g, '').trim();
+    return cleanMessage.length > 80 ? cleanMessage.substring(0, 80) + '...' : cleanMessage;
   };
 
   const renderAvatar = (item: NotificationItem) => {

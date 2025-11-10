@@ -109,10 +109,10 @@ export default function PESOPage() {
         // Create peso profile object using actual user data
         const pesoProfileData = {
           name: pesoDetails?.f_name && pesoDetails?.l_name 
-            ? `${pesoDetails.f_name} ${pesoDetails.l_name}` 
+            ? `${pesoDetails.f_name} ${pesoDetails.m_name ? pesoDetails.m_name + ' ' : ''}${pesoDetails.l_name}`.trim()
             : pesoDetails?.acc_username || 'PESO',
           username: pesoDetails?.acc_username || '@PESO_CTU_MAIN_CAMPUS',
-          bio: pesoDetails?.profile_bio || pesoDetails?.bio || 'Public Employment Service Office',
+          bio: pesoDetails?.profile_bio || '', // Use actual profile_bio, empty string if not set
           profile_pic: pesoDetails?.profile_pic 
             ? (String(pesoDetails.profile_pic).startsWith('http') || String(pesoDetails.profile_pic).startsWith('data:'))
               ? pesoDetails.profile_pic 
@@ -128,7 +128,7 @@ export default function PESOPage() {
         setPesoProfile({
           name: 'PESO',
           username: '@PESO_CTU_MAIN_CAMPUS',
-          bio: 'Public Employment Service Office',
+          bio: '', // No hardcoded bio, use empty string
           profile_pic: pesoLogo,
         });
       }
@@ -138,7 +138,7 @@ export default function PESOPage() {
       setPesoProfile({
         name: 'PESO',
         username: '@PESO_CTU_MAIN_CAMPUS',
-        bio: 'Public Employment Service Office',
+        bio: '', // No hardcoded bio, use empty string
         profile_pic: pesoLogo,
       });
     }
@@ -272,9 +272,11 @@ export default function PESOPage() {
         </View>
         <Text style={styles.profileName}>{pesoProfile?.name || 'PESO'}</Text>
         <Text style={styles.profileUsername}>{pesoProfile?.username || '@PESO_CTU_MAIN_CAMPUS'}</Text>
-        <View style={styles.bioRow}>
-          <Text style={styles.bioText}>{pesoProfile?.bio || 'Public Employment Service Office'}</Text>
-        </View>
+        {pesoProfile?.bio && pesoProfile.bio.trim() ? (
+          <View style={styles.bioRow}>
+            <Text style={styles.bioText}>{pesoProfile.bio}</Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Posts */}
