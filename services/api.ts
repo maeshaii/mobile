@@ -1671,7 +1671,7 @@ export const listMessages = async (conversationId: number, params?: { cursor?: s
 // Mobile -> Backend: POST /api/messaging/conversations/{id}/messages/
 export const sendMessage = async (
   conversationId: number,
-  payload: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; attachment_id?: number }
+  payload: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; attachment_id?: number; reply_to_message_id?: number }
 ) => {
   try {
     const body: any = {
@@ -1679,11 +1679,38 @@ export const sendMessage = async (
       message_type: payload.message_type ?? 'text',
       attachment_id: payload.attachment_id,
     };
+    if (payload.reply_to_message_id) {
+      body.reply_to_message_id = payload.reply_to_message_id;
+    }
     const { data } = await api.post(`/api/messaging/conversations/${conversationId}/messages/`, body);
     console.log('Mobile sendMessage API Response:', data);
     return data;
   } catch (error) {
     console.error('Mobile sendMessage API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: PUT /api/messaging/conversations/{id}/messages/{messageId}/
+export const updateMessageApi = async (conversationId: number, messageId: number, content: string) => {
+  try {
+    const { data } = await api.put(`/api/messaging/conversations/${conversationId}/messages/${messageId}/`, { content });
+    console.log('Mobile updateMessageApi Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile updateMessageApi Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: DELETE /api/messaging/conversations/{id}/messages/{messageId}/delete/
+export const deleteMessageApi = async (conversationId: number, messageId: number) => {
+  try {
+    const { data } = await api.delete(`/api/messaging/conversations/${conversationId}/messages/${messageId}/delete/`);
+    console.log('Mobile deleteMessageApi Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile deleteMessageApi Error:', error);
     throw error;
   }
 };

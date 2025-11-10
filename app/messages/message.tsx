@@ -8,6 +8,9 @@ import type { Href } from 'expo-router';
 import { listConversations, ConversationSummary, getOnlineUsers, createConversation } from '../../services/api';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import UserAvatar from '../../components/UserAvatar';
+import ErrorBoundary from '../../components/ErrorBoundary';
+import { useDebounce } from '../../hooks/useDebounce';
+import { profilePicCache } from '../../services/profilePicCache';
 
 type Row = {
   id: number;
@@ -36,6 +39,9 @@ const MessageScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [notificationWs, setNotificationWs] = useState<NotificationWebSocket | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // P0 Feature: Debounced search for better performance
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   // Load current user and setup notification WebSocket
   useEffect(() => {
@@ -83,19 +89,43 @@ const MessageScreen = () => {
     setLoading(true);
     try {
       const data: ConversationSummary[] = await listConversations();
-      const mapped: Row[] = (data || []).map((c: ConversationSummary) => {
+      const mapped: Row[] = await Promise.all((data || []).map(async (c: ConversationSummary) => {
         // Parse the full name to extract first and last names
         const fullName = c.other_participant?.name || 'Conversation';
         const nameParts = fullName.split(' ');
         const firstName = nameParts[0] || '';
         const lastName = nameParts.slice(1).join(' ') || '';
         
+        // P0 Feature: Use profile picture cache for better performance
+        let cachedProfilePic: string | null = null;
+        if (c.other_participant?.user_id) {
+          try {
+            cachedProfilePic = await profilePicCache.get(
+              c.other_participant.user_id,
+              c.other_participant.avatar_url
+            );
+          } catch (error) {
+            console.warn('Failed to get cached profile pic:', error);
+          }
+        }
+        
+        // Debug: Log avatar URL for first few conversations
+        if (c.conversation_id <= 5) {
+          console.log(`[Avatar Debug] Conversation ${c.conversation_id} (${fullName}):`, {
+            avatar_url: c.other_participant?.avatar_url,
+            cached_url: cachedProfilePic,
+            firstName,
+            lastName,
+            initials: firstName && lastName ? `${firstName[0]}${lastName[0]}` : firstName ? firstName[0] : '?'
+          });
+        }
+        
         return {
           id: c.conversation_id,
           name: fullName,
           lastMessage: c.last_message?.content || '',
           date: new Date(c.updated_at).toLocaleDateString(),
-          profilePic: c.other_participant?.avatar_url || undefined,
+          profilePic: cachedProfilePic || c.other_participant?.avatar_url || undefined,
           firstName,
           lastName,
           unread: c.unread_count || 0,
@@ -103,7 +133,7 @@ const MessageScreen = () => {
           // online to be determined via other participant's user_id
           isOnline: false,
         };
-      });
+      }));
       setRows(mapped);
       
       // Load online users
@@ -170,16 +200,16 @@ const MessageScreen = () => {
       filtered = [...existingOnline, ...virtualRows];
     }
     
-    // Apply search
-    if (searchQuery.trim()) {
+    // P0 Feature: Apply debounced search for better performance
+    if (debouncedSearchQuery.trim()) {
       filtered = filtered.filter(row => 
-        row.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        row.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+        row.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        row.lastMessage.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
       );
     }
     
     setFilteredRows(filtered);
-  }, [rows, activeFilter, searchQuery]);
+  }, [rows, activeFilter, debouncedSearchQuery, onlineUsersData]);
 
   // Reload conversations when screen comes into focus (e.g., returning from chat)
   useFocusEffect(
@@ -195,7 +225,11 @@ const MessageScreen = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <ErrorBoundary onReset={() => {
+      // Reload conversations on error reset
+      load();
+    }}>
+      <View style={styles.container}>
      
       <NavBar />
       <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
@@ -308,7 +342,8 @@ const MessageScreen = () => {
       >
         <FontAwesome name="plus" size={24} color="white" />
       </TouchableOpacity>
-    </View>
+      </View>
+    </ErrorBoundary>
   );
 };
 
