@@ -43,6 +43,8 @@ const EmojiPickerModal: React.FC<EmojiPickerModalProps> = ({
 
   if (!visible) return null;
 
+  console.log('😊 EmojiPickerModal rendering with height:', keyboardHeight);
+  
   return (
     <View style={[styles.container, { height: keyboardHeight }]}>
       {/* Header with keyboard button */}

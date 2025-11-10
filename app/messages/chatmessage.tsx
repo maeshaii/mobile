@@ -164,8 +164,9 @@ const ChatMessageScreen = () => {
     const keyboardDidShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
-        console.log('Keyboard showing, height:', e.endCoordinates.height);
-        setKeyboardHeight(e.endCoordinates.height);
+        const height = e.endCoordinates.height;
+        console.log('🎹 Keyboard showing, exact height:', height);
+        setKeyboardHeight(height);
         setIsKeyboardVisible(true);
         
         // Close emoji picker when keyboard shows (user tapped text input)
@@ -197,22 +198,43 @@ const ChatMessageScreen = () => {
   // Auto-scroll to bottom when messages change (like web)
   useEffect(() => {
     if (messages.length > 0) {
-      // Multiple aggressive scrolls to ensure it works
-      flatListRef.current?.scrollToEnd({ animated: false });
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 50);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 150);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 300);
+      // SUPER aggressive scrolling - multiple attempts over longer period
+      const scrollToBottom = () => flatListRef.current?.scrollToEnd({ animated: false });
+      
+      scrollToBottom(); // Immediate
+      setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 100);
+      setTimeout(scrollToBottom, 200);
+      setTimeout(scrollToBottom, 300);
+      setTimeout(scrollToBottom, 500);
+      setTimeout(scrollToBottom, 800);
+      setTimeout(scrollToBottom, 1000);
     }
   }, [messages.length]);
 
   // Force scroll to bottom when conversation opens
   useEffect(() => {
     if (conversationId && messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 500);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 800);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 1200);
+      const scrollToBottom = () => flatListRef.current?.scrollToEnd({ animated: false });
+      
+      setTimeout(scrollToBottom, 300);
+      setTimeout(scrollToBottom, 500);
+      setTimeout(scrollToBottom, 800);
+      setTimeout(scrollToBottom, 1000);
+      setTimeout(scrollToBottom, 1500);
+      setTimeout(scrollToBottom, 2000);
     }
   }, [conversationId]);
+  
+  // Also scroll when loading completes
+  useEffect(() => {
+    if (!loading && messages.length > 0) {
+      const scrollToBottom = () => flatListRef.current?.scrollToEnd({ animated: false });
+      setTimeout(scrollToBottom, 100);
+      setTimeout(scrollToBottom, 300);
+      setTimeout(scrollToBottom, 500);
+    }
+  }, [loading, messages.length]);
 
   // Function to load messages (can be called from auto-refresh)
   const loadMessages = async () => {
@@ -1069,7 +1091,8 @@ const ChatMessageScreen = () => {
         <View style={[
           styles.messagesArea,
           {
-            marginBottom: isKeyboardVisible ? keyboardHeight : 0
+            marginBottom: (isKeyboardVisible || showEmojiPicker) ? 
+              (keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)) : 0
           }
         ]}>
           <FlatList
@@ -1573,15 +1596,25 @@ const ChatMessageScreen = () => {
       </Modal>
 
       {/* Custom Emoji Picker - Replaces keyboard like Messenger */}
-      <EmojiPickerModal
-        visible={showEmojiPicker}
-        onClose={() => {
-          setShowEmojiPicker(false);
-          inputRef.current?.focus();
-        }}
-        onEmojiSelected={handleEmojiSelect}
-        keyboardHeight={keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 280 : 260)}
-      />
+      {showEmojiPicker && (
+        <View style={{ 
+          position: 'absolute', 
+          bottom: 0, 
+          left: 0, 
+          right: 0,
+          height: keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)
+        }}>
+          <EmojiPickerModal
+            visible={showEmojiPicker}
+            onClose={() => {
+              setShowEmojiPicker(false);
+              inputRef.current?.focus();
+            }}
+            onEmojiSelected={handleEmojiSelect}
+            keyboardHeight={keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)}
+          />
+        </View>
+      )}
 
       {/* Image Viewing Modal */}
       <Modal
