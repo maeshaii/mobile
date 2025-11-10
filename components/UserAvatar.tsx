@@ -65,27 +65,33 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
 
   if (uri) {
     return (
-      <CachedImage
-        uri={uri}
-        style={[avatarStyle, style]}
-        contentFit="cover"
-      />
+      <View style={[avatarStyle, style, styles.imageContainer]}>
+        <CachedImage
+          uri={uri}
+          style={[avatarStyle, { position: 'absolute' }]}
+          contentFit="cover"
+        />
+      </View>
     );
   }
 
-  // Fallback to CTU logo when no profile picture
+  // Fallback to initials when no profile picture
   return (
-    <Image
-      source={require('../assets/images/ctu_logo.png')}
-      style={[avatarStyle, style]}
-      contentFit="cover"
-    />
+    <View style={[avatarStyle, style, styles.fallback]}>
+      <Text style={[styles.initials, { fontSize: safeSize * 0.4 }]}>
+        {getInitials()}
+      </Text>
+    </View>
   );
 };
 
  
 
 const styles = StyleSheet.create({
+  imageContainer: {
+    overflow: 'hidden',
+    position: 'relative',
+  },
   fallback: {
     backgroundColor: '#174f84',
     alignItems: 'center',

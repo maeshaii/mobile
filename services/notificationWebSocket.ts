@@ -59,6 +59,8 @@ export class NotificationWebSocket {
       // Clean the base URL to prevent double slashes
       const cleanBaseUrl = this.baseUrl.replace(/\/+$/, '');
       // Backend routing is /ws/notifications/ (without user ID in path)
+      // FIX: Don't include user_id in URL - backend gets user from token
+
       let wsUrl = `${cleanBaseUrl}/ws/notifications/`;
       
       // Add JWT token to URL if available
@@ -106,14 +108,15 @@ export class NotificationWebSocket {
       this.ws.onerror = (error) => {
         this.isConnecting = false;
         this.onStatusCallback?.('error');
-        console.error('NotificationWebSocket: Connection error:', error);
+        console.warn('NotificationWebSocket: Connection error (non-fatal, will use polling):', error);
+        // Don't throw - gracefully degrade to polling
       };
 
     } catch (error) {
       this.isConnecting = false;
       this.onStatusCallback?.('error');
-      console.error('NotificationWebSocket: Connection failed:', error);
-      throw error;
+      console.warn('NotificationWebSocket: Connection failed (non-fatal, will use polling):', error);
+      // Don't throw - gracefully degrade to polling
     }
   }
 

@@ -32,8 +32,19 @@ const CachedImage: React.FC<CachedImageProps> = ({
   transitionMs = 150,
   blurhash
 }) => {
+  const [error, setError] = React.useState(false);
   const finalUri = appendNgrokBypass(uri ?? undefined);
   const source = finalUri ? { uri: finalUri, cache: 'force-cache' as const } : undefined;
+
+  // Reset error state when URI changes
+  React.useEffect(() => {
+    setError(false);
+  }, [uri]);
+
+  if (error || !source) {
+    // Return empty view if image failed to load
+    return <Image source={undefined} style={style} contentFit={contentFit} />;
+  }
 
   return (
     <Image
@@ -42,6 +53,10 @@ const CachedImage: React.FC<CachedImageProps> = ({
       contentFit={contentFit}
       transition={transitionMs}
       placeholder={blurhash}
+      onError={() => {
+        console.log('Image load error for URI:', finalUri);
+        setError(true);
+      }}
     />
   );
 };

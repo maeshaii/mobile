@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, FlatList, Platform, AppState, Alert, Keyboard, Dimensions, StatusBar, Modal, Linking, ScrollView, ActivityIndicator } from 'react-native';
 // Using expo-av for video playback (more stable)
 import { Video, ResizeMode } from 'expo-av';
@@ -8,20 +8,25 @@ import { useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
 
-// Get directory paths - use type assertion to bypass TypeScript issues
-const CACHE_DIR = (FileSystem as any).cacheDirectory || '';
-const DOC_DIR = (FileSystem as any).documentDirectory || '';
-import * as Sharing from 'expo-sharing';
-import EmojiSelector from 'react-native-emoji-selector';
-import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL } from '../../services/api';
+import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, updateMessageApi, deleteMessageApi, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL } from '../../services/api';
+import EmojiPickerModal from '../../components/EmojiPickerModal';
+import { downloadImage, downloadVideo, downloadDocument } from '../../utils/downloadHelper';
 import { ConversationWebSocket, TypingIndicator, WsEvent } from '../../services/websocketHelper';
 import { getFileIcon, getFileTypeDisplayName, formatFileSize, isImageFile, isVideoFile, isAudioFile, FileCategory } from '../../utils/fileUtils';
 import { deduplicateMessages, addMessageWithDeduplication, replaceTempMessage, removeTempMessage, isDuplicateMessage } from '../../utils/messageUtils';
 import { sanitizeUserInput, validateMessageType } from '../../utils/securityUtils';
 import { useLogger } from '../../utils/logger';
 import { renderTextWithLinks } from '../../utils/linkRenderer';
+
+// Import new P0 components
+import MessageActions from '../../components/MessageActions';
+import { MessageReactionPicker } from '../../components/MessageReactionPicker';
+import MessageEditModal from '../../components/MessageEditModal';
+import ReplyPreview from '../../components/ReplyPreview';
+import ErrorBoundary from '../../components/ErrorBoundary';
+import { profilePicCache } from '../../services/profilePicCache';
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
 
@@ -41,6 +46,14 @@ type UiMsg = {
     file_category?: FileCategory;
     file_size?: number;
   };
+  reactions?: Array<{ emoji: string; userId: number; userName?: string }>;
+  reply_to?: {
+    message_id: string;
+    content: string;
+    sender_name: string;
+  };
+  is_edited?: boolean;
+  is_read?: boolean;
 };
 
 const ChatMessageScreen = () => {
@@ -55,11 +68,12 @@ const ChatMessageScreen = () => {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [otherParticipantAvatar, setOtherParticipantAvatar] = useState<string | null>(null);
   
   // Download modal state
   const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [downloadFile, setDownloadFile] = useState<{url: string, name: string, type: string} | null>(null);
-  const [isSharing, setIsSharing] = useState(false); // Prevent multiple share requests
+  const [downloadFile, setDownloadFile] = useState<{url: string; name: string; mimeType: string} | null>(null);
+  const [isSharing, setIsSharing] = useState(false); // Prevent multiple concurrent downloads
   
   // Image viewing state
   const [showImageModal, setShowImageModal] = useState(false);
@@ -78,56 +92,91 @@ const ChatMessageScreen = () => {
   // Connection status state
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
   
+  // P0 Features: Message Actions, Reactions, Reply, Edit, Delete
+  const [showMessageActions, setShowMessageActions] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<UiMsg | null>(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [reactionMessage, setReactionMessage] = useState<UiMsg | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<UiMsg | null>(null);
+  const [editMessageContent, setEditMessageContent] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<UiMsg | null>(null);
+  
   const flatListRef = useRef<FlatList>(null);
   const wsRef = useRef<ConversationWebSocket | null>(null);
   const typingIndicatorRef = useRef<TypingIndicator | null>(null);
   const hasMarkedAsRead = useRef(false);
   const typingTimeoutRef = useRef<any>(null);
+  const inputRef = useRef<TextInput>(null);
 
-  // Emoji picker functionality using react-native-emoji-selector
+  // Emoji picker functionality
   const handleEmojiSelect = (emoji: string) => {
     try {
       // Validate emoji before adding
       if (emoji && typeof emoji === 'string' && emoji.length > 0) {
         setInput(prev => prev + emoji);
-        setShowEmojiPicker(false);
+        // DON'T close picker - let user select multiple emojis
+        // User can close by tapping outside or the close button
       } else {
         console.warn('Invalid emoji selected:', emoji);
       }
     } catch (error) {
       console.error('Error handling emoji selection:', error);
-      setShowEmojiPicker(false);
     }
   };
 
-  // Load current user
+  // Load current user and conversation details
   useEffect(() => {
     async function loadUser() {
       try {
         const user = await getUserInfo();
         setCurrentUser(user);
         console.log('Loaded current user:', user);
+        
+        // Fetch conversation details to get other participant's avatar
+        if (conversationId) {
+          try {
+            const response = await api.get(`/api/messaging/conversations/${conversationId}/`);
+            const conversation = response.data;
+            console.log('Loaded conversation:', conversation);
+            
+            // Get other participant's avatar
+            const otherParticipant = conversation.other_participant;
+            if (otherParticipant?.avatar_url) {
+              setOtherParticipantAvatar(otherParticipant.avatar_url);
+              console.log('Loaded other participant avatar:', otherParticipant.avatar_url);
+            }
+          } catch (convError) {
+            console.error('Failed to load conversation details:', convError);
+          }
+        }
       } catch (error) {
         console.error('Failed to load user:', error);
       }
     }
     loadUser();
-  }, []);
+  }, [conversationId]);
 
   // Keyboard event listeners for manual handling
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
-        console.log('Keyboard showing, height:', e.endCoordinates.height);
-        setKeyboardHeight(e.endCoordinates.height);
+        const height = e.endCoordinates.height;
+        console.log('🎹 Keyboard showing, exact height:', height);
+        setKeyboardHeight(height);
         setIsKeyboardVisible(true);
+        
+        // Close emoji picker when keyboard shows (user tapped text input)
+        setShowEmojiPicker(false);
         
         // Scroll to bottom when keyboard appears
         setTimeout(() => {
           console.log('Scrolling to bottom due to keyboard');
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 300);
+          flatListRef.current?.scrollToEnd({ animated: false });
+        }, 100);
       }
     );
 
@@ -149,11 +198,43 @@ const ChatMessageScreen = () => {
   // Auto-scroll to bottom when messages change (like web)
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      // SUPER aggressive scrolling - multiple attempts over longer period
+      const scrollToBottom = () => flatListRef.current?.scrollToEnd({ animated: false });
+      
+      scrollToBottom(); // Immediate
+      setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 100);
+      setTimeout(scrollToBottom, 200);
+      setTimeout(scrollToBottom, 300);
+      setTimeout(scrollToBottom, 500);
+      setTimeout(scrollToBottom, 800);
+      setTimeout(scrollToBottom, 1000);
     }
   }, [messages.length]);
+
+  // Force scroll to bottom when conversation opens
+  useEffect(() => {
+    if (conversationId && messages.length > 0) {
+      const scrollToBottom = () => flatListRef.current?.scrollToEnd({ animated: false });
+      
+      setTimeout(scrollToBottom, 300);
+      setTimeout(scrollToBottom, 500);
+      setTimeout(scrollToBottom, 800);
+      setTimeout(scrollToBottom, 1000);
+      setTimeout(scrollToBottom, 1500);
+      setTimeout(scrollToBottom, 2000);
+    }
+  }, [conversationId]);
+  
+  // Also scroll when loading completes
+  useEffect(() => {
+    if (!loading && messages.length > 0) {
+      const scrollToBottom = () => flatListRef.current?.scrollToEnd({ animated: false });
+      setTimeout(scrollToBottom, 100);
+      setTimeout(scrollToBottom, 300);
+      setTimeout(scrollToBottom, 500);
+    }
+  }, [loading, messages.length]);
 
   // Function to load messages (can be called from auto-refresh)
   const loadMessages = async () => {
@@ -190,7 +271,16 @@ const ChatMessageScreen = () => {
             file_type: m.attachments[0].file_type,
             file_category: m.attachments[0].file_category,
             file_size: m.attachments[0].file_size
-          } : undefined
+          } : undefined,
+          // P0 Features: Include reactions, reply_to, and edited status
+          reactions: m.reactions || [],
+          reply_to: m.reply_to ? {
+            message_id: String(m.reply_to.message_id),
+            content: m.reply_to.content,
+            sender_name: m.reply_to.sender_name
+          } : undefined,
+          is_edited: m.is_edited || false,
+          is_read: m.is_read || false
         };
       });
       
@@ -203,7 +293,7 @@ const ChatMessageScreen = () => {
       // Auto-scroll to bottom after loading messages (like web)
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: false });
-      }, 200);
+      }, 300);
     } catch (error) {
       console.error('Failed to load messages:', error);
     } finally {
@@ -358,6 +448,64 @@ const ChatMessageScreen = () => {
             }, 3000);
           }
           break;
+        
+        // P0 Feature: Real-time Reaction Updates
+        case 'reaction':
+          console.log('WebSocket reaction event:', event);
+          if (event.message_id) {
+            setMessages(prev => prev.map(m => {
+              if (m.id === String(event.message_id)) {
+                const reactions = m.reactions || [];
+                if (event.action === 'add' && event.emoji && event.user_id) {
+                  // Add reaction
+                  return {
+                    ...m,
+                    reactions: [...reactions, {
+                      emoji: event.emoji,
+                      userId: event.user_id,
+                      userName: event.user_name || 'Unknown'
+                    }]
+                  };
+                } else if (event.action === 'remove' && event.emoji && event.user_id) {
+                  // Remove reaction
+                  return {
+                    ...m,
+                    reactions: reactions.filter(r =>
+                      !(r.emoji === event.emoji && r.userId === event.user_id)
+                    )
+                  };
+                }
+              }
+              return m;
+            }));
+          }
+          break;
+        
+        // P0 Feature: Real-time Message Edit Updates
+        case 'edit':
+          console.log('WebSocket edit event:', event);
+          if (event.message_id && event.content) {
+            setMessages(prev => prev.map(m => {
+              if (m.id === String(event.message_id)) {
+                return {
+                  ...m,
+                  text: event.content,
+                  is_edited: true
+                };
+              }
+              return m;
+            }));
+          }
+          break;
+        
+        // P0 Feature: Real-time Message Delete Updates
+        case 'delete':
+          console.log('WebSocket delete event:', event);
+          if (event.message_id) {
+            setMessages(prev => prev.filter(m => m.id !== String(event.message_id)));
+          }
+          break;
+        
         case 'pong':
           console.log('WebSocket message received: pong myId:', myId);
           break;
@@ -408,7 +556,7 @@ const ChatMessageScreen = () => {
       const sanitizedText = sanitizeUserInput(input.trim());
       if (!sanitizedText || !currentUser || !currentUser.id) return;
     
-      console.log('Sending message:', sanitizedText, 'user:', currentUser.id);
+      console.log('Sending message:', sanitizedText, 'user:', currentUser.id, 'replyingTo:', replyingToMessage?.id);
       
       const tempId = `temp_${Date.now()}_${Math.random()}`;
       const tempMessage: UiMsg = {
@@ -419,11 +567,21 @@ const ChatMessageScreen = () => {
         sender_id: currentUser.id,
         sender_name: currentUser.name,
         created_at: new Date().toISOString(),
+        // Include reply info if replying
+        reply_to: replyingToMessage ? {
+          message_id: replyingToMessage.id,
+          content: replyingToMessage.text,
+          sender_name: replyingToMessage.sender_name || 'Unknown'
+        } : undefined
       };
     
     // Add temporary message immediately (optimistic UI)
     setMessages(prev => addMessageWithDeduplication(prev, tempMessage));
     setInput('');
+    
+    // Clear reply state
+    const replyToId = replyingToMessage?.id;
+    setReplyingToMessage(null);
     
     // Clear any existing typing timeout
     if (typingTimeoutRef.current) {
@@ -431,7 +589,13 @@ const ChatMessageScreen = () => {
     }
     
       try {
-        const saved = await sendMessageApi(Number(conversationId), { content: sanitizedText });
+        // Build request payload with optional reply_to_message_id
+        const payload: any = { content: sanitizedText };
+        if (replyToId) {
+          payload.reply_to_message_id = parseInt(replyToId);
+        }
+        
+        const saved = await sendMessageApi(Number(conversationId), payload);
       console.log('Message sent successfully:', saved);
       
       // Replace temporary message with saved message using utility function
@@ -452,7 +616,7 @@ const ChatMessageScreen = () => {
       }
       
       // Scroll to bottom after sending
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
     } catch (error) {
       console.error('Input sanitization failed:', error);
       Alert.alert('Invalid Input', 'Invalid message content. Please check your input and try again.');
@@ -480,6 +644,168 @@ const ChatMessageScreen = () => {
     }
   };
 
+  // P0 Feature: Long Press Handler - Show Message Actions
+  const handleMessageLongPress = useCallback((message: UiMsg) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setSelectedMessage(message);
+    setShowMessageActions(true);
+  }, []);
+
+  // P0 Feature: Message Reaction Handler (Client-Side Only - Like Web Version)
+  const handleReaction = useCallback((messageId: string) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message) {
+      setReactionMessage(message);
+      setShowReactionPicker(true);
+    }
+  }, [messages]);
+
+  const handleSelectReaction = useCallback(async (emoji: string) => {
+    if (!reactionMessage || !currentUser) return;
+    
+    try {
+      // Client-side only reactions (like web version)
+      // Check if user already reacted with this emoji
+      const existingReaction = reactionMessage.reactions?.find(
+        r => r.emoji === emoji && r.userId === currentUser.id
+      );
+      
+      if (existingReaction) {
+        // Remove reaction (toggle off)
+        setMessages(prev => prev.map(m => {
+          if (m.id === reactionMessage.id) {
+            return {
+              ...m,
+              reactions: m.reactions?.filter(r => !(r.emoji === emoji && r.userId === currentUser.id))
+            };
+          }
+          return m;
+        }));
+      } else {
+        // Add reaction
+        setMessages(prev => prev.map(m => {
+          if (m.id === reactionMessage.id) {
+            return {
+              ...m,
+              reactions: [...(m.reactions || []), { emoji, userId: currentUser.id, userName: currentUser.name }]
+            };
+          }
+          return m;
+        }));
+      }
+      
+      setShowReactionPicker(false);
+      setReactionMessage(null);
+    } catch (error) {
+      console.error('Failed to toggle reaction:', error);
+      setShowReactionPicker(false);
+      setReactionMessage(null);
+    }
+  }, [reactionMessage, currentUser, messages]);
+
+  // P0 Feature: Message Reply Handler
+  const handleReply = useCallback((messageId: string) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message) {
+      setReplyingToMessage(message);
+      setShowMessageActions(false);
+    }
+  }, [messages]);
+
+  const cancelReply = useCallback(() => {
+    setReplyingToMessage(null);
+  }, []);
+
+  // P0 Feature: Message Edit Handler
+  const handleEdit = useCallback((messageId: string, currentContent: string) => {
+    const message = messages.find(m => m.id === messageId);
+    if (message) {
+      setEditingMessage(message);
+      setEditMessageContent(currentContent);
+      setShowEditModal(true);
+      setShowMessageActions(false);
+    }
+  }, [messages]);
+
+  const handleSaveEdit = useCallback(async (messageId: string, newContent: string) => {
+    if (!conversationId) return;
+    
+    setIsSavingEdit(true);
+    setEditError(null);
+    
+    try {
+      const sanitizedContent = sanitizeUserInput(newContent.trim());
+      if (!sanitizedContent) {
+        setEditError('Message cannot be empty.');
+        setIsSavingEdit(false);
+        return;
+      }
+      
+      // Call API to update message using the proper helper function
+      console.log('Updating message:', messageId, 'with content:', sanitizedContent);
+      await updateMessageApi(Number(conversationId), parseInt(messageId), sanitizedContent);
+      
+      // Update local state
+      setMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          return {
+            ...m,
+            text: sanitizedContent,
+            is_edited: true
+          };
+        }
+        return m;
+      }));
+      
+      setShowEditModal(false);
+      setEditingMessage(null);
+      setEditMessageContent('');
+      setIsSavingEdit(false);
+      
+      Alert.alert('Success', 'Message updated successfully!');
+    } catch (error) {
+      console.error('Failed to edit message:', error);
+      setEditError('Failed to update message. Please try again.');
+      setIsSavingEdit(false);
+    }
+  }, [conversationId]);
+
+  // P0 Feature: Message Delete Handler
+  const handleDelete = useCallback(async (messageId: string) => {
+    if (!conversationId) return;
+    
+    console.log('Delete handler called for message:', messageId);
+    
+    Alert.alert(
+      'Delete Message',
+      'Are you sure you want to delete this message? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('Deleting message:', messageId, 'from conversation:', conversationId);
+              await deleteMessageApi(Number(conversationId), parseInt(messageId));
+              
+              // Remove message from local state
+              setMessages(prev => prev.filter(m => m.id !== messageId));
+              
+              setShowMessageActions(false);
+              setSelectedMessage(null);
+              
+              Alert.alert('Success', 'Message deleted successfully!');
+            } catch (error) {
+              console.error('Failed to delete message:', error);
+              Alert.alert('Error', 'Failed to delete message. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  }, [conversationId]);
+
   const loadMore = async () => {
     if (!conversationId || !nextCursor || isLoadingMore || !currentUser || !currentUser.id) return;
     setIsLoadingMore(true);
@@ -497,7 +823,22 @@ const ChatMessageScreen = () => {
           sender_name: m.sender?.name,
           created_at: m.created_at,
           attachment_url: m.attachments?.[0]?.file_url || null,
-          message_type: m.message_type
+          message_type: m.message_type,
+          attachment_info: m.attachments?.[0] ? {
+            file_name: m.attachments[0].file_name,
+            file_type: m.attachments[0].file_type,
+            file_category: m.attachments[0].file_category,
+            file_size: m.attachments[0].file_size
+          } : undefined,
+          // P0 Features: Include reactions, reply_to, and edited status
+          reactions: m.reactions || [],
+          reply_to: m.reply_to ? {
+            message_id: String(m.reply_to.message_id),
+            content: m.reply_to.content,
+            sender_name: m.reply_to.sender_name
+          } : undefined,
+          is_edited: m.is_edited || false,
+          is_read: m.is_read || false
         };
       });
       
@@ -698,7 +1039,7 @@ const ChatMessageScreen = () => {
       setMessages(prev => [...prev, newMessage]);
       
       // Scroll to bottom
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
       
     } catch (error) {
       console.error('Attachment upload failed:', error);
@@ -716,7 +1057,13 @@ const ChatMessageScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <ErrorBoundary type="messaging" onReset={() => {
+      // Reload messages on error reset
+      if (conversationId && currentUser?.id) {
+        loadMessages();
+      }
+    }}>
+      <View style={styles.container}>
       {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -744,7 +1091,8 @@ const ChatMessageScreen = () => {
         <View style={[
           styles.messagesArea,
           {
-            marginBottom: isKeyboardVisible ? keyboardHeight : 0
+            marginBottom: (isKeyboardVisible || showEmojiPicker) ? 
+              (keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)) : 0
           }
         ]}>
           <FlatList
@@ -754,16 +1102,14 @@ const ChatMessageScreen = () => {
             onContentSizeChange={() => {
               // Auto-scroll when content size changes
               console.log('FlatList content size changed, scrolling to bottom');
-              setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-              }, 100);
+              flatListRef.current?.scrollToEnd({ animated: false });
             }}
             onLayout={() => {
-              // Auto-scroll when layout changes
+              // Auto-scroll when layout changes  
               console.log('FlatList layout changed, scrolling to bottom');
               setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-              }, 100);
+                flatListRef.current?.scrollToEnd({ animated: false });
+              }, 50);
             }}
             renderItem={({ item }) => {
               if (!currentUser) {
@@ -788,10 +1134,22 @@ const ChatMessageScreen = () => {
                   styles.messageContainer,
                   isActuallyMine ? styles.messageSent : styles.messageReceived
                 ]}>
-                  <View style={[
-                    styles.messageBubble,
-                    isActuallyMine ? styles.bubbleSent : styles.bubbleReceived
-                  ]}>
+                  <View style={styles.messageRow}>
+                    {/* Avatar for received messages */}
+                    {!isActuallyMine && (
+                      <Image
+                        source={otherParticipantAvatar ? { uri: otherParticipantAvatar } : samplePic}
+                        style={styles.messageAvatar}
+                      />
+                    )}
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onLongPress={() => handleMessageLongPress(item)}
+                      style={[
+                        styles.messageBubble,
+                        isActuallyMine ? styles.bubbleSent : styles.bubbleReceived
+                      ]}
+                    >
                     {/* Sender label */}
                     <Text style={[
                       styles.senderLabel,
@@ -799,6 +1157,36 @@ const ChatMessageScreen = () => {
                     ]}>
                       {isActuallyMine ? 'You' : (item.sender_name || 'Unknown')}
                     </Text>
+                    
+                    {/* P0 Feature: Reply-To Preview */}
+                    {item.reply_to && (
+                      <View style={[
+                        styles.replyPreviewContainer,
+                        isActuallyMine ? styles.replyPreviewSent : styles.replyPreviewReceived
+                      ]}>
+                        <View style={styles.replyBar} />
+                        <View style={styles.replyContent}>
+                          <FontAwesome name="reply" size={12} color={isActuallyMine ? "rgba(255,255,255,0.7)" : "#666"} />
+                          <View style={styles.replyTextContainer}>
+                            <Text style={[
+                              styles.replySenderName,
+                              isActuallyMine ? styles.replySenderNameSent : styles.replySenderNameReceived
+                            ]}>
+                              {item.reply_to.sender_name}
+                            </Text>
+                            <Text 
+                              style={[
+                                styles.replyMessageText,
+                                isActuallyMine ? styles.replyMessageTextSent : styles.replyMessageTextReceived
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {item.reply_to.content || 'Attachment'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    )}
                     
                     {/* Message content */}
                     {item.attachment_url ? (
@@ -901,72 +1289,45 @@ const ChatMessageScreen = () => {
                                   {item.attachment_info.file_name}
                                 </Text>
                                 <TouchableOpacity
-                                  onPress={async () => {
-                                    if (item.attachment_url && !isSharing) {
-                                      try {
-                                        setIsSharing(true);
-                                        const fullUrl = item.attachment_url.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`;
-                                        
-                                        // Convert media URL to api URL if needed
-                                        const bypassUrl = fullUrl.replace(/\/media\//, '/api/messaging/files/');
-                                        
-                                        const filename = item.attachment_info?.file_name || `video_${Date.now()}.mp4`;
-                                        
-                                        const downloadResult = await FileSystem.downloadAsync(
-                                          bypassUrl,
-                                          `${CACHE_DIR}${filename}`,
-                                          {
-                                            headers: {
-                                              'ngrok-skip-browser-warning': 'true',
-                                              'User-Agent': 'MobileApp/1.0'
+                                  onPress={() => {
+                                    // Show confirmation FIRST
+                                    Alert.alert(
+                                      'Download Video',
+                                      'Do you want to download this video to your device?',
+                                      [
+                                        {
+                                          text: 'No',
+                                          style: 'cancel'
+                                        },
+                                        {
+                                          text: 'Yes',
+                                          onPress: async () => {
+                                            if (item.attachment_url && !isSharing) {
+                                              try {
+                                                setIsSharing(true);
+                                                const fullUrl = item.attachment_url.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`;
+                                                
+                                                // Convert media URL to api URL if needed
+                                                const bypassUrl = fullUrl.replace(/\/media\//, '/api/messaging/files/');
+                                                
+                                                const filename = item.attachment_info?.file_name || `video_${Date.now()}.mp4`;
+                                                
+                                                // PROPER DOWNLOAD - saves to device Gallery
+                                                await downloadVideo(
+                                                  bypassUrl,
+                                                  filename,
+                                                  item.attachment_info?.file_type || 'video/mp4'
+                                                );
+                                              } catch (error) {
+                                                console.error('Video download error:', error);
+                                              } finally {
+                                                setIsSharing(false);
+                                              }
                                             }
                                           }
-                                        );
-                                        
-                                        if (downloadResult.status === 200) {
-                                          Alert.alert(
-                                            'Video Downloaded',
-                                            'Video has been downloaded. What would you like to do?',
-                                            [
-                                              {
-                                                text: 'Play Video',
-                                                onPress: async () => {
-                                                  try {
-                                                    await Linking.openURL(downloadResult.uri);
-                                                  } catch (error) {
-                                                    console.error('Error opening video:', error);
-                                                  }
-                                                }
-                                              },
-                                              {
-                                                text: 'Share',
-                                                onPress: async () => {
-                                                  try {
-                                                    const isAvailable = await Sharing.isAvailableAsync();
-                                                    if (isAvailable) {
-                                                      await Sharing.shareAsync(downloadResult.uri);
-                                                    }
-                                                  } catch (error) {
-                                                    console.error('Error sharing video:', error);
-                                                  }
-                                                }
-                                              },
-                                              {
-                                                text: 'Done',
-                                                style: 'cancel'
-                                              }
-                                            ]
-                                          );
-                                        } else {
-                                          throw new Error(`Download failed: ${downloadResult.status}`);
                                         }
-                                      } catch (error) {
-                                        console.error('Video download error:', error);
-                                        Alert.alert('Error', 'Could not download video');
-                                      } finally {
-                                        setIsSharing(false);
-                                      }
-                                    }
+                                      ]
+                                    );
                                   }}
                                   style={{ padding: 4 }}
                                 >
@@ -995,12 +1356,12 @@ const ChatMessageScreen = () => {
                             onPress={() => {
                               const url = item.attachment_url;
                               const fileName = item.attachment_info?.file_name || item.text;
-                              const fileType = item.attachment_info?.file_type || '';
+                              const fileType = item.attachment_info?.file_type || 'application/octet-stream';
                               if (!url) return;
                               
                               // Show download confirmation for documents
                               const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
-                              setDownloadFile({ url: fullUrl, name: fileName, type: fileType });
+                              setDownloadFile({ url: fullUrl, name: fileName, mimeType: fileType });
                               setShowDownloadModal(true);
                             }}
                             style={[styles.fileAttachment, isActuallyMine ? styles.fileAttachmentSent : styles.fileAttachmentReceived]}
@@ -1035,6 +1396,20 @@ const ChatMessageScreen = () => {
                       </Text>
                     )}
                     
+                    {/* P0 Feature: Message Reactions Display */}
+                    {item.reactions && item.reactions.length > 0 && (
+                      <View style={styles.reactionsContainer}>
+                        {item.reactions.map((reaction, index) => (
+                          <View key={`${reaction.emoji}-${index}`} style={[
+                            styles.reactionBubble,
+                            reaction.userId === currentUser?.id && styles.reactionBubbleOwn
+                          ]}>
+                            <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    
                     {/* Timestamp and Status */}
                     <View style={[
                       styles.timestampContainer,
@@ -1049,10 +1424,26 @@ const ChatMessageScreen = () => {
                           minute: '2-digit' 
                         }) : ''}
                       </Text>
+                      {/* P0 Feature: Edited Indicator */}
+                      {item.is_edited && (
+                        <Text style={[
+                          styles.editedIndicator,
+                          isActuallyMine ? styles.editedIndicatorSent : styles.editedIndicatorReceived
+                        ]}>
+                          (edited)
+                        </Text>
+                      )}
+                      {/* P0 Feature: Read Receipts */}
                       {isActuallyMine && (
-                        <Text style={styles.messageStatus}>✓✓</Text>
+                        <Text style={[
+                          styles.messageStatus,
+                          item.is_read && styles.messageStatusRead
+                        ]}>
+                          ✓✓
+                        </Text>
                       )}
                     </View>
+                  </TouchableOpacity>
                   </View>
                 </View>
               );
@@ -1060,7 +1451,7 @@ const ChatMessageScreen = () => {
             onEndReached={loadMore}
             onEndReachedThreshold={0.1}
             contentContainerStyle={{ 
-              paddingBottom: 20,
+              paddingBottom: 100,
               flexGrow: 1
             }}
             ListEmptyComponent={
@@ -1097,6 +1488,15 @@ const ChatMessageScreen = () => {
             bottom: isKeyboardVisible ? keyboardHeight : 0
           }
         ]}>
+          {/* P0 Feature: Reply Preview */}
+          {replyingToMessage && (
+            <ReplyPreview
+              senderName={replyingToMessage.sender_name || 'Unknown'}
+              messageContent={replyingToMessage.text}
+              onCancel={cancelReply}
+            />
+          )}
+          
           <View style={styles.inputBar}>
             <TouchableOpacity 
               onPress={handleAttachmentPress}
@@ -1105,12 +1505,23 @@ const ChatMessageScreen = () => {
               <FontAwesome name="paperclip" size={20} color="white" />
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() => setShowEmojiPicker(!showEmojiPicker)}
+              onPress={() => {
+                if (showEmojiPicker) {
+                  // Close emoji picker and show keyboard
+                  setShowEmojiPicker(false);
+                  inputRef.current?.focus();
+                } else {
+                  // Close keyboard and show emoji picker
+                  Keyboard.dismiss();
+                  setShowEmojiPicker(true);
+                }
+              }}
               style={styles.emojiButton}
             >
-              <FontAwesome name="smile-o" size={20} color="white" />
+              <FontAwesome name={showEmojiPicker ? "keyboard-o" : "smile-o"} size={20} color="white" />
             </TouchableOpacity>
             <TextInput
+              ref={inputRef}
               style={styles.input}
               placeholder="Write a message..."
               placeholderTextColor="rgba(255, 255, 255, 0.7)"
@@ -1162,59 +1573,13 @@ const ChatMessageScreen = () => {
                       console.log('Original file URL:', downloadFile.url);
                       const bypassUrl = downloadFile.url.replace(/\/media\//, '/api/messaging/files/');
                       console.log('File URL conversion:', { original: downloadFile.url, bypass: bypassUrl });
-                      
-                      // Download the file first
+
                       const fileName = downloadFile.name || `file_${Date.now()}`;
-                      const fileUri = `${DOC_DIR}${fileName}`;
-                      
-                      const downloadResult = await FileSystem.downloadAsync(bypassUrl, fileUri, {
-                        headers: {
-                          'ngrok-skip-browser-warning': 'true',
-                          'User-Agent': 'MobileApp/1.0'
-                        }
-                      });
-                      
-                      if (downloadResult.status === 200) {
-                        // Give option to save or share
-                        Alert.alert(
-                          'File Downloaded',
-                          'File has been downloaded. What would you like to do?',
-                          [
-                            {
-                              text: 'Open File',
-                              onPress: async () => {
-                                try {
-                                  await Linking.openURL(downloadResult.uri);
-                                } catch (error) {
-                                  console.error('Error opening file:', error);
-                                }
-                              }
-                            },
-                            {
-                              text: 'Share',
-                              onPress: async () => {
-                                try {
-                                  const isAvailable = await Sharing.isAvailableAsync();
-                                  if (isAvailable) {
-                                    await Sharing.shareAsync(downloadResult.uri);
-                                  }
-                                } catch (error) {
-                                  console.error('Error sharing file:', error);
-                                }
-                              }
-                            },
-                            {
-                              text: 'Done',
-                              style: 'cancel'
-                            }
-                          ]
-                        );
-                      } else {
-                        throw new Error(`Download failed: ${downloadResult.status}`);
-                      }
+
+                      // PROPER DOWNLOAD - saves to device Downloads/Documents
+                      await downloadDocument(bypassUrl, fileName, downloadFile.mimeType);
                     } catch (error) {
                       console.error('File download error:', error);
-                      Alert.alert('Error', 'Could not download file. Please try again.');
                     } finally {
                       setIsSharing(false);
                       setShowDownloadModal(false);
@@ -1230,40 +1595,25 @@ const ChatMessageScreen = () => {
         </View>
       </Modal>
 
-      {/* Emoji Picker Modal */}
+      {/* Custom Emoji Picker - Replaces keyboard like Messenger */}
       {showEmojiPicker && (
-        <Modal
-          visible={showEmojiPicker}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setShowEmojiPicker(false)}
-        >
-          <View style={styles.emojiModalOverlay}>
-            <View style={styles.emojiModalContainer}>
-              {/* Header */}
-              <View style={styles.emojiModalHeader}>
-                <Text style={styles.emojiModalTitle}>Choose Emoji</Text>
-                <TouchableOpacity
-                  style={styles.emojiModalCloseButton}
-                  onPress={() => setShowEmojiPicker(false)}
-                >
-                  <Text style={styles.emojiModalCloseText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Emoji Selector */}
-              <EmojiSelector
-                onEmojiSelected={handleEmojiSelect}
-                showSearchBar={true}
-                showTabs={true}
-                showSectionTitles={true}
-                showHistory={true}
-                columns={8}
-                placeholder="Search emojis..."
-              />
-            </View>
-          </View>
-        </Modal>
+        <View style={{ 
+          position: 'absolute', 
+          bottom: 0, 
+          left: 0, 
+          right: 0,
+          height: keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)
+        }}>
+          <EmojiPickerModal
+            visible={showEmojiPicker}
+            onClose={() => {
+              setShowEmojiPicker(false);
+              inputRef.current?.focus();
+            }}
+            onEmojiSelected={handleEmojiSelect}
+            keyboardHeight={keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)}
+          />
+        </View>
       )}
 
       {/* Image Viewing Modal */}
@@ -1295,70 +1645,43 @@ const ChatMessageScreen = () => {
                   />
                   <TouchableOpacity
                     style={styles.imageDownloadButton}
-                    onPress={async () => {
-                      if (viewingImageUrl && !isSharing) {
-                        try {
-                          setIsSharing(true);
-                          const filename = viewingImageUrl.substring(viewingImageUrl.lastIndexOf('/') + 1) || `image_${Date.now()}.jpg`;
-                          
-                          // Convert media URL to api URL if needed
-                          const bypassUrl = viewingImageUrl.replace(/\/media\//, '/api/messaging/files/');
-                          
-                          const downloadResult = await FileSystem.downloadAsync(
-                            bypassUrl,
-                            `${DOC_DIR}${filename}`,
-                            {
-                              headers: {
-                                'ngrok-skip-browser-warning': 'true',
-                                'User-Agent': 'MobileApp/1.0'
+                    onPress={() => {
+                      // Show confirmation FIRST
+                      Alert.alert(
+                        'Download Image',
+                        'Do you want to download this image to your device?',
+                        [
+                          {
+                            text: 'No',
+                            style: 'cancel'
+                          },
+                          {
+                            text: 'Yes',
+                            onPress: async () => {
+                              if (viewingImageUrl && !isSharing) {
+                                try {
+                                  setIsSharing(true);
+                                  const filename = viewingImageUrl.substring(viewingImageUrl.lastIndexOf('/') + 1) || `image_${Date.now()}.jpg`;
+                                  
+                                  // Convert media URL to api URL if needed
+                                  const bypassUrl = viewingImageUrl.replace(/\/media\//, '/api/messaging/files/');
+                                  
+                                  // PROPER DOWNLOAD - saves to device Gallery
+                                  await downloadImage(
+                                    bypassUrl,
+                                    filename,
+                                    filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+                                  );
+                                } catch (error) {
+                                  console.error('Image download error:', error);
+                                } finally {
+                                  setIsSharing(false);
+                                }
                               }
                             }
-                          );
-                          
-                        if (downloadResult.status === 200) {
-                          Alert.alert(
-                            'Image Downloaded',
-                            'Image has been downloaded. What would you like to do?',
-                            [
-                              {
-                                text: 'View Image',
-                                onPress: async () => {
-                                  try {
-                                    await Linking.openURL(downloadResult.uri);
-                                  } catch (error) {
-                                    console.error('Error opening image:', error);
-                                  }
-                                }
-                              },
-                              {
-                                text: 'Share',
-                                onPress: async () => {
-                                  try {
-                                    const isAvailable = await Sharing.isAvailableAsync();
-                                    if (isAvailable) {
-                                      await Sharing.shareAsync(downloadResult.uri);
-                                    }
-                                  } catch (error) {
-                                    console.error('Error sharing image:', error);
-                                  }
-                                }
-                              },
-                              {
-                                text: 'Done',
-                                style: 'cancel'
-                              }
-                            ]
-                          );
-                        } else {
-                          throw new Error(`Download failed: ${downloadResult.status}`);
-                        }
-                      } catch (error) {
-                          console.error('Image download error:', error);
-                          Alert.alert('Error', 'Could not download image');
-                        } finally {
-                          setIsSharing(false);
-                        }
-                      }
+                          }
+                        ]
+                      );
                     }}
                   >
                     <FontAwesome name="download" size={24} color="white" />
@@ -1371,7 +1694,59 @@ const ChatMessageScreen = () => {
         </View>
       </Modal>
 
-    </View>
+      {/* P0 Feature: Message Actions Modal */}
+      {selectedMessage && (
+        <MessageActions
+          visible={showMessageActions}
+          onClose={() => {
+            setShowMessageActions(false);
+            setSelectedMessage(null);
+          }}
+          messageId={selectedMessage.id}
+          isOwnMessage={selectedMessage.sent}
+          messageContent={selectedMessage.text}
+          onReply={() => handleReply(selectedMessage.id)}
+          onReact={() => handleReaction(selectedMessage.id)}
+          onEdit={() => handleEdit(selectedMessage.id, selectedMessage.text)}
+          onDelete={() => handleDelete(selectedMessage.id)}
+        />
+      )}
+
+      {/* P0 Feature: Reaction Picker Modal */}
+      {reactionMessage && (
+        <MessageReactionPicker
+          visible={showReactionPicker}
+          onClose={() => {
+            setShowReactionPicker(false);
+            setReactionMessage(null);
+          }}
+          onSelectReaction={handleSelectReaction}
+          messageId={reactionMessage.id}
+          currentReactions={reactionMessage.reactions}
+          currentUserId={currentUser?.id || 0}
+        />
+      )}
+
+      {/* P0 Feature: Edit Message Modal */}
+      {editingMessage && (
+        <MessageEditModal
+          visible={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingMessage(null);
+            setEditMessageContent('');
+            setEditError(null);
+          }}
+          messageId={editingMessage.id}
+          initialContent={editMessageContent}
+          onSave={handleSaveEdit}
+          isSaving={isSavingEdit}
+          saveError={editError}
+        />
+      )}
+
+      </View>
+    </ErrorBoundary>
   );
 };
 
@@ -1440,6 +1815,17 @@ const styles = StyleSheet.create({
   },
   messageReceived: {
     alignItems: 'flex-start',
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  messageAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+    backgroundColor: '#e0e0e0',
   },
   messageBubble: {
     maxWidth: '80%',
@@ -1639,8 +2025,11 @@ const styles = StyleSheet.create({
   },
   messageStatus: {
     fontSize: 12,
-    color: '#42b883',
+    color: 'rgba(255, 255, 255, 0.6)',
     marginLeft: 4,
+  },
+  messageStatusRead: {
+    color: '#4CAF50', // Green for read messages
   },
   inputBarContainer: {
     position: 'absolute',
@@ -1796,6 +2185,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#666',
   },
+  emojiSelectorWrapper: {
+    flex: 1,
+    overflow: 'hidden',
+    minHeight: 300,
+    maxHeight: Dimensions.get('window').height * 0.5,
+  },
   emojiGrid: {
     flex: 1,
     padding: 10,
@@ -1917,6 +2312,93 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  
+  // P0 Features: Reply Preview Styles
+  replyPreviewContainer: {
+    marginVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  replyPreviewSent: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  replyPreviewReceived: {
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  replyBar: {
+    width: 3,
+    backgroundColor: '#1C4E80',
+    borderRadius: 2,
+    marginRight: 8,
+    alignSelf: 'stretch',
+  },
+  replyContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flex: 1,
+  },
+  replyTextContainer: {
+    marginLeft: 6,
+    flex: 1,
+  },
+  replySenderName: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  replySenderNameSent: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  replySenderNameReceived: {
+    color: '#1C4E80',
+  },
+  replyMessageText: {
+    fontSize: 12,
+  },
+  replyMessageTextSent: {
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  replyMessageTextReceived: {
+    color: '#666',
+  },
+  
+  // P0 Features: Reactions Display Styles
+  reactionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  reactionBubble: {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 4,
+    marginBottom: 4,
+  },
+  reactionBubbleOwn: {
+    backgroundColor: '#1C4E80',
+  },
+  reactionEmoji: {
+    fontSize: 14,
+  },
+  
+  // P0 Features: Edited Indicator Styles
+  editedIndicator: {
+    fontSize: 10,
+    fontStyle: 'italic',
+    marginLeft: 4,
+  },
+  editedIndicatorSent: {
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  editedIndicatorReceived: {
+    color: '#888',
   },
 });
 

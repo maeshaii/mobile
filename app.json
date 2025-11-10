@@ -51,7 +51,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "API_BASE_URL": "https://biogenetic-crissy-askew.ngrok-free.dev"
+      "API_BASE_URL": "http://10.239.185.138:8000"
     }
   }
 }
