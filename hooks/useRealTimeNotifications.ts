@@ -269,6 +269,12 @@ export function useRealTimeNotifications(
             console.log('📊 Mobile: Notification count update:', event.count);
             break;
 
+          case 'notification_count_update':
+            // Handle notification_count_update event (matches backend)
+            setNotificationCount(event.count);
+            console.log('📊 Mobile: Notification count update (immediate):', event.count);
+            break;
+
           case 'connection_established':
             console.log('✅ Mobile: Notification WebSocket connected for user:', event.user_id);
             setError(null);
@@ -277,6 +283,21 @@ export function useRealTimeNotifications(
           case 'error':
             console.warn('⚠️ Mobile: WebSocket error:', event.message);
             setIsConnected(false);
+            break;
+
+          case 'points_update':
+            // Points update - can be handled by other components if needed
+            console.log('📊 Mobile: Points update received');
+            break;
+
+          case 'pong':
+            // Heartbeat response, no action needed
+            break;
+
+          default:
+            // Exhaustiveness check - TypeScript will error if we miss a case
+            const _exhaustive: never = event;
+            console.warn('⚠️ Mobile: Unknown notification event type:', _exhaustive);
             break;
         }
       });

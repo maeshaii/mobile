@@ -20,6 +20,7 @@ import UserAvatar from '../../components/UserAvatar';
 import TrackerNotificationModal from '../../components/TrackerNotificationModal';
 import NotificationModal from '../../components/NotificationModal';
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
+import { formatNotificationDate } from '../../utils/dateUtils';
 
 interface NotificationItem {
   id?: number;
@@ -701,7 +702,11 @@ const NotificationScreen = () => {
     return (
       <Swipeable key={item.id} renderRightActions={renderRightActions}>
         <TouchableOpacity
-          style={[styles.notification, isSelected && styles.selectedNotification]}
+          style={[
+            styles.notification, 
+            isSelected && styles.selectedNotification,
+            !item.read && styles.unreadNotification
+          ]}
           onPress={() => handleNotificationPress(item)}
           onLongPress={() => setSelectionMode(true)}
           activeOpacity={0.9}
@@ -713,8 +718,8 @@ const NotificationScreen = () => {
           )}
           {renderAvatar(item)}
           <View style={styles.messageBox}>
-            <Text style={styles.name}>{formatNotificationMessage(item)}</Text>
-            <Text style={styles.message}>{item.date}</Text>
+            <Text style={[styles.name, !item.read && styles.unreadName]}>{formatNotificationMessage(item)}</Text>
+            <Text style={[styles.message, !item.read && styles.unreadDate]}>{formatNotificationDate(item.date)}</Text>
           </View>
         </TouchableOpacity>
       </Swipeable>
@@ -915,11 +920,26 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
+  unreadNotification: {
+    backgroundColor: '#f0f7ff',
+    borderLeftWidth: 4,
+    borderLeftColor: '#1e3a8a',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+  },
   selectedNotification: { borderColor: '#1e3a8a', borderWidth: 2 },
   avatar: { marginRight: 15, width: 44, height: 44, borderRadius: 22, backgroundColor: '#eee' },
   messageBox: { flex: 1 },
-  name: { fontWeight: 'bold', fontSize: 14 },
-  message: { fontSize: 13, color: '#333' },
+  name: { fontWeight: 'bold', fontSize: 14, color: '#222' },
+  unreadName: { 
+    fontWeight: '700', 
+    color: '#1e3a8a',
+  },
+  message: { fontSize: 12, color: '#666', marginTop: 2 },
+  unreadDate: { 
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
   date: { fontSize: 12, color: '#888', marginBottom: 4 },
   notificationActions: { alignItems: 'flex-end' },
   checkbox: {
