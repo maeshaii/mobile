@@ -7,6 +7,7 @@ import { API_BASE_URL, likeDonationPost, unlikeDonationPost, commentOnDonationPo
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 interface Post {
   post_id: number;
@@ -51,7 +52,7 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   const screenHeight = Dimensions.get('window').height;
   const imageScrollRef = useRef<ScrollView>(null);
 
-  const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
+  const userName = formatUserFullName(post.user);
 
   // Use utility functions for image handling
   const images = getImagesFromContent(post);

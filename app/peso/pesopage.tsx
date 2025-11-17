@@ -16,6 +16,7 @@ import {
 import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
 import PostCard from '../posts/postCard';
 import UserAvatar from '../../components/UserAvatar';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const pesoLogo = require('../../assets/images/peso_logo.jpg');
 
@@ -108,9 +109,7 @@ export default function PESOPage() {
         
         // Create peso profile object using actual user data
         const pesoProfileData = {
-          name: pesoDetails?.f_name && pesoDetails?.l_name 
-            ? `${pesoDetails.f_name} ${pesoDetails.m_name ? pesoDetails.m_name + ' ' : ''}${pesoDetails.l_name}`.trim()
-            : pesoDetails?.acc_username || 'PESO',
+          name: formatUserFullName(pesoDetails) || pesoDetails?.acc_username || 'PESO',
           username: pesoDetails?.acc_username || '@PESO_CTU_MAIN_CAMPUS',
           bio: pesoDetails?.profile_bio || '', // Use actual profile_bio, empty string if not set
           profile_pic: pesoDetails?.profile_pic 
@@ -161,7 +160,7 @@ export default function PESOPage() {
       // Filter for peso posts by checking user account type or name patterns
       const pesoPosts = allPostsData.filter((post: any) => {
         const user = post.user || {};
-        const userName = `${user.f_name || ''} ${user.l_name || ''}`.toLowerCase();
+        const userName = formatUserFullName(user).toLowerCase();
         const isPesoPost = 
           user.account_type === 'peso' ||
           user.user_type === 'peso' ||
@@ -171,7 +170,7 @@ export default function PESOPage() {
           post.type === 'peso';
         
         console.log(`PESO page - Post ${post.id || post.post_id}:`);
-        console.log(`  - User name: ${user.f_name} ${user.l_name}`);
+        console.log(`  - User name: ${formatUserFullName(user)}`);
         console.log(`  - User account_type: ${user.account_type}`);
         console.log(`  - User user_type: ${user.user_type}`);
         console.log(`  - Post type: ${post.type}`);
@@ -288,10 +287,7 @@ export default function PESOPage() {
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No PESO posts yet</Text>
-            <Text style={styles.noPostsSubtext}>
-              Posts from PESO admin users will appear here
-            </Text>
+            <Text style={styles.noPostsText}>This user has not posted anything yet.</Text>
           </View>
         ) : (
           posts.map(post => (
@@ -368,7 +364,7 @@ export default function PESOPage() {
                     size={32}
                     style={styles.listAvatar}
                   />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                 </View>
               ))}
 
@@ -388,7 +384,7 @@ export default function PESOPage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
@@ -518,11 +514,6 @@ const styles = StyleSheet.create({
   noPostsText: {
     fontSize: 16,
     color: '#888',
-  },
-  noPostsSubtext: {
-    fontSize: 12,
-    color: '#bbb',
-    marginTop: 4,
   },
   modalOverlay: {
     flex: 1,

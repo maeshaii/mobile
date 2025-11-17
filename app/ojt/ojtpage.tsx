@@ -392,7 +392,7 @@ export default function OJTPage() {
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet. Be the first to share something!</Text>
+            <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
             <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
           </View>
         ) : (

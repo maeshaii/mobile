@@ -12,6 +12,7 @@ import PostCard from './postCard';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getImagesFromContent } from '../../utils/imageUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 dayjs.extend(relativeTime);
 
@@ -335,14 +336,14 @@ export default function PostDetailScreen() {
           // Replying to a reply - mention the reply author
           const reply = commentReplies[replyingTo]?.find(r => r.reply_id === replyingToReply.replyId);
           if (reply) {
-            const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+            const replyAuthorName = formatUserFullName(reply.user);
             mentionText = `@${replyAuthorName} `;
           }
         } else {
           // Replying to a comment - mention the comment author
           const comment = comments.find(c => c.comment_id === replyingTo);
           if (comment) {
-            const commentAuthorName = `${comment.user?.f_name || ''} ${comment.user?.l_name || ''}`.trim() || 'User';
+            const commentAuthorName = formatUserFullName(comment.user);
             mentionText = `@${commentAuthorName} `;
           } else {
             mentionText = '';
@@ -596,7 +597,7 @@ export default function PostDetailScreen() {
                 activeOpacity={0.7}
               >
                 <Text style={styles.authorName}>
-                  {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
+                  {formatUserFullName(post.user)}
                 </Text>
               </TouchableOpacity>
               <Text style={styles.postTime}>{dayjs(post.created_at).fromNow()}</Text>
@@ -900,7 +901,7 @@ export default function PostDetailScreen() {
                               styles.commentName,
                               (c.user?.user_id && c.user.user_id !== meId) ? styles.clickableName : null
                             ]}>
-                              {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
+                              {formatUserFullName(c.user)}
                             </Text>
                           </TouchableOpacity>
                           {!!c.date_created && (
@@ -1025,7 +1026,7 @@ export default function PostDetailScreen() {
                         <View style={styles.replyInputContainer}>
                           <View style={styles.replyingToContainer}>
                             <Text style={styles.replyingToText}>
-                              {`Replying to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}`}
+                              {`Replying to ${formatUserFullName(c.user)}`}
                             </Text>
                             <TouchableOpacity onPress={() => {
                               setReplyingTo(null);
@@ -1039,7 +1040,7 @@ export default function PostDetailScreen() {
                             <MentionInput
                               value={replyText}
                               onChange={setReplyText}
-                              placeholder={`Reply to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}...`}
+                              placeholder={`Reply to ${formatUserFullName(c.user)}...`}
                               style={{ flex: 1, backgroundColor: 'transparent' }}
                               textInputStyle={{ 
                                 backgroundColor: '#fff', 
@@ -1114,7 +1115,7 @@ export default function PostDetailScreen() {
                                             styles.replyName,
                                             (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
                                           ]}>
-                                            {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
+                                            {formatUserFullName(reply.user)}
                                           </Text>
                                         </TouchableOpacity>
                                         {isMyReply && !isEditingReply && (
@@ -1230,7 +1231,7 @@ export default function PostDetailScreen() {
                                                 // Start replying to this reply
                                                 setReplyingToReply({ replyId: reply.reply_id, commentId: c.comment_id });
                                                 setReplyingTo(c.comment_id);
-                                                const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                                const replyAuthorName = formatUserFullName(reply.user);
                                                 setReplyText(`@${replyAuthorName} `);
                                               }
                                             }}
@@ -1249,7 +1250,7 @@ export default function PostDetailScreen() {
                                           <View style={styles.replyingToContainer}>
                                             <Text style={styles.replyingToText}>
                                               {(() => {
-                                                const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                                const replyAuthorName = formatUserFullName(reply.user);
                                                 return `Replying to ${replyAuthorName}`;
                                               })()}
                                             </Text>
@@ -1264,7 +1265,7 @@ export default function PostDetailScreen() {
                                             value={replyText}
                                             onChange={setReplyText}
                                             placeholder={(() => {
-                                              const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                              const replyAuthorName = formatUserFullName(reply.user);
                                               return `Reply to ${replyAuthorName}...`;
                                             })()}
                                             style={styles.replyInput}
@@ -1389,7 +1390,7 @@ export default function PostDetailScreen() {
                           style={styles.viewerAvatar}
                         />
                         <Text style={styles.viewerItemText}>
-                          {like.f_name || like.user?.f_name} {like.l_name || like.user?.l_name}
+                          {formatUserFullName(like.user || like)}
                         </Text>
                       </TouchableOpacity>
                     ))
@@ -1425,7 +1426,7 @@ export default function PostDetailScreen() {
                         />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.viewerItemText}>
-                            {repost.user?.f_name} {repost.user?.l_name}
+                            {formatUserFullName(repost.user)}
                           </Text>
                           {repost.repost_date && (
                             <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>

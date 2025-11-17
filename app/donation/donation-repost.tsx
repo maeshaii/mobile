@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import UserAvatar from '../../components/UserAvatar';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 dayjs.extend(relativeTime);
 
@@ -198,7 +199,7 @@ export default function DonationRepostScreen() {
           }}
           activeOpacity={0.7}
         >
-          <Text style={styles.userName}>{me?.f_name} {me?.l_name}</Text>
+          <Text style={styles.userName}>{formatUserFullName(me)}</Text>
         </TouchableOpacity>
       </View>
 
@@ -248,7 +249,7 @@ export default function DonationRepostScreen() {
               activeOpacity={0.7}
             >
               <Text style={styles.originalUserName}>
-                {original.user?.f_name} {original.user?.l_name}
+                {formatUserFullName(original.user)}
               </Text>
             </TouchableOpacity>
             <Text style={styles.originalPostLabel}>Original post</Text>

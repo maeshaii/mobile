@@ -34,13 +34,10 @@ const TrackerReminderModal: React.FC<TrackerReminderModalProps> = ({
     >
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>📋 Graduate Tracer Survey</Text>
-            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <FontAwesome name="times" size={20} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
+          {/* Close Button */}
+          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <FontAwesome name="times" size={20} color="#6b7280" />
+          </TouchableOpacity>
 
           {/* Body */}
           <View style={styles.body}>
@@ -122,30 +119,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 40,
     elevation: 8,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
-    flex: 1,
+    position: 'relative',
   },
   closeButton: {
-    padding: 4,
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    padding: 8,
     borderRadius: 4,
+    zIndex: 10,
   },
   body: {
     paddingHorizontal: 24,
-    paddingVertical: 24,
+    paddingTop: 24,
+    paddingBottom: 24,
     alignItems: 'center',
   },
   iconContainer: {

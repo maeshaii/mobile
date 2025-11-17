@@ -86,7 +86,8 @@ const devDefault = Platform.select({
 // Production fallback (override with expo.extra.API_BASE_URL for real deployments)
 const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
-export const API_BASE_URL = normalizeBaseUrl('https://unfished-jack-overimaginatively.ngrok-free.dev');
+// Use explicit config from Expo extra or env, otherwise fall back to default
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || defaultUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -399,7 +400,8 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
       const errorMsg = API_BASE_URL.includes('ngrok') 
         ? 'Network error - ngrok tunnel may be down. Please check if the backend is running and the ngrok URL is correct.'
         : 'Network error - check your connection and ensure the backend server is running.';
-      console.error('Mobile: Network error detected. API Base URL:', API_BASE_URL);
+      // Use console.warn instead of console.error to avoid stack trace issues in React Native
+      console.warn('Mobile: Network error detected. API Base URL:', API_BASE_URL);
       return { success: false, message: errorMsg };
     } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       return { success: false, message: 'Request timeout - the server took too long to respond' };

@@ -9,6 +9,7 @@ import RepostCard from '../repost/RepostCard';
 import MentionInput from '../../components/MentionInput';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { getImagesFromContent } from '../../utils/imageUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const ctuLogo = require('../../assets/images/ctu_logo.png');
 
@@ -318,7 +319,7 @@ export default function CCICTPage() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
             {members.map((m, idx) => {
               const memberId = m?.user_id || m?.id;
-              const displayName = (m?.name || `${m?.f_name || m?.first_name || ''} ${m?.l_name || m?.last_name || ''}`).trim();
+              const displayName = (m?.name || formatUserFullName(m)).trim();
               const nameParts = (displayName || '').split(/\s+/);
               const fn = nameParts[0] || '';
               const ln = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
@@ -367,7 +368,11 @@ export default function CCICTPage() {
           </View>
         </View>
         {/* Feed: forum posts and forum reposts (forum-only) */}
-        {loading ? null : posts.map((item) => {
+        {loading ? null : posts.length === 0 ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Text style={{ color: '#666', fontSize: 16 }}>No posts yet</Text>
+          </View>
+        ) : posts.map((item) => {
         if (item?.item_type === 'repost' || typeof item?.repost_id === 'number') {
           return (
             <RepostCard
@@ -511,7 +516,7 @@ export default function CCICTPage() {
                     size={32}
                     style={styles.listAvatar}
                   />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                 </View>
               ))}
 
@@ -525,7 +530,7 @@ export default function CCICTPage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date || r.created_at).toLocaleString()}</Text>
                   </View>
                 </View>
@@ -566,7 +571,7 @@ export default function CCICTPage() {
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.commentName}>
-                        {`${selectedRepost.user?.f_name || ''} ${selectedRepost.user?.l_name || ''}`.trim() || 'User'}
+                        {formatUserFullName(selectedRepost.user)}
                       </Text>
                       <Text style={styles.commentMeta}>
                         {selectedRepost.repost_date ? new Date(selectedRepost.repost_date).toLocaleString() : ''}
@@ -624,7 +629,7 @@ export default function CCICTPage() {
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.commentName}>{comment.user?.f_name} {comment.user?.l_name}</Text>
+                          <Text style={styles.commentName}>{formatUserFullName(comment.user)}</Text>
                           <Text style={styles.commentMeta}>{new Date(comment.date_created).toLocaleString()}</Text>
                         </View>
                       </View>

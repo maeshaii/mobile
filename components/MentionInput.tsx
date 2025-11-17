@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Dimensions, findNodeHandle, UIManager, Keyboard, Platform } from 'react-native';
 import { getFollowingForMentions } from '../services/api';
 import UserAvatar from './UserAvatar';
+import { formatUserFullName } from '../utils/nameUtils';
 
 interface MentionInputProps {
   value: string;
@@ -369,7 +370,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
                 />
                 <View style={styles.suggestionInfo}>
                   <Text style={styles.suggestionName}>
-                    {user.f_name} {user.m_name || ''} {user.l_name}
+                    {formatUserFullName(user)}
                   </Text>
                 </View>
               </TouchableOpacity>

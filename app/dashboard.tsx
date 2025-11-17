@@ -14,6 +14,7 @@ import { renderTextWithMentions } from '../utils/mentionUtils';
 import MentionInput from '../components/MentionInput';
 import TrackerReminderModal from '../components/TrackerReminderModal';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../utils/imageUtils';
+import { formatUserFullName } from '../utils/nameUtils';
 
 export default function DashboardScreen() {
   const [user, setUser] = useState<any>(null);
@@ -528,7 +529,7 @@ export default function DashboardScreen() {
       <ScrollView ref={scrollViewRef} style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet. Be the first to share something!</Text>
+            <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
           </View>
         ) : (
           posts.map((post) => (
@@ -541,7 +542,7 @@ export default function DashboardScreen() {
                 <View style={styles.postAuthorInfo}>
                   <View style={styles.nameRow}>
                     <Text style={styles.postAuthor}>
-                      {post.user?.f_name} {post.user?.l_name}
+                      {formatUserFullName(post.user)}
                     </Text>
                     {post.item_type === 'donation_post' && (
                       <View style={styles.donationBadge}>
@@ -870,7 +871,7 @@ export default function DashboardScreen() {
                     size={36}
                     style={styles.listAvatar}
                   />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                 </View>
               ))}
 
@@ -884,7 +885,7 @@ export default function DashboardScreen() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
@@ -896,7 +897,7 @@ export default function DashboardScreen() {
                   <View style={{ flex: 1 }}>
                     <View style={styles.commentHeaderRow}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                        <Text style={styles.commentName}>{formatUserFullName(c.user)}</Text>
                         <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
                       </View>
                     </View>

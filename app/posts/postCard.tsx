@@ -9,6 +9,7 @@ import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { screenWidth, screenHeight, wp, hp, getResponsiveFontSize, getResponsivePadding, getPercentageWidth } from '../../utils/responsive';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 interface Post {
   post_id: number;
@@ -76,7 +77,7 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     setRepostCount(post.reposts_count || 0);
   }, [post.is_liked, post.likes_count, post.reposts_count, (post as any).likes, currentUserId]);
 
-  const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
+  const userName = formatUserFullName(post.user);
   
   // Check if user is admin or peso for priority display
   const userType = post.user?.account_type || post.user?.user_type || 'user';

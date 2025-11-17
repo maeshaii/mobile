@@ -3,6 +3,7 @@ import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInpu
 import { FontAwesome } from '@expo/vector-icons';
 import { commentOnPost, getPostComments, likePost, unlikePost } from '../../services/api';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 interface Post {
   id: number;
@@ -180,7 +181,7 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
               <View key={comment.id} style={styles.commentItem}>
                 <View style={styles.commentHeaderRow}>
                   <Text style={styles.commentAuthor}>
-                    {comment.user.first_name} {comment.user.last_name}
+                    {formatUserFullName(comment.user)}
                   </Text>
                 </View>
                 <View style={styles.commentBubble}>
@@ -225,7 +226,7 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
                   <View style={styles.modalCommentContent}>
                     <View style={styles.modalCommentHeaderRow}>
                       <Text style={styles.modalCommentAuthor}>
-                        {comment.user.first_name} {comment.user.last_name}
+                        {formatUserFullName(comment.user)}
                       </Text>
                       <Text style={styles.modalCommentDate}>
                         {formatDate(comment.created_at)}

@@ -37,6 +37,7 @@ import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -776,7 +777,7 @@ export default function OJTProfilePage() {
         <Text style={styles.postsHeader}>Posts</Text>
         {posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet.</Text>
+            <Text style={styles.noPostsText}>This user has not posted anything yet.</Text>
           </View>
         ) : (
           posts.map((item) => {
@@ -1113,7 +1114,7 @@ export default function OJTProfilePage() {
                       size={36}
                       style={styles.listAvatar}
                     />
-                    <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                   </View>
                 );
               })}
@@ -1134,7 +1135,7 @@ export default function OJTProfilePage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>

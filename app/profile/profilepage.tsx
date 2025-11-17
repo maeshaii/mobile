@@ -34,6 +34,7 @@ import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -190,7 +191,7 @@ export default function ProfilePage() {
         const emailResult = emailData.status === 'fulfilled' ? emailData.value : null;
         
         const profile: UserProfile = {
-          name: me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim(),
+          name: me?.name || formatUserFullName(me),
           username: me?.acc_username || '@user',
           bio: profileResult?.profile_bio || me?.profile_bio || 'Bio',
           socialMedia: socialMediaResult?.social_media || '',
@@ -273,7 +274,7 @@ export default function ProfilePage() {
           console.log('Alumni details response:', details);
           console.log('Alumni data:', a);
           const profile: UserProfile = {
-            name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim() || 'User',
+            name: a.name || formatUserFullName(a) || 'User',
             username: a.ctu_id ? `@${a.ctu_id}` : '@user',
             bio: a.profile_bio || '',
             socialMedia: a.social_media || '',
@@ -483,11 +484,13 @@ export default function ProfilePage() {
         <Text style={styles.profileName}>{user.name}</Text>
         <Text style={styles.profileUsername}>{user.username}</Text>
 
-        {user.bio && (
-          <View style={styles.bioRow}>
+        <View style={styles.bioRow}>
+          {user.bio && user.bio.trim() ? (
             <Text style={styles.bioText}>{user.bio}</Text>
-          </View>
-        )}
+          ) : !isOwnProfile ? (
+            <Text style={styles.bioText}>This user has not added a bio yet.</Text>
+          ) : null}
+        </View>
 
         {/* Action Buttons */}
         {!isOwnProfile && (
@@ -515,7 +518,7 @@ export default function ProfilePage() {
                         const newFollower = {
                           user_id: currentUser.id || currentUser.user_id,
                           ctu_id: currentUser.acc_username || 'current_user',
-                          name: currentUser.name || `${currentUser.f_name || ''} ${currentUser.l_name || ''}`.trim(),
+                          name: currentUser.name || formatUserFullName(currentUser),
                           profile_pic: currentUser.profile_pic,
                           followed_at: new Date().toISOString()
                         };
@@ -577,19 +580,29 @@ export default function ProfilePage() {
       <View style={styles.detailsCard}>
           <Text style={styles.detailsTitle}>Details</Text>
           
-          {user.socialMedia && (
+          {user.socialMedia && user.socialMedia.trim() ? (
             <View style={styles.detailRow}>
               <FontAwesome name="globe" size={16} color="#666" style={styles.detailIcon} />
               <Text style={styles.detailText}>{user.socialMedia}</Text>
             </View>
-          )}
+          ) : !isOwnProfile ? (
+            <View style={styles.detailRow}>
+              <FontAwesome name="globe" size={16} color="#666" style={styles.detailIcon} />
+              <Text style={styles.detailText}>No social media added</Text>
+            </View>
+          ) : null}
           
-          {user.email && (
+          {user.email && user.email.trim() ? (
             <View style={styles.detailRow}>
               <FontAwesome name="envelope" size={16} color="#666" style={styles.detailIcon} />
               <Text style={styles.detailText}>{user.email}</Text>
             </View>
-          )}
+          ) : !isOwnProfile ? (
+            <View style={styles.detailRow}>
+              <FontAwesome name="envelope" size={16} color="#666" style={styles.detailIcon} />
+              <Text style={styles.detailText}>No email added</Text>
+            </View>
+          ) : null}
           
           {isOwnProfile && (
             <TouchableOpacity style={styles.editDetailsBtn} onPress={() => setShowEditDetailsModal(true)}>
@@ -622,7 +635,9 @@ export default function ProfilePage() {
         <Text style={styles.postsHeader}>Posts</Text>
         {posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet.</Text>
+            <Text style={styles.noPostsText}>
+              {!isOwnProfile ? "This user has not posted anything yet." : "No posts yet."}
+            </Text>
           </View>
         ) : (
           posts.map((item) => {
@@ -959,7 +974,7 @@ export default function ProfilePage() {
                       size={36}
                       style={styles.listAvatar}
                     />
-                    <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                   </View>
                 );
               })}
@@ -980,7 +995,7 @@ export default function ProfilePage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
@@ -1277,9 +1292,10 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderRadius: 20,
     maxHeight: '80%',
+    width: '90%',
+    maxWidth: 500,
   },
   modalHeader: {
     flexDirection: 'row',

@@ -6,6 +6,7 @@ import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, clear
 import { RecentSearchWebSocket } from '../../services/recentSearchWebSocket';
 import * as SecureStore from 'expo-secure-store';
 import UserAvatar from '../../components/UserAvatar';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 // Platform-specific storage utility
 const isWeb = Platform.OS === 'web';
@@ -49,7 +50,7 @@ export default function SearchPage() {
   const formatRecentSearches = React.useCallback((serverRecent: any[]) => {
     return serverRecent.map((u: any) => ({
       id: String(u.user_id ?? u.searched_user?.user_id ?? u.id),
-      name: `${u.f_name || u.searched_user?.f_name || ''} ${u.l_name || u.searched_user?.l_name || ''}`.trim() || 'User',
+      name: formatUserFullName(u.searched_user || u) || 'User',
       f_name: u.f_name || u.searched_user?.f_name,
       l_name: u.l_name || u.searched_user?.l_name,
       profile_pic: u.profile_pic || u.searched_user?.profile_pic,
@@ -114,7 +115,7 @@ export default function SearchPage() {
           alumniResults.results.forEach((u: any) => {
             combinedResults.push({
               id: String(u.id || u.user_id),
-              name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim(),
+              name: u.name || formatUserFullName(u),
               f_name: u.f_name || u.first_name || '',
               l_name: u.l_name || u.last_name || '',
               profile_pic: u.profile_pic || null,
@@ -128,7 +129,7 @@ export default function SearchPage() {
           ojtResults.users.forEach((u: any) => {
             combinedResults.push({
               id: String(u.user_id),
-              name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'OJT User',
+              name: formatUserFullName({ first_name: u.first_name, last_name: u.last_name }) || u.username || 'OJT User',
               f_name: u.first_name || '',
               l_name: u.last_name || '',
               profile_pic: u.profile_pic || null,

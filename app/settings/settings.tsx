@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -61,6 +62,7 @@ const LabeledInput = React.memo(({
   showPassword,
   onTogglePassword,
   styles,
+  editable = true,
 }: {
   label: string;
   value: string;
@@ -71,12 +73,13 @@ const LabeledInput = React.memo(({
   showPassword?: boolean;
   onTogglePassword?: () => void;
   styles: any;
+  editable?: boolean;
 }) => (
   <View style={styles.formGroup}>
     <Text style={styles.label}>{label}</Text>
     <View style={secureTextEntry ? styles.passwordInputContainer : undefined}>
         <TextInput
-          style={[styles.input, secureTextEntry && styles.passwordInput]}
+          style={[styles.input, secureTextEntry && styles.passwordInput, !editable && styles.inputDisabled]}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -86,6 +89,7 @@ const LabeledInput = React.memo(({
           blurOnSubmit={false}
           autoCorrect={false}
           autoCapitalize={keyboardType === 'email-address' || secureTextEntry ? 'none' : 'words'}
+          editable={editable}
         />
       {secureTextEntry && onTogglePassword && (
         <TouchableOpacity 
@@ -143,9 +147,9 @@ export default function SettingsPage() {
     home_address: '',
   });
 
-  // Employment form state
+  // Employment form state - matching web structure
   const [employment, setEmployment] = useState({
-    org_name: '',
+    organization_name: '',
     date_hired: '',
     position: '',
     employment_status: '',
@@ -158,6 +162,7 @@ export default function SettingsPage() {
     company_contact: '',
     contact_person: '',
     position_alt: '',
+    ojt_start_date: '',
     job_alignment_status: '',
     job_alignment_category: '',
     job_alignment_title: '',
@@ -171,12 +176,25 @@ export default function SettingsPage() {
     supporting_document_awards_recognition: '',
     unemployment_reason: '',
     created_at: '',
-    updated_at: ''
+    updated_at: '',
+    // Part III: Employment Status fields (tracker data)
+    employment_type: '',
+    current_employment_status: '',
+    current_company_name: '',
+    current_position: '',
+    current_sector: '',
+    current_scope: '',
+    employment_duration: '',
+    salary_range: '',
+    received_awards: '',
+    awards_supporting_doc: '',
+    employment_supporting_doc: '',
+    employment_sector: '',
   });
 
-  // Employment status check
-  const [isEmployed, setIsEmployed] = useState<boolean | null>(null);
-  const [isEditingEmployment, setIsEditingEmployment] = useState(false);
+  // Employment flow state - matching web structure
+  const [accountType, setAccountType] = useState<string>(''); // 'alumni' or 'ojt'
+  const [hasJobInDB, setHasJobInDB] = useState<boolean | null>(null); // Check if user has job in database (for alumni: tracker data, for ojt: employment data)
 
   // Password state
   const [passwordData, setPasswordData] = useState({
@@ -274,6 +292,19 @@ export default function SettingsPage() {
     })();
   }, []);
 
+  // Helper function to normalize dropdown values to match options
+  const normalizeDropdownValue = (value: string, options: string[]): string => {
+    if (!value) return '';
+    const trimmedValue = value.trim();
+    // Exact match
+    if (options.includes(trimmedValue)) return trimmedValue;
+    // Case-insensitive match
+    const matchedOption = options.find(opt => opt.toLowerCase() === trimmedValue.toLowerCase());
+    if (matchedOption) return matchedOption;
+    // Return original value if no match found
+    return trimmedValue;
+  };
+
   const loadEmploymentData = async (userId: number) => {
     try {
       const accessToken = await AsyncStorage.getItem('accessToken');
@@ -286,8 +317,37 @@ export default function SettingsPage() {
       
       if (response.ok) {
         const data = await response.json();
+        
+        // Normalize dropdown values to match options
+        const currentEmploymentStatusOptions = ['Permanent', 'Temporary'];
+        const sectorRadioOptions = ['Public', 'Private'];
+        const scopeOptions = ['Local', 'International'];
+        const awardsOptions = ['Yes', 'No'];
+        const employmentTypeOptions = ['Employed by a company/organization', 'Self-employed', 'Freelance/Contract-based'];
+        
+        const normalizedEmploymentStatus = normalizeDropdownValue(
+          data.current_employment_status || data.employment_status || '', 
+          currentEmploymentStatusOptions
+        );
+        const normalizedSector = normalizeDropdownValue(
+          data.current_sector || data.sector || '', 
+          sectorRadioOptions
+        );
+        const normalizedScope = normalizeDropdownValue(
+          data.current_scope || data.scope_current || '', 
+          scopeOptions
+        );
+        const normalizedAwards = normalizeDropdownValue(
+          data.received_awards || data.awards_recognition_current || '', 
+          awardsOptions
+        );
+        const normalizedEmploymentType = normalizeDropdownValue(
+          data.employment_type || '', 
+          employmentTypeOptions
+        );
+        
         setEmployment({
-          org_name: data.organization_name || '',
+          organization_name: data.organization_name || '',
           date_hired: data.date_hired || '',
           position: data.position || '',
           employment_status: data.employment_status || '',
@@ -300,6 +360,7 @@ export default function SettingsPage() {
           company_contact: data.company_contact || '',
           contact_person: data.contact_person || '',
           position_alt: data.position_alt || '',
+          ojt_start_date: data.ojt_start_date || '',
           job_alignment_status: data.job_alignment_status || '',
           job_alignment_category: data.job_alignment_category || '',
           job_alignment_title: data.job_alignment_title || '',
@@ -313,29 +374,41 @@ export default function SettingsPage() {
           supporting_document_awards_recognition: data.supporting_document_awards_recognition || '',
           unemployment_reason: data.unemployment_reason || '',
           created_at: data.created_at || '',
-          updated_at: data.updated_at || ''
+          updated_at: data.updated_at || '',
+          // Part III fields - prioritize tracker data fields from API response
+          employment_type: data.employment_type || normalizedEmploymentType || '',
+          current_employment_status: data.current_employment_status || normalizedEmploymentStatus || '',
+          current_company_name: data.current_company_name || data.organization_name || '',
+          current_position: data.current_position || data.position || '',
+          current_sector: data.current_sector || normalizedSector || '',
+          current_scope: data.current_scope || normalizedScope || '',
+          employment_duration: data.employment_duration || data.employment_duration_current || '',
+          salary_range: data.salary_range || data.salary_current || '',
+          received_awards: data.received_awards || normalizedAwards || '',
+          awards_supporting_doc: data.awards_supporting_doc || data.supporting_document_awards_recognition || '',
+          employment_supporting_doc: data.employment_supporting_doc || data.supporting_document_current || '',
+          employment_sector: data.employment_sector || '',
         });
         
-        // Determine if user is employed based on data
-        const hasEmploymentData = data.organization_name && data.organization_name.trim() !== '';
-        const isUnemployed = data.sector === 'Unemployed' || data.employment_status === 'Unemployed';
+        // Set account type
+        const accType = data.account_type || 'alumni'; // Default to alumni if not specified
+        setAccountType(accType);
         
-        if (hasEmploymentData && !isUnemployed) {
-          setIsEmployed(true);
-        } else if (isUnemployed) {
-          setIsEmployed(false);
+        // For OJT accounts: use has_employment_data
+        if (accType === 'ojt') {
+          const hasEmploymentData = data.has_employment_data || (data.organization_name && data.organization_name.trim() !== '');
+          setHasJobInDB(hasEmploymentData);
         } else {
-          // No employment data and not explicitly unemployed - show question
-          setIsEmployed(null);
+          // For Alumni accounts: check if they have Part III tracker data
+          const hasPartIIIData = data.has_part_iii_data || false;
+          
+          // For alumni: if they have Part III data, show it
+          setHasJobInDB(hasPartIIIData);
         }
-        
-        console.log('hasEmploymentData:', hasEmploymentData);
-        console.log('isUnemployed:', isUnemployed);
-        console.log('Final isEmployed:', isEmployed);
       }
     } catch (error) {
       console.error('Error loading employment data:', error);
-      setIsEmployed(null);
+      setHasJobInDB(null);
     }
   };
 
@@ -387,69 +460,8 @@ export default function SettingsPage() {
       
       let employmentData;
       
-      if (isEmployed === false) {
-        // If unemployed, clear employment details and set status to unemployed
-        employmentData = {
-          organization_name: '',
-          date_hired: '',
-          position: '',
-          employment_status: 'Unemployed',
-          company_address: '',
-          sector: 'Unemployed',
-          employment_duration_current: '',
-          salary_current: '',
-          scope_current: '',
-          company_email: '',
-          company_contact: '',
-          contact_person: '',
-          position_alt: '',
-          job_alignment_status: '',
-          job_alignment_category: '',
-          job_alignment_title: '',
-          job_alignment_suggested_program: '',
-          job_alignment_original_program: '',
-          self_employed: false,
-          high_position: false,
-          absorbed: false,
-          awards_recognition_current: '',
-          supporting_document_current: '',
-          supporting_document_awards_recognition: '',
-          unemployment_reason: '',
-          created_at: '',
-          updated_at: ''
-        };
-      } else {
-        // If employed, send the employment data
-        employmentData = {
-          organization_name: employment.org_name,
-          date_hired: employment.date_hired,
-          position: employment.position,
-          employment_status: employment.employment_status,
-          company_address: employment.company_address,
-          sector: employment.sector,
-          employment_duration_current: employment.employment_duration_current,
-          salary_current: employment.salary_current,
-          scope_current: employment.scope_current,
-          company_email: employment.company_email,
-          company_contact: employment.company_contact,
-          contact_person: employment.contact_person,
-          position_alt: employment.position_alt,
-          job_alignment_status: employment.job_alignment_status,
-          job_alignment_category: employment.job_alignment_category,
-          job_alignment_title: employment.job_alignment_title,
-          job_alignment_suggested_program: employment.job_alignment_suggested_program,
-          job_alignment_original_program: employment.job_alignment_original_program,
-          self_employed: employment.self_employed,
-          high_position: employment.high_position,
-          absorbed: employment.absorbed,
-          awards_recognition_current: employment.awards_recognition_current,
-          supporting_document_current: employment.supporting_document_current,
-          supporting_document_awards_recognition: employment.supporting_document_awards_recognition,
-          unemployment_reason: employment.unemployment_reason,
-          created_at: employment.created_at,
-          updated_at: employment.updated_at
-        };
-      }
+      // Send employment data (either updating existing or creating new)
+      const dataToSend = employment;
       
       const response = await fetch(`${API_BASE_URL}/api/alumni/employment/${userId}/`, {
         method: 'PUT',
@@ -457,12 +469,11 @@ export default function SettingsPage() {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(employmentData)
+        body: JSON.stringify(dataToSend)
       });
 
       if (response.ok) {
         Alert.alert('Success', 'Employment details updated successfully!');
-        setIsEditingEmployment(false);
         toggle('employment');
         // Refresh employment data
         await loadEmploymentData(userId);
@@ -613,132 +624,228 @@ export default function SettingsPage() {
 
         {/* Employment Details card */}
         <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <TouchableOpacity style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }} onPress={() => toggle('employment')}>
-              <Text style={styles.cardHeaderText}>Employment Details</Text>
-              <FontAwesome name={open.employment ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
-            </TouchableOpacity>
-            {!isEditingEmployment && isEmployed !== null && (
-              <TouchableOpacity 
-                style={styles.editButton}
-                onPress={() => setIsEditingEmployment(true)}
-              >
-                <Text style={styles.editButtonText}>EDIT</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          <TouchableOpacity style={styles.cardHeader} onPress={() => toggle('employment')}>
+            <Text style={styles.cardHeaderText}>Employment Details</Text>
+            <FontAwesome name={open.employment ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
+          </TouchableOpacity>
 
           {open.employment && (
             <View style={styles.cardBody}>
-              <Text style={styles.sectionNote}>First employment after graduation</Text>
-              
-              {/* Employment Status Check */}
-              <View style={{ marginBottom: 20 }}>
-                <Text style={[styles.label, { marginBottom: 10, fontWeight: 'bold' }]}>
-                  Are you still employed?
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <TouchableOpacity
-                    style={[
-                      styles.employmentStatusButton,
-                      isEmployed === true && styles.employmentStatusButtonActive
-                    ]}
-                    onPress={() => setIsEmployed(true)}
-                  >
-                    <Text style={[
-                      styles.employmentStatusButtonText,
-                      isEmployed === true && styles.employmentStatusButtonTextActive
-                    ]}>
-                      Yes, I am employed
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.employmentStatusButton,
-                      isEmployed === false && styles.employmentStatusButtonActive
-                    ]}
-                    onPress={() => setIsEmployed(false)}
-                  >
-                    <Text style={[
-                      styles.employmentStatusButtonText,
-                      isEmployed === false && styles.employmentStatusButtonTextActive
-                    ]}>
-                      No, I am unemployed
-                    </Text>
-                  </TouchableOpacity>
+              {/* Flow Logic */}
+              {hasJobInDB === null && (
+                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                  <Text>Loading employment data...</Text>
                 </View>
-              </View>
+              )}
 
-              {/* Employment Details Form - Show if there's employment data or user is employed */}
-              {isEmployed !== null && (
+              {/* OJT Account: Display only specified fields (view-only, no edit) */}
+              {accountType === 'ojt' && (hasJobInDB === true || hasJobInDB === false) && (
                 <>
-              <LabeledInput
-                label="Name of Organization :"
-                value={employment.org_name}
-                onChangeText={(text) => setEmployment(prev => ({ ...prev, org_name: text }))}
-                styles={styles}
-              />
-              <LabeledInput
-                label="Date Hired :"
-                value={employment.date_hired}
-                onChangeText={(text) => setEmployment(prev => ({ ...prev, date_hired: text }))}
-                placeholder="MM/DD/YYYY"
-                styles={styles}
-              />
-              <LabeledInput
-                label="Position :"
-                value={employment.position}
-                onChangeText={(text) => setEmployment(prev => ({ ...prev, position: text }))}
-                styles={styles}
-              />
-              <DropDown
-                id="emp_status"
-                label="Status of employment :"
-                value={employment.employment_status}
-                options={employmentStatusOptions}
-                onSelect={(value) => setEmployment(prev => ({ ...prev, employment_status: value }))}
-              />
-              <LabeledInput
-                label="Company Address :"
-                value={employment.company_address}
-                onChangeText={(text) => setEmployment(prev => ({ ...prev, company_address: text }))}
-                styles={styles}
-              />
-              <DropDown
-                id="sector"
-                label="Sector :"
-                value={employment.sector}
-                options={sectorOptions}
-                onSelect={(value) => setEmployment(prev => ({ ...prev, sector: value }))}
-              />
+                  <Text style={styles.sectionNote}>OJT employment information (view-only)</Text>
+                  <LabeledInput
+                    label="Company :"
+                    value={employment.organization_name}
+                    onChangeText={() => {}}
+                    styles={styles}
+                    editable={false}
+                  />
+                  <LabeledInput
+                    label="Company Address :"
+                    value={employment.company_address}
+                    onChangeText={() => {}}
+                    styles={styles}
+                    editable={false}
+                  />
+                  <LabeledInput
+                    label="Company Email :"
+                    value={employment.company_email}
+                    onChangeText={() => {}}
+                    keyboardType="email-address"
+                    styles={styles}
+                    editable={false}
+                  />
+                  <LabeledInput
+                    label="Company Contact :"
+                    value={employment.company_contact}
+                    onChangeText={() => {}}
+                    keyboardType="phone-pad"
+                    styles={styles}
+                    editable={false}
+                  />
+                  <LabeledInput
+                    label="Contact Person Name :"
+                    value={employment.contact_person}
+                    onChangeText={() => {}}
+                    styles={styles}
+                    editable={false}
+                  />
+                  <LabeledInput
+                    label="Contact Person Position :"
+                    value={employment.position_alt}
+                    onChangeText={() => {}}
+                    styles={styles}
+                    editable={false}
+                  />
+                  <LabeledInput
+                    label="Start Date :"
+                    value={employment.ojt_start_date}
+                    onChangeText={() => {}}
+                    styles={styles}
+                    editable={false}
+                  />
                 </>
               )}
 
-
-              {/* Unemployed Status Display */}
-              {isEmployed === false && (
-                <View style={styles.unemployedStatusContainer}>
-                  <Text style={styles.unemployedStatusTitle}>
-                    Employment Status: Unemployed
-                  </Text>
-                  <Text style={styles.unemployedStatusText}>
-                    Your employment details have been cleared. You can update your status anytime.
-                  </Text>
-                </View>
-              )}
-
-              {(isEmployed !== null && isEditingEmployment) && (
-              <View style={styles.buttonRow}>
-                <TouchableOpacity onPress={onSaveEmployment} style={styles.saveButton}>
-                  <Text style={styles.saveButtonText}>Save</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => {
-                  setIsEditingEmployment(false);
-                  toggle('employment');
-                }} style={styles.cancelButton}>
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
+              {/* Alumni Account: Display Part III tracker data or prompt to answer tracker */}
+              {accountType === 'alumni' && (hasJobInDB === true || hasJobInDB === false) && (
+                <>
+                  {hasJobInDB ? (
+                    // Display Part III tracker data
+                    <>
+                      <Text style={[styles.sectionNote, { fontWeight: 'bold', color: '#174f84', marginBottom: 16 }]}>
+                        PART III - Employment Status
+                      </Text>
+                      
+                      <LabeledInput
+                        label="Employment Type :"
+                        value={employment.employment_type || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Current Employment Status :"
+                        value={employment.current_employment_status || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Company Name :"
+                        value={employment.current_company_name || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Current Position :"
+                        value={employment.current_position || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Sector :"
+                        value={employment.current_sector || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Scope :"
+                        value={employment.current_scope || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Employment Duration :"
+                        value={employment.employment_duration || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Salary Range :"
+                        value={employment.salary_range || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      <LabeledInput
+                        label="Received Awards :"
+                        value={employment.received_awards || 'N/A'}
+                        onChangeText={() => {}}
+                        styles={styles}
+                        editable={false}
+                      />
+                      
+                      {employment.awards_supporting_doc && (
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={[styles.label, { marginBottom: 6 }]}>Awards Supporting Document :</Text>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              const url = `${API_BASE_URL}${employment.awards_supporting_doc}`;
+                              try {
+                                const canOpen = await Linking.canOpenURL(url);
+                                if (canOpen) {
+                                  await Linking.openURL(url);
+                                } else {
+                                  Alert.alert('Error', 'Cannot open this document URL');
+                                }
+                              } catch (error) {
+                                Alert.alert('Error', 'Failed to open document');
+                              }
+                            }}
+                          >
+                            <Text style={{ color: '#174f84', textDecorationLine: 'underline' }}>
+                              View Document
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      
+                      {employment.employment_supporting_doc && (
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={[styles.label, { marginBottom: 6 }]}>Employment Supporting Document :</Text>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              const url = `${API_BASE_URL}${employment.employment_supporting_doc}`;
+                              try {
+                                const canOpen = await Linking.canOpenURL(url);
+                                if (canOpen) {
+                                  await Linking.openURL(url);
+                                } else {
+                                  Alert.alert('Error', 'Cannot open this document URL');
+                                }
+                              } catch (error) {
+                                Alert.alert('Error', 'Failed to open document');
+                              }
+                            }}
+                          >
+                            <Text style={{ color: '#174f84', textDecorationLine: 'underline' }}>
+                              View Document
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </>
+                  ) : (
+                    // Prompt to answer tracker
+                    <View style={styles.trackerPromptContainer}>
+                      <Text style={styles.trackerPromptTitle}>
+                        Please answer the tracker form to view your employment details
+                      </Text>
+                      <Text style={styles.trackerPromptText}>
+                        Your employment details (Part III - Employment Status) will be displayed here once you complete the tracker form.
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.trackerButton}
+                        onPress={() => router.push('/forms/forms')}
+                      >
+                        <Text style={styles.trackerButtonText}>Go to Tracker Form</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
               )}
             </View>
           )}
@@ -940,6 +1047,10 @@ const styles = StyleSheet.create({
     color: '#111827',
     flex: 1,
   },
+  inputDisabled: {
+    backgroundColor: '#f3f4f6',
+    color: '#6b7280',
+  },
   passwordInput: {
     backgroundColor: '#ffffff',
   },
@@ -1082,5 +1193,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
     textAlign: 'center',
+  },
+  trackerPromptContainer: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 12,
+  },
+  trackerPromptTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  trackerPromptText: {
+    fontSize: 14,
+    color: '#94a3b8',
+    textAlign: 'center',
+    maxWidth: 300,
+  },
+  trackerButton: {
+    backgroundColor: '#174f84',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  trackerButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

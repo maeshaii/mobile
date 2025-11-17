@@ -3,9 +3,13 @@
  */
 
 /**
- * Formats a date string to show:
- * - Hours/minutes if the notification is from today
- * - Date if the notification is 24+ hours old or from tomorrow
+ * Formats a date string to show relative time:
+ * - "Just now" for less than 1 second
+ * - "X seconds ago" for less than 1 minute
+ * - "X mins ago" for less than 1 hour
+ * - "X hours ago" for less than 24 hours
+ * - "Yesterday" for 1 day ago
+ * - Date format for older notifications
  * 
  * @param dateString - The date string to format (can be ISO string, date string, etc.)
  * @returns Formatted date string
@@ -24,39 +28,28 @@ export function formatNotificationDate(dateString: string | Date): string {
       return String(dateString);
     }
 
-    // Get today's date at midnight for comparison
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const notificationDay = new Date(
-      notificationDate.getFullYear(),
-      notificationDate.getMonth(),
-      notificationDate.getDate()
-    );
-
     // Calculate difference in milliseconds
     const diffMs = now.getTime() - notificationDate.getTime();
-    const diffHours = diffMs / (1000 * 60 * 60);
+    const diffSeconds = Math.floor(diffMs / 1000);
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    // If notification is from today and less than 24 hours old, show time
-    if (notificationDay.getTime() === today.getTime() && diffHours < 24) {
-      // Format as hours:minutes (e.g., "2:30 PM" or "14:30")
-      const hours = notificationDate.getHours();
-      const minutes = notificationDate.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours % 12 || 12;
-      const displayMinutes = minutes.toString().padStart(2, '0');
-      
-      // If less than 1 hour, show "X minutes ago"
-      if (diffHours < 1) {
-        const diffMinutes = Math.floor(diffMs / (1000 * 60));
-        if (diffMinutes < 1) {
-          return 'Just now';
-        }
-        return `${diffMinutes} ${diffMinutes === 1 ? 'minute' : 'minutes'} ago`;
-      }
-      
-      // If less than 24 hours but more than 1 hour, show time
-      return `${displayHours}:${displayMinutes} ${ampm}`;
+    // Show relative time for recent notifications
+    if (diffSeconds < 1) {
+      return 'Just now';
+    }
+    
+    if (diffSeconds < 60) {
+      return `${diffSeconds} ${diffSeconds === 1 ? 'second' : 'seconds'} ago`;
+    }
+    
+    if (diffMinutes < 60) {
+      return `${diffMinutes} ${diffMinutes === 1 ? 'min' : 'mins'} ago`;
+    }
+    
+    if (diffHours < 24) {
+      return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
     }
 
     // If notification is from yesterday (1 day ago), show "Yesterday"

@@ -16,6 +16,7 @@ import {
 import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
 import PostCard from '../posts/postCard';
 import UserAvatar from '../../components/UserAvatar';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const ccictLogo = require('../../assets/images/ccict_logo.jpg');
 
@@ -101,9 +102,7 @@ export default function CCICTPage() {
         
         // Create admin profile object using actual user data
         const adminProfileData = {
-          name: adminDetails?.f_name && adminDetails?.l_name 
-            ? `${adminDetails.f_name} ${adminDetails.m_name ? adminDetails.m_name + ' ' : ''}${adminDetails.l_name}`.trim()
-            : adminDetails?.acc_username || 'CCICT Admin',
+          name: formatUserFullName(adminDetails) || adminDetails?.acc_username || 'CCICT Admin',
           username: adminDetails?.acc_username || '@CCICT_CTU_MAIN_CAMPUS',
           bio: adminDetails?.profile_bio || '', // Use actual profile_bio, empty string if not set
           profile_pic: adminDetails?.profile_pic 
@@ -154,7 +153,7 @@ export default function CCICTPage() {
       // Filter for admin posts by checking user account type or name patterns
       const adminPosts = allPostsData.filter((post: any) => {
         const user = post.user || {};
-        const userName = `${user.f_name || ''} ${user.l_name || ''}`.toLowerCase();
+        const userName = formatUserFullName(user).toLowerCase();
         const isAdminPost = 
           user.account_type === 'admin' ||
           user.user_type === 'admin' ||
@@ -164,7 +163,7 @@ export default function CCICTPage() {
           user.l_name?.toLowerCase().includes('admin');
         
         console.log(`CCICT page - Post ${post.id || post.post_id}:`);
-        console.log(`  - User name: ${user.f_name} ${user.l_name}`);
+        console.log(`  - User name: ${formatUserFullName(user)}`);
         console.log(`  - User account_type: ${user.account_type}`);
         console.log(`  - User user_type: ${user.user_type}`);
         console.log(`  - Is admin post: ${isAdminPost}`);
@@ -285,10 +284,7 @@ export default function CCICTPage() {
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No CCICT posts yet</Text>
-            <Text style={styles.noPostsSubtext}>
-              Posts from CCICT admin users will appear here
-            </Text>
+            <Text style={styles.noPostsText}>This user has not posted anything yet.</Text>
           </View>
         ) : (
           posts.map(post => (
@@ -365,7 +361,7 @@ export default function CCICTPage() {
                     size={32}
                     style={styles.listAvatar}
                   />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                 </View>
               ))}
 
@@ -385,7 +381,7 @@ export default function CCICTPage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
@@ -515,11 +511,6 @@ const styles = StyleSheet.create({
   noPostsText: {
     fontSize: 16,
     color: '#888',
-  },
-  noPostsSubtext: {
-    fontSize: 12,
-    color: '#bbb',
-    marginTop: 4,
   },
   modalOverlay: {
     flex: 1,

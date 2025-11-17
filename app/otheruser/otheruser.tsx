@@ -31,6 +31,7 @@ import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 interface UserProfile {
   id: number;
@@ -371,7 +372,7 @@ export default function OtherUserPage() {
   const handleMessage = () => {
     // Navigate to chat screen with the user
     if (user?.id) {
-      const userName = `${user.f_name || ''} ${user.l_name || ''}`.trim() || 'User';
+      const userName = formatUserFullName(user);
       router.push(`/messages/chatmessage?conversationId=${user.id}&name=${encodeURIComponent(userName)}`);
     }
   };
@@ -409,7 +410,7 @@ export default function OtherUserPage() {
     );
   }
 
-  const userName = user.name || `${user.f_name || ''} ${user.l_name || ''}`.trim() || 'User';
+  const userName = user.name || formatUserFullName(user);
 
   return (
     <View style={styles.container}>
@@ -524,7 +525,7 @@ export default function OtherUserPage() {
           <Text style={styles.postsHeader}>Posts</Text>
           {posts.length === 0 ? (
             <View style={styles.noPostsContainer}>
-              <Text style={styles.noPostsText}>No posts yet</Text>
+              <Text style={styles.noPostsText}>This user has not posted anything yet.</Text>
             </View>
           ) : (
             posts.map((item) => {
@@ -639,7 +640,7 @@ export default function OtherUserPage() {
                     size={36}
                     style={styles.listAvatar}
                   />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                 </View>
               ))}
 
@@ -653,7 +654,7 @@ export default function OtherUserPage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
