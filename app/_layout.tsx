@@ -5,18 +5,71 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { UserProvider } from '../contexts/UserContext';
 
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
+
+// Suppress font download errors for Expo Go (fonts are already bundled)
+if (typeof ErrorUtils !== 'undefined') {
+  const originalHandler = ErrorUtils.getGlobalHandler();
+  ErrorUtils.setGlobalHandler((error, isFatal) => {
+    // Suppress font download errors - Expo Go includes vector icons fonts
+    if (
+      error?.message?.includes('Unable to download asset') &&
+      error?.message?.includes('Ionicons.ttf')
+    ) {
+      console.warn('Font download error suppressed (fonts are bundled in Expo Go):', error.message);
+      return;
+    }
+    // Call original handler for other errors
+    if (originalHandler) {
+      originalHandler(error, isFatal);
+    }
+  });
+}
+
+// Also handle unhandled promise rejections
+if (typeof global !== 'undefined') {
+  const originalRejectionHandler = (global as any).onunhandledrejection;
+  (global as any).onunhandledrejection = (event: any) => {
+    const error = event?.reason || event;
+    // Suppress font download promise rejections
+    if (
+      error?.message?.includes('Unable to download asset') &&
+      error?.message?.includes('Ionicons.ttf')
+    ) {
+      console.warn('Font download promise rejection suppressed (fonts are bundled in Expo Go):', error.message);
+      if (event?.preventDefault) {
+        event.preventDefault();
+      }
+      return;
+    }
+    // Call original handler for other rejections
+    if (originalRejectionHandler && typeof originalRejectionHandler === 'function') {
+      originalRejectionHandler.call(global, event);
+    }
+  };
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
+  const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
 
-  if (!loaded) {
-    // Async font loading only occurs in development.
+  useEffect(() => {
+    if (loaded || error) {
+      // Hide the splash screen once fonts are loaded (or if there's an error)
+      SplashScreen.hideAsync();
+    }
+  }, [loaded, error]);
+
+  if (!loaded && !error) {
+    // Keep showing splash screen while fonts are loading
     return null;
   }
 

@@ -1,11 +1,10 @@
-import { FontAwesome } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { API_BASE_URL, getDonationDetail, getUserInfo, repostDonationPost, likeDonationPost, unlikeDonationPost, commentOnDonationPost, getDonationComments } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { Ionicons } from '@expo/vector-icons';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import UserAvatar from '../../components/UserAvatar';
 
@@ -315,7 +314,7 @@ export default function DonationRepostScreen() {
             style={styles.imageViewerClose}
             onPress={() => setImageViewerVisible(false)}
           >
-            <FontAwesome name="times" size={24} color="white" />
+            <Ionicons name="times" size={24} color="white" />
           </TouchableOpacity>
           <Image 
             source={{ uri: original.post_image }} 
@@ -337,7 +336,7 @@ export default function DonationRepostScreen() {
             <View style={styles.commentHeader}>
               <Text style={styles.commentTitle}>Add Comment</Text>
               <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
-                <FontAwesome name="times" size={20} color="#666" />
+                <Ionicons name="times" size={20} color="#666" />
               </TouchableOpacity>
             </View>
             

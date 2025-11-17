@@ -1,11 +1,10 @@
-import { FontAwesome } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment, getRepostDetail } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { Ionicons } from '@expo/vector-icons';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
@@ -701,7 +700,7 @@ export default function RepostScreen() {
             style={styles.imageViewerCloseButton}
             onPress={() => setImageViewerVisible(false)}
           >
-            <FontAwesome name="times" size={24} color="#fff" />
+            <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
           
           <ScrollView
