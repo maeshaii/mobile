@@ -1,6 +1,6 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getDonationPosts, createDonationPost, getDonationLikes, getDonationReposts } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
@@ -61,6 +61,24 @@ export default function OJTDonationPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [mentionedUsers, setMentionedUsers] = useState<any[]>([]);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
+    if (showSuggestions && scrollViewRef.current && inputPosition) {
+      // Calculate scroll offset to move input and dropdown above keyboard
+      // Dropdown max height is ~300px, add padding
+      const dropdownHeight = 320;
+      const padding = 20;
+      
+      // Scroll upward to make room for dropdown
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ 
+          y: dropdownHeight + padding, 
+          animated: true 
+        });
+      }, 150);
+    }
+  };
 
   const loadDonationPosts = async () => {
     try {
@@ -202,6 +220,7 @@ export default function OJTDonationPage() {
       </View>
 
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
@@ -248,8 +267,8 @@ export default function OJTDonationPage() {
             
             <MentionInput
               value={postContent}
-              onChangeText={setPostContent}
-              onMentionedUsersChange={setMentionedUsers}
+              onChange={setPostContent}
+              onSuggestionsChange={handleSuggestionsChange}
               placeholder="Describe your donation request... *"
               style={styles.contentInput}
               multiline

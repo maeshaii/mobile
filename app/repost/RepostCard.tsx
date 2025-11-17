@@ -9,6 +9,7 @@ import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updat
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 dayjs.extend(relativeTime);
 
@@ -208,15 +209,31 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       Alert.alert('Unavailable', 'Cannot repost because the original post is unavailable.');
       return;
     }
+    
+    // Get the original post ID - can be post_id, forum_id, or donation_id
+    const original: any = repost.original_post || {};
+    const originalPostId = original.post_id || original.forum_id || original.donation_id;
+    const isForum = original.type === 'forum' || !!original.forum_id || origin === 'forum';
+    const isDonation = original.type === 'donation' || !!original.donation_id || origin === 'donation';
+    
     // Validate original post ID
-    if (!repost.original_post?.post_id) {
+    if (!originalPostId) {
       Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
       return;
     }
     
-    console.log('RepostCard - Navigating to repost screen with postId:', repost.original_post.post_id);
+    console.log('RepostCard - Navigating to repost screen with postId:', originalPostId, 'isForum:', isForum, 'isDonation:', isDonation);
+    
     // Navigate to repost screen for the original post
-    router.push(`/repost/repost?postId=${repost.original_post.post_id}`);
+    let url = `/repost/repost?postId=${originalPostId}`;
+    if (isForum) {
+      url += '&isForumPost=true';
+    } else if (isDonation) {
+      // For donations, we need to handle it differently - use donation repost screen
+      router.push(`/donation/donation-repost?postId=${originalPostId}`);
+      return;
+    }
+    router.push(url);
     // Note: Original post repost count will be updated when the user returns to this screen
   };
 
@@ -526,7 +543,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
             {/* Original Content */}
             {/* Note: Backend doesn't provide post_title for original post in repost detail */}
-            <Text style={styles.originalContent}>{repost.original_post.post_content}</Text>
+            <Text style={styles.originalContent}>
+              {renderTextWithMentions(repost.original_post.post_content, [], (userId) => {
+                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+              })}
+            </Text>
           
           {/* Original Images - support multiple images */}
           {originalImages.length > 0 && (

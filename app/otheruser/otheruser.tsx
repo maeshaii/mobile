@@ -15,6 +15,7 @@ import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { 
   API_BASE_URL,
   getAlumniDetails, 
+  getOJTUserDetails,
   followUser, 
   unfollowUser, 
   checkFollowStatus,
@@ -23,7 +24,8 @@ import {
   getPosts,
   getUserPosts,
   fetchFollowers,
-  fetchFollowing
+  fetchFollowing,
+  getAdminPesoUsers
 } from '../../services/api';
 import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
@@ -131,6 +133,7 @@ export default function OtherUserPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
+  const [isSpecialAccount, setIsSpecialAccount] = useState(false);
 
   // viewer (likes/reposts)
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -143,11 +146,98 @@ export default function OtherUserPage() {
     try {
       setLoading(true);
       console.log('Loading user data for viewUserId:', viewUserId);
-      const [userData, currentUserData, followersData, followingData] = await Promise.all([
-        getAlumniDetails(Number(viewUserId)),
+      
+      // Try to get user data - first try alumni, then OJT
+      let userData: any = null;
+      let isOJTUser = false;
+      
+      try {
+        const alumniResponse = await getAlumniDetails(Number(viewUserId));
+        console.log('Alumni response:', alumniResponse);
+        
+        // Check if response indicates success and has data
+        // Alumni endpoint returns {success: True, alumni: {...}} or {success: False, message: '...'} with 404
+        if (alumniResponse && alumniResponse.success !== false && (alumniResponse.alumni || alumniResponse.id || alumniResponse.user_id)) {
+          // Check if this is actually an OJT user (alumni endpoint might return OJT users too)
+          const userProfile = alumniResponse.alumni || alumniResponse;
+          const accountType = userProfile?.account_type;
+          const isOJTAccount = accountType?.ojt || userProfile?.account_type?.ojt;
+          
+          if (isOJTAccount) {
+            // If it's an OJT user, try to get full OJT details instead
+            console.log('User is OJT, fetching OJT details');
+            throw new Error('User is OJT, need OJT endpoint');
+          }
+          
+          userData = alumniResponse;
+          console.log('Using alumni data');
+        } else {
+          // Response exists but indicates failure, try OJT
+          throw new Error('Alumni user not found in response');
+        }
+      } catch (alumniError: any) {
+        console.log('Alumni endpoint failed, trying OJT endpoint. Error status:', alumniError?.response?.status, 'Error message:', alumniError?.message);
+        console.log('Alumni error response data:', alumniError?.response?.data);
+        
+        // If alumni endpoint fails (any error), try OJT endpoint
+        try {
+          const ojtResponse = await getOJTUserDetails(Number(viewUserId));
+          console.log('OJT response:', ojtResponse);
+          
+          // Backend returns { success: True, user: {...} }
+          if (ojtResponse?.success === false) {
+            throw new Error('OJT endpoint returned success: false');
+          }
+          
+          const ojtUser = ojtResponse?.user || ojtResponse;
+          console.log('OJT user data:', ojtUser);
+          
+          // Transform OJT data to match alumni format
+          if (ojtUser && (ojtUser.CTU_ID || ojtUser.user_id || ojtUser.First_Name || ojtUser.Last_Name)) {
+            isOJTUser = true;
+            userData = {
+              id: ojtUser.CTU_ID || ojtUser.user_id || Number(viewUserId),
+              user_id: ojtUser.CTU_ID || ojtUser.user_id || Number(viewUserId),
+              name: `${ojtUser.First_Name || ''} ${ojtUser.Last_Name || ''}`.trim() || 'OJT User',
+              f_name: ojtUser.First_Name || '',
+              m_name: ojtUser.Middle_Name || '',
+              l_name: ojtUser.Last_Name || '',
+              profile_pic: ojtUser.Profile_Picture || null,
+              profile_bio: ojtUser.Bio || ojtUser.profile_bio || '',
+              social_media: ojtUser.Social_Media || '',
+              email: ojtUser.Email || '',
+              year_graduated: ojtUser.Year_Graduated || null,
+              course: ojtUser.Course || '',
+              ojt_status: ojtUser.Status || null,
+            };
+            console.log('Transformed OJT user data:', userData);
+          } else {
+            throw new Error('OJT user data not found in response');
+          }
+        } catch (ojtError: any) {
+          console.error('Both alumni and OJT endpoints failed');
+          console.error('OJT error status:', ojtError?.response?.status);
+          console.error('OJT error data:', ojtError?.response?.data);
+          console.error('OJT error message:', ojtError?.message);
+          Alert.alert('Error', 'User not found');
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // If userData is still null, show error
+      if (!userData) {
+        console.error('userData is null after trying both endpoints');
+        Alert.alert('Error', 'User not found');
+        setLoading(false);
+        return;
+      }
+      
+      const [currentUserData, followersData, followingData, specialUsers] = await Promise.all([
         getUserInfo(),
-        fetchFollowers(Number(viewUserId)),
-        fetchFollowing(Number(viewUserId))
+        fetchFollowers(Number(viewUserId)).catch(() => ({ followers: [], count: 0 })),
+        fetchFollowing(Number(viewUserId)).catch(() => ({ following: [], count: 0 })),
+        getAdminPesoUsers().catch(() => ({ admin_user_ids: [], peso_user_ids: [] }))
       ]);
       
       console.log('User data from API:', userData);
@@ -180,6 +270,12 @@ export default function OtherUserPage() {
       
       setUser(userWithCounts);
       setCurrentUser(currentUserData);
+      try {
+        const adminIds: number[] = Array.isArray(specialUsers?.admin_user_ids) ? specialUsers.admin_user_ids : [];
+        const pesoIds: number[] = Array.isArray(specialUsers?.peso_user_ids) ? specialUsers.peso_user_ids : [];
+        const viewedId = Number(viewUserId);
+        setIsSpecialAccount(adminIds.includes(viewedId) || pesoIds.includes(viewedId));
+      } catch {}
       
       // Check follow status
       const followStatus = await checkFollowStatus(Number(viewUserId));
@@ -362,15 +458,17 @@ export default function OtherUserPage() {
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.followButton, isFollowing && styles.followingButton]}
-            onPress={handleFollow}
-            disabled={followLoading}
-          >
-            <Text style={[styles.actionButtonText, isFollowing && styles.followingButtonText]}>
-              {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
-            </Text>
-          </TouchableOpacity>
+          {!isSpecialAccount && (
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.followButton, isFollowing && styles.followingButton]}
+              onPress={handleFollow}
+              disabled={followLoading}
+            >
+              <Text style={[styles.actionButtonText, isFollowing && styles.followingButtonText]}>
+                {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+              </Text>
+            </TouchableOpacity>
+          )}
           
           <TouchableOpacity 
             style={[styles.actionButton, styles.messageButton]}

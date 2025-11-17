@@ -152,6 +152,8 @@ export default function DonationRepostScreen() {
           style={styles.topBarButtonLeft} 
           onPress={() => router.back()}
           disabled={submitting}
+          activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Text style={styles.closeIcon}>✕</Text>
         </TouchableOpacity>
@@ -160,6 +162,8 @@ export default function DonationRepostScreen() {
           style={[styles.topBarButtonRight, submitting && styles.disabledButton]} 
           onPress={handleRepost} 
           disabled={submitting}
+          activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           {submitting ? (
             <ActivityIndicator size="small" color="#222" />
@@ -384,7 +388,10 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 10,
+    minWidth: 44,
+    zIndex: 10,
   },
   topBarButtonRight: {
     position: 'absolute',
@@ -392,7 +399,10 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 10,
+    minWidth: 44,
+    zIndex: 10,
   },
   closeIcon: { 
     fontSize: 24, 

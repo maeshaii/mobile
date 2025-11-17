@@ -1,19 +1,20 @@
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
-import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput, ActivityIndicator, Dimensions } from 'react-native';
 import { followUser, getUserInfo, checkFollowStatus, getForumPosts, getAlumniByBatch, getPostLikes, getPostReposts, getRepostComments, commentOnRepost, getRepostDetail, API_BASE_URL } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import ForumPostCard from './ForumPostCard';
 import RepostCard from '../repost/RepostCard';
 import MentionInput from '../../components/MentionInput';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { getImagesFromContent } from '../../utils/imageUtils';
 
-const forumLogo = require('../../assets/images/wny_logo.jpg');
+const ctuLogo = require('../../assets/images/ctu_logo.png');
 
 const orgInfo = {
   name: 'CCICT Forum',
-  profile_pic: forumLogo,
+  profile_pic: ctuLogo,
 };
 
 interface PostItem {
@@ -56,6 +57,30 @@ export default function CCICTPage() {
   const [submittingRepostComment, setSubmittingRepostComment] = useState(false);
   const [repostComments, setRepostComments] = useState<any[]>([]);
   const [repostCommentsLoading, setRepostCommentsLoading] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Comment image viewer state
+  const [commentImageViewerVisible, setCommentImageViewerVisible] = useState(false);
+  const [commentImageIndex, setCommentImageIndex] = useState(0);
+  const [commentImages, setCommentImages] = useState<Array<{ image_url: string; order?: number }>>([]);
+  const commentImageScrollRef = useRef<ScrollView>(null);
+
+  const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
+    if (showSuggestions && scrollViewRef.current && inputPosition) {
+      // Calculate scroll offset to move input and dropdown above keyboard
+      // Dropdown max height is ~300px, add padding
+      const dropdownHeight = 320;
+      const padding = 20;
+      
+      // Scroll upward to make room for dropdown
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ 
+          y: dropdownHeight + padding, 
+          animated: true 
+        });
+      }, 150);
+    }
+  };
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
@@ -217,13 +242,29 @@ export default function CCICTPage() {
     }, [])
   );
 
+  // Scroll to correct image when modal opens or index changes
+  useEffect(() => {
+    if (commentImageViewerVisible && commentImageScrollRef.current && commentImages.length > 0) {
+      const screenWidth = Dimensions.get('window').width;
+      setTimeout(() => {
+        commentImageScrollRef.current?.scrollTo({
+          x: commentImageIndex * screenWidth,
+          y: 0,
+          animated: false,
+        });
+      }, 100);
+    }
+  }, [commentImageViewerVisible, commentImageIndex, commentImages.length]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     try { await loadForumPosts(); } finally { setRefreshing(false); }
   };
 
   return (
+    <>
     <ScrollView
+      ref={scrollViewRef}
       style={styles.scrollContainer}
       contentContainerStyle={{ flexGrow: 1 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#1e3a8a"]} tintColor="#1e3a8a" />}
@@ -243,16 +284,33 @@ export default function CCICTPage() {
         </View>
       </View>
 
-      {/* About Card */}
-      <View style={styles.aboutCard}>
-        <Text style={styles.aboutTitle}>About</Text>
-        <Text style={styles.aboutText}>
-        Connect with fellow alumni from your batch and share experiences, memories, and updates about your journey after graduation.
-        </Text>
+      {/* About Forum Card */}
+      <View style={styles.infoCardContainer}>
+        <View style={styles.infoCard}>
+          <View style={styles.infoTitleContainer}>
+            <Text style={styles.infoTitleEmoji}>📢</Text>
+            <Text style={[styles.infoTitle, { color: '#174f84' }]}>About Forum</Text>
+          </View>
+          <Text style={styles.infoText}>
+            Connect with fellow alumni from your batch and share experiences, memories, and updates about your journey after graduation.
+          </Text>
+          <View style={styles.bulletSection}>
+            <View style={styles.bulletRow}>
+              <View style={[styles.bulletDot, { backgroundColor: '#174f84' }]} />
+              <Text style={styles.bulletText}>Share achievements & milestones</Text>
+            </View>
+            <View style={styles.bulletRow}>
+              <View style={[styles.bulletDot, { backgroundColor: '#174f84' }]} />
+              <Text style={styles.bulletText}>Network with your batch</Text>
+            </View>
+            <View style={styles.bulletRow}>
+              <View style={[styles.bulletDot, { backgroundColor: '#174f84' }]} />
+              <Text style={styles.bulletText}>Stay connected & engaged</Text>
+            </View>
+          </View>
+        </View>
       </View>
 
-
-      
       {/* Members Card */}
       {membersYear && (
         <View style={styles.membersCard}>
@@ -292,23 +350,24 @@ export default function CCICTPage() {
           </ScrollView>
         </View>
       )}
-      {/* Start a Post */}
-      <View style={styles.startPostCard}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <UserAvatar 
-            profilePic={user?.profile_pic}
-            firstName={user?.f_name}
-            lastName={user?.l_name}
-            size={40}
-            style={styles.avatar}
-          />
-          <TouchableOpacity style={styles.startPostInput} onPress={() => router.push({ pathname: '/posts/post', params: { type: 'forum' } })}>
-            <Text style={{ color: '#888' }}>Start a post</Text>
-          </TouchableOpacity>
+      {/* Start a Post and Posts */}
+      <View style={styles.postsContainer}>
+        <View style={styles.startPostCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <UserAvatar 
+              profilePic={user?.profile_pic}
+              firstName={user?.f_name}
+              lastName={user?.l_name}
+              size={40}
+              style={styles.avatar}
+            />
+            <TouchableOpacity style={styles.startPostInput} onPress={() => router.push({ pathname: '/posts/post', params: { type: 'forum' } })}>
+              <Text style={{ color: '#888' }}>Start a post</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-      {/* Feed: forum posts and forum reposts (forum-only) */}
-      {loading ? null : posts.map((item) => {
+        {/* Feed: forum posts and forum reposts (forum-only) */}
+        {loading ? null : posts.map((item) => {
         if (item?.item_type === 'repost' || typeof item?.repost_id === 'number') {
           return (
             <RepostCard
@@ -423,7 +482,8 @@ export default function CCICTPage() {
             }}
           />
         );
-      })}
+        })}
+      </View>
 
       {/* Likes/Reposts Viewer Modal */}
       <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
@@ -572,6 +632,61 @@ export default function CCICTPage() {
                         {renderTextWithMentions(comment.comment_content, [], (userId) => {
                           router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                         })}
+                        {/* Comment Images - Swipeable and Centered */}
+                        {(() => {
+                          const images = getImagesFromContent(comment);
+                          if (images.length === 0) return null;
+                          
+                          const screenWidth = Dimensions.get('window').width;
+                          const slideWidth = screenWidth - 100; // Account for padding
+                          
+                          return (
+                            <View style={styles.commentImagesContainer}>
+                              <ScrollView
+                                horizontal
+                                pagingEnabled
+                                showsHorizontalScrollIndicator={false}
+                                style={[styles.commentImagesScroll, { width: slideWidth }]}
+                                contentContainerStyle={{ width: slideWidth * images.length }}
+                                snapToInterval={slideWidth}
+                                decelerationRate="fast"
+                                scrollEventThrottle={16}
+                              >
+                                {images.map((image, index) => (
+                                  <View
+                                    key={index}
+                                    style={[styles.commentImageSlide, { width: slideWidth }]}
+                                  >
+                                    <TouchableOpacity
+                                      style={styles.commentImageTouchable}
+                                      onPress={() => {
+                                        setCommentImages(images);
+                                        setCommentImageIndex(index);
+                                        setCommentImageViewerVisible(true);
+                                      }}
+                                      activeOpacity={0.9}
+                                      delayPressIn={200}
+                                      delayLongPress={500}
+                                    >
+                                      <Image
+                                        source={renderAvatar(image.image_url)}
+                                        style={styles.commentSwipeableImage}
+                                        resizeMode="contain"
+                                      />
+                                    </TouchableOpacity>
+                                  </View>
+                                ))}
+                              </ScrollView>
+                              {images.length > 1 && (
+                                <View style={styles.commentImagePagination}>
+                                  <Text style={styles.commentImagePaginationText}>
+                                    {images.length} {images.length === 1 ? 'image' : 'images'}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })()}
                       </View>
                     </View>
                   </View>
@@ -580,12 +695,25 @@ export default function CCICTPage() {
             </ScrollView>
 
             {selectedRepost && (
-              <View style={styles.commentInputRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 12 }}>
                 <MentionInput
                   value={repostCommentText}
                   onChange={setRepostCommentText}
                   placeholder="Write a comment..."
-                  style={styles.commentInput}
+                  style={{ flex: 1, backgroundColor: 'transparent' }}
+                  textInputStyle={{ 
+                    backgroundColor: '#fff', 
+                    borderWidth: 1, 
+                    borderColor: '#eee', 
+                    borderRadius: 20, 
+                    paddingHorizontal: 14, 
+                    paddingVertical: 10, 
+                    fontSize: 14, 
+                    color: '#111827',
+                    minHeight: 44,
+                    maxHeight: 120
+                  }}
+                  onSuggestionsChange={handleSuggestionsChange}
                 />
                 <TouchableOpacity
                   style={styles.sendBtn}
@@ -605,6 +733,87 @@ export default function CCICTPage() {
       </Modal>
 
     </ScrollView>
+
+    {/* Comment Image Viewer Modal */}
+    {commentImageViewerVisible && commentImages.length > 0 && (
+      <Modal visible={commentImageViewerVisible} transparent animationType="fade" onRequestClose={() => setCommentImageViewerVisible(false)}>
+        <View style={styles.commentImageViewerOverlay} pointerEvents="box-none">
+          <View
+            style={styles.commentImageViewerContainer}
+          >
+            <View style={styles.commentImageViewerHeader}>
+              <TouchableOpacity
+                onPress={() => setCommentImageViewerVisible(false)}
+                style={styles.commentImageViewerCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+              {commentImages.length > 1 && (
+                <Text style={styles.commentImageViewerPagination}>
+                  {commentImageIndex + 1} of {commentImages.length}
+                </Text>
+              )}
+            </View>
+            {(() => {
+              const screenWidth = Dimensions.get('window').width;
+              const screenHeight = Dimensions.get('window').height;
+              return (
+                <ScrollView
+                  ref={commentImageScrollRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.commentImageViewerScroll}
+                  contentContainerStyle={{ width: screenWidth * commentImages.length }}
+                  onLayout={() => {
+                    // Scroll to correct position after layout
+                    if (commentImageScrollRef.current) {
+                      commentImageScrollRef.current.scrollTo({
+                        x: commentImageIndex * screenWidth,
+                        y: 0,
+                        animated: false,
+                      });
+                    }
+                  }}
+                  onMomentumScrollEnd={(event) => {
+                    const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                    setCommentImageIndex(index);
+                  }}
+                >
+                  {commentImages.map((image, index) => {
+                    const imageSource = renderAvatar(image.image_url);
+                    if (!imageSource) return null;
+                    return (
+                      <View
+                        key={index}
+                        style={{
+                          width: screenWidth,
+                          height: screenHeight,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Image
+                          source={imageSource}
+                          style={{
+                            width: screenWidth,
+                            height: screenHeight * 0.8,
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                          }}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+    )}
+    </>
   );
 }
 
@@ -612,7 +821,9 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingHorizontal: 0,
+  },
+  postsContainer: {
+    paddingHorizontal: 10,
   },
   headerContainer: {
     position: 'relative',
@@ -623,6 +834,8 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     width: '100%',
+    // Note: React Native doesn't support CSS gradients directly
+    // Using solid color that matches web's gradient start color
   },
   profileCard: {
     backgroundColor: '#fff',
@@ -733,44 +946,67 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
   },
-  aboutCard: {
+  infoCardContainer: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  infoCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    marginTop: 12,
-    padding: 12,
+    padding: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
     elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
-  aboutTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#174f84',
-    marginBottom: 6,
-  },
-  aboutText: {
-    fontSize: 13,
-    color: '#333',
-    marginBottom: 10,
-  },
-  aboutRow: {
+  infoTitleContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    marginBottom: 12,
   },
-  aboutLabel: {
-    fontSize: 13,
-    color: '#666',
+  infoTitleEmoji: {
+    fontSize: 24,
+    marginRight: 8,
   },
-  aboutValue: {
-    fontSize: 13,
-    fontWeight: '600',
+  infoTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#111827',
+    marginBottom: 12,
+  },
+  infoText: {
+    color: '#5a6c7d',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  bulletSection: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 2,
+    borderTopColor: 'rgba(23, 79, 132, 0.1)',
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  bulletDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  bulletText: {
+    color: '#5a6c7d',
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
   },
   membersCard: {
     backgroundColor: '#fff',
@@ -907,5 +1143,88 @@ const styles = StyleSheet.create({
   },
   originalPostArrow: {
     marginLeft: 8,
+  },
+  // Comment Images Styles - Swipeable and Centered
+  commentImagesContainer: {
+    marginTop: 8,
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignItems: 'center',
+  },
+  commentImagesScroll: {
+    height: 200,
+  },
+  commentImageSlide: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+  },
+  commentImageTouchable: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentSwipeableImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  commentImagePagination: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  commentImagePaginationText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  // Comment Image Viewer Styles
+  commentImageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentImageViewerContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentImageViewerHeader: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 1,
+  },
+  commentImageViewerCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  commentImageViewerPagination: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  commentImageViewerScroll: {
+    flex: 1,
+    width: '100%',
   },
 });

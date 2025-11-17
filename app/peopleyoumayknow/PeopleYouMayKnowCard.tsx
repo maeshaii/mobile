@@ -7,13 +7,13 @@ import {
   Image,
   Alert,
   ActivityIndicator,
-  Dimensions,
   FlatList,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { fetchSuggestedUsers, followUser } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
+import { wp, hp, getPercentageWidth, getResponsiveFontSize, getResponsivePadding } from '../../utils/responsive';
 
 interface SuggestedUser {
   id: number;
@@ -28,8 +28,6 @@ interface SuggestedUser {
     ojt: boolean;
   };
 }
-
-const { width } = Dimensions.get('window');
 
 // Helper function to get initials from name
 const getInitials = (name: string): string => {
@@ -139,7 +137,7 @@ export default function PeopleYouMayKnowCard() {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.listContent}
-            snapToInterval={Math.round(width * 0.6) + 16}
+            snapToInterval={Math.round(getPercentageWidth(60)) + wp(16)}
             decelerationRate="fast"
             snapToAlignment="start"
             renderItem={({ item: user }) => (
@@ -189,8 +187,8 @@ export default function PeopleYouMayKnowCard() {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    marginVertical: 10,
+    borderRadius: wp(12),
+    marginVertical: hp(10),
     elevation: 3,
     shadowColor: '#000',
     shadowOpacity: 0.08,
@@ -202,39 +200,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp(16),
+    paddingVertical: hp(12),
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
   title: {
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     fontWeight: '600',
     color: '#333',
   },
   dismissButton: {
-    padding: 4,
-    borderRadius: 12,
+    padding: wp(4),
+    borderRadius: wp(12),
     backgroundColor: '#f5f5f5',
   },
   userCardsContainer: {
-    padding: 16,
+    padding: getResponsivePadding(16),
   },
   userCard: {
-    width: Math.round(width * 0.6),
+    width: getPercentageWidth(60),
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: wp(16),
   },
   userInfo: {
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp(12),
     width: '100%',
   },
   profileImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginBottom: 8,
+    width: wp(50),
+    height: wp(50),
+    borderRadius: wp(25),
+    marginBottom: hp(8),
     backgroundColor: '#f0f0f0',
   },
   initialsContainer: {
@@ -244,58 +242,58 @@ const styles = StyleSheet.create({
   },
   initialsText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     fontWeight: 'bold',
   },
   userName: {
-    fontSize: 12,
+    fontSize: getResponsiveFontSize(12),
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: hp(16),
   },
   actionButtons: {
     width: '100%',
-    gap: 6,
+    gap: wp(6),
   },
   followButton: {
     backgroundColor: '#174f84',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    borderRadius: wp(16),
+    paddingVertical: hp(6),
+    paddingHorizontal: wp(10),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: wp(4),
   },
   followButtonText: {
     color: 'white',
-    fontSize: 11,
+    fontSize: getResponsiveFontSize(11),
     fontWeight: '600',
   },
   removeButton: {
     backgroundColor: '#f5f5f5',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    borderRadius: wp(16),
+    paddingVertical: hp(6),
+    paddingHorizontal: wp(10),
     alignItems: 'center',
   },
   removeButtonText: {
     color: '#666',
-    fontSize: 11,
+    fontSize: getResponsiveFontSize(11),
     fontWeight: '500',
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: hp(20),
   },
   loadingText: {
-    marginTop: 8,
-    fontSize: 12,
+    marginTop: hp(8),
+    fontSize: getResponsiveFontSize(12),
     color: '#666',
   },
   listContent: {
-    paddingRight: 16,
+    paddingRight: wp(16),
   },
 });

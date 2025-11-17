@@ -3,6 +3,8 @@ import { getAccessToken } from './api';
 export type NotificationWsEvent = 
   | { type: 'notification'; notification_id: number; message: string; notification_type: string; created_at: string; is_read: boolean; user_id: number }
   | { type: 'notification_count'; count: number; user_id: number }
+  | { type: 'notification_count_update'; count: number }
+  | { type: 'points_update'; points: { user_id: number; total_points: number; rank: number | null; points_breakdown: any } }
   | { type: 'connection_established'; user_id: number; timestamp: string }
   | { type: 'pong'; timestamp: string }
   | { type: 'error'; message: string };
@@ -57,7 +59,9 @@ export class NotificationWebSocket {
 
       // Clean the base URL to prevent double slashes
       const cleanBaseUrl = this.baseUrl.replace(/\/+$/, '');
+      // Backend routing is /ws/notifications/ (without user ID in path)
       // FIX: Don't include user_id in URL - backend gets user from token
+
       let wsUrl = `${cleanBaseUrl}/ws/notifications/`;
       
       // Add JWT token to URL if available

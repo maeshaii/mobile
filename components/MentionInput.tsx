@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Dimensions, findNodeHandle, UIManager } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Dimensions, findNodeHandle, UIManager, Keyboard, Platform } from 'react-native';
 import { getFollowingForMentions } from '../services/api';
 import UserAvatar from './UserAvatar';
 
@@ -12,6 +12,8 @@ interface MentionInputProps {
   style?: any;
   multiline?: boolean;
   maxLength?: number;
+  onSuggestionsChange?: (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => void;
+  textInputStyle?: any; // Allow overriding TextInput styles
 }
 
 interface User {
@@ -31,7 +33,9 @@ const MentionInput: React.FC<MentionInputProps> = ({
   disabled = false,
   style = {},
   multiline = true,
-  maxLength
+  maxLength,
+  onSuggestionsChange,
+  textInputStyle = {}
 }) => {
   const [following, setFollowing] = useState<User[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -42,7 +46,9 @@ const MentionInput: React.FC<MentionInputProps> = ({
   const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const textInputRef = useRef<TextInput>(null);
   const containerRef = useRef<View>(null);
-  const [dropdownAbove, setDropdownAbove] = useState(false);
+  const [dropdownAbove, setDropdownAbove] = useState(true); // Default to above to avoid keyboard
+  const [inputPosition, setInputPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   // Load following users on component mount
   useEffect(() => {
@@ -94,6 +100,19 @@ const MentionInput: React.FC<MentionInputProps> = ({
       setMentionStart(lastAtIndex);
       setMentionQuery(textFromAtToCaret);
       setShowSuggestions(true);
+      // Measure position and then notify parent
+      updateDropdownPosition();
+      setTimeout(() => {
+        // Get fresh position after measurement
+        const handle = findNodeHandle(containerRef.current);
+        if (handle) {
+          UIManager.measure(handle, (x, y, w, h, pageX, pageY) => {
+            onSuggestionsChange?.(true, { x: pageX, y: pageY, width: w, height: h });
+          });
+        } else {
+          onSuggestionsChange?.(true, inputPosition);
+        }
+      }, 100);
       const queryLower = textFromAtToCaret.toLowerCase();
       const filteredSuggestions = following.filter(user =>
         (user.name || '').toLowerCase().includes(queryLower) ||
@@ -104,28 +123,66 @@ const MentionInput: React.FC<MentionInputProps> = ({
       setSelectedIndex(0);
     } else {
       setShowSuggestions(false);
+      onSuggestionsChange?.(false);
       setMentionQuery('');
       setMentionStart(-1);
     }
   };
+
+  // Track keyboard visibility
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+        // When keyboard is visible, always show dropdown above
+        setDropdownAbove(true);
+      }
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
 
   // Measure and decide where to place dropdown to avoid clipping
   const updateDropdownPosition = () => {
     try {
       const handle = findNodeHandle(containerRef.current);
       if (!handle) return;
-      UIManager.measure(handle, (_x, _y, _w, h, _pageX, pageY) => {
+      UIManager.measure(handle, (x, y, w, h, pageX, pageY) => {
         const windowHeight = Dimensions.get('window').height;
         const spaceBelow = windowHeight - (pageY + h);
-        // If less than ~220px below (typical dropdown max height), place above
-        setDropdownAbove(spaceBelow < 220);
+        // Always place above when keyboard is visible, otherwise check space
+        if (isKeyboardVisible) {
+          setDropdownAbove(true);
+        } else {
+          // If less than ~220px below (typical dropdown max height), place above
+          setDropdownAbove(spaceBelow < 220);
+        }
+        // Store input position for scroll calculations
+        setInputPosition({ x: pageX, y: pageY, width: w, height: h });
       });
     } catch {}
   };
 
   useEffect(() => {
-    if (showSuggestions) updateDropdownPosition();
-  }, [showSuggestions]);
+    if (showSuggestions) {
+      updateDropdownPosition();
+      // Force dropdown above when keyboard is visible
+      if (isKeyboardVisible) {
+        setDropdownAbove(true);
+      }
+    }
+  }, [showSuggestions, isKeyboardVisible]);
 
   // Handle suggestion selection
   const selectSuggestion = (user: User) => {
@@ -136,7 +193,8 @@ const MentionInput: React.FC<MentionInputProps> = ({
     // Replace the mention token from '@' to caret with selected user name
     const beforeMention = value.substring(0, mentionStart);
     const afterCaret = value.substring(caretEnd);
-    // Build a space-free mention token so detection works consistently (@FirstLast)
+    // Build mention token without spaces to match backend regex (@FirstLast)
+    // The backend regex r'@([^@\s]+)' doesn't support spaces, so we use @FirstLast format
     const displayName = (user.name || `${user.f_name || ''} ${user.l_name || ''}`).trim();
     const token = displayName.replace(/\s+/g, '');
     const insert = `@${token} `;
@@ -148,6 +206,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
     setSelection({ start: newCaret, end: newCaret });
 
     setShowSuggestions(false);
+    onSuggestionsChange?.(false);
     setMentionStart(-1);
     setMentionQuery('');
 
@@ -215,6 +274,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
         break;
       case 'Escape':
         setShowSuggestions(false);
+        onSuggestionsChange?.(false);
         setMentionQuery('');
         break;
     }
@@ -230,11 +290,13 @@ const MentionInput: React.FC<MentionInputProps> = ({
         onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
         onKeyPress={handleKeyPress}
         placeholder={placeholder}
+        placeholderTextColor="#9ca3af"
         editable={!disabled}
         multiline={multiline}
         maxLength={maxLength}
         style={[
           styles.textInput,
+          textInputStyle, // Apply custom TextInput styles
           disabled && styles.disabledInput
         ]}
         onFocus={() => {
@@ -247,6 +309,18 @@ const MentionInput: React.FC<MentionInputProps> = ({
               setMentionStart(lastAtIndex);
               setMentionQuery(textAfterAt);
               setShowSuggestions(true);
+              updateDropdownPosition();
+              // Measure position and then notify parent
+              setTimeout(() => {
+                const handle = findNodeHandle(containerRef.current);
+                if (handle) {
+                  UIManager.measure(handle, (x, y, w, h, pageX, pageY) => {
+                    onSuggestionsChange?.(true, { x: pageX, y: pageY, width: w, height: h });
+                  });
+                } else {
+                  onSuggestionsChange?.(true, inputPosition);
+                }
+              }, 100);
               const filteredSuggestions = following.filter(user =>
                 user.name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
                 user.f_name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
@@ -260,7 +334,10 @@ const MentionInput: React.FC<MentionInputProps> = ({
         }}
         onBlur={() => {
           // Delay hiding suggestions to allow selection
-          setTimeout(() => setShowSuggestions(false), 150);
+          setTimeout(() => {
+            setShowSuggestions(false);
+            onSuggestionsChange?.(false);
+          }, 150);
         }}
       />
       

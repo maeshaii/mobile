@@ -97,7 +97,7 @@ console.log('Ngrok URL:', ngrokUrl);
 /** Axios instance */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 180000, // Increased to 180 seconds for compressed image uploads
+  timeout: 30000, // 30 seconds timeout for most requests (reduced from 180s)
   withCredentials: true, // Enable for session-based WebSocket auth
   headers: { 
     Accept: 'application/json',
@@ -189,6 +189,20 @@ export const forceLogout = async () => {
 /** Attach bearer - but NOT for login/token endpoints */
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
+    // Ensure Content-Type is set for JSON requests
+    if (!config.headers['Content-Type'] && config.data && typeof config.data === 'object' && !(config.data instanceof FormData)) {
+      config.headers['Content-Type'] = 'application/json';
+    }
+    
+    // Ensure ngrok header is always present for ngrok URLs
+    if (API_BASE_URL.includes('ngrok')) {
+      config.headers['ngrok-skip-browser-warning'] = 'true';
+      // For login requests, increase timeout slightly
+      if (config.url?.includes('/api/token/') && config.method === 'post') {
+        config.timeout = 15000; // 15 seconds for login
+      }
+    }
+    
     // Don't add Authorization header for login/token endpoints
     const isLoginEndpoint = config.url?.includes('/api/token/') && config.method === 'post';
     const isRefreshEndpoint = config.url?.includes('/api/token/refresh/');
@@ -231,8 +245,20 @@ api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
-    if (!error.response || !original) return Promise.reject(error);
+    
+    // Handle network errors or missing response
+    if (!error.response) {
+      // Check if it's an ngrok gateway error
+      const errorMessage = (error as any)?.message || '';
+      if (errorMessage.includes('ERR_NGROK') || errorMessage.includes('ngrok')) {
+        console.warn('Ngrok gateway error detected. This may be due to: Large file upload exceeding ngrok free tier limits, Network instability, or Ngrok tunnel issues');
+      }
+      return Promise.reject(error);
+    }
+    
+    if (!original) return Promise.reject(error);
 
+    // Handle 401 Unauthorized - token refresh
     if (error.response.status === 401 && !original._retry) {
       original._retry = true;
 
@@ -267,6 +293,17 @@ api.interceptors.response.use(
       });
     }
 
+    // Handle 503 Service Unavailable (often ngrok gateway errors)
+    if (error.response.status === 503) {
+      const errorData = error.response.data;
+      const errorDataStr = typeof errorData === 'string' ? errorData : JSON.stringify(errorData || '');
+      if (errorDataStr.includes('ERR_NGROK') || errorDataStr.includes('ngrok')) {
+        console.warn('Ngrok gateway error (503):', errorData);
+        // Don't retry automatically as ngrok gateway errors are usually transient
+        // and retrying immediately might not help
+      }
+    }
+
     return Promise.reject(error);
   }
 );
@@ -278,8 +315,13 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
   const trimmedUsername = acc_username.trim();
   const trimmedPassword = acc_password.trim();
   
-  console.log('Mobile: Sending login request:', { acc_username: trimmedUsername, acc_password: trimmedPassword });
+  console.log('Mobile: Sending login request:', { 
+    acc_username: trimmedUsername, 
+    acc_password: '***' // Don't log password
+  });
   console.log('Mobile: API Base URL:', API_BASE_URL);
+  console.log('Mobile: Full login URL will be:', `${API_BASE_URL}/api/token/`);
+  
   try {
     const response = await api.post('/api/token/', { acc_username: trimmedUsername, acc_password: trimmedPassword });
     console.log('Mobile: Login response received:', response.data);
@@ -295,30 +337,57 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
     
     return { success: true, ...response.data };
   } catch (error: any) {
-    console.error('Mobile: Login error details:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      message: error.message,
-      config: {
+    // Safely log error without circular references and truncate large error messages
+    try {
+      let errorData = error.response?.data;
+      // If error data is a string and too long, truncate it
+      if (typeof errorData === 'string' && errorData.length > 500) {
+        errorData = errorData.substring(0, 500) + '... (truncated)';
+      } else if (typeof errorData === 'object') {
+        // If it's an object, try to stringify but limit size
+        const dataStr = JSON.stringify(errorData);
+        if (dataStr.length > 500) {
+          errorData = dataStr.substring(0, 500) + '... (truncated)';
+        }
+      }
+      
+      const errorDetails = {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: errorData,
+        message: error.message,
+        code: error.code,
         url: error.config?.url,
         method: error.config?.method,
-        headers: error.config?.headers
-      }
-    });
+        baseURL: error.config?.baseURL,
+      };
+      console.error('Mobile: Login error details:', JSON.stringify(errorDetails, null, 2));
+    } catch (logError) {
+      // If logging fails, just log the message
+      console.error('Mobile: Login error:', error.message || 'Unknown error');
+    }
     
     // Provide more specific error messages (SAME AS WEB)
     if (error.response?.status === 400) {
       return { success: false, message: 'Invalid credentials or request format' };
     } else if (error.response?.status === 500) {
       return { success: false, message: 'Server error - please try again later' };
-    } else if (error.code === 'ERR_NETWORK') {
-      return { success: false, message: 'Network error - check your connection' };
+    } else if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      // Network error - could be ngrok tunnel down, SSL issue, or connectivity problem
+      const errorMsg = API_BASE_URL.includes('ngrok') 
+        ? 'Network error - ngrok tunnel may be down. Please check if the backend is running and the ngrok URL is correct.'
+        : 'Network error - check your connection and ensure the backend server is running.';
+      console.error('Mobile: Network error detected. API Base URL:', API_BASE_URL);
+      return { success: false, message: errorMsg };
+    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      return { success: false, message: 'Request timeout - the server took too long to respond' };
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      return { success: false, message: 'Cannot connect to server - check if the backend is running and the URL is correct' };
     } else if (error.response?.status === 0) {
       return { success: false, message: 'CORS error - backend may not be running' };
     }
     
-    return { success: false, message: 'Login failed - please try again' };
+    return { success: false, message: `Login failed: ${error.message || 'Unknown error'}` };
   }
 };
 
@@ -479,6 +548,12 @@ export const searchAlumni = async (query: string) => {
   return response.data;
 };
 
+// Mobile -> Backend: GET /api/ojt-users/list/
+export const searchOJT = async (query: string) => {
+  const response = await api.get('/api/ojt-users/list/', { params: { search: query, per_page: 20 } });
+  return response.data;
+};
+
 /** Recent Searches */
 export const listRecentSearches = async (limit: number = 10) => {
   try {
@@ -558,6 +633,12 @@ export const getAlumniByBatch = async (batchYear: string | number) => {
 // Mobile -> Backend: GET /api/alumni/{user_id}/
 export const getAlumniDetails = async (userId: number) =>
   (await api.get(`/api/alumni/${userId}/`)).data;
+
+// Mobile -> Backend: GET /api/ojt-users/details/{user_id}/
+export const getOJTUserDetails = async (userId: number) => {
+  const response = await api.get(`/api/ojt-users/details/${userId}/`);
+  return response.data;
+};
 
 // Mobile -> Backend: GET /api/alumni/profile/{user_id}/
 export const getAlumniProfile = async (userId: number) =>
@@ -715,6 +796,7 @@ export const getFeed = async () => {
       comments_count: donation.comments_count || 0,
       reposts_count: donation.reposts_count || 0,
       is_liked: donation.is_liked || false,
+      likes: donation.likes || [], // Include likes array so we can check if user is in it
       user: donation.user,
       item_type: 'donation_post'
     }));
@@ -973,7 +1055,18 @@ export const getUserPosts = async (userId: number) => {
     
     return { posts: userPosts };
   } catch (error: any) {
-    console.error('getUserPosts error:', error);
+    const status = error?.response?.status;
+    const errorMsg = error?.response?.data || error?.message;
+    
+    // Handle 404 errors specifically
+    if (status === 404) {
+      console.warn('getUserPosts: Endpoint not found (404). This may be a backend issue.');
+      console.warn('Error details:', errorMsg);
+    } else {
+      console.error('getUserPosts error:', error);
+    }
+    
+    // Return empty array instead of throwing to prevent app crashes
     return { posts: [] };
   }
 };
@@ -1523,13 +1616,29 @@ export const updateAlumniProfile = async (params: { bio?: string; imageUri?: str
       : null;
 
     const [bioRes, socialRes, emailRes] = await Promise.all([
-      bioPromise?.catch((e) => { 
-        console.error('Update bio/photo failed:', e?.response?.data || e?.message);
+      bioPromise?.catch((e: any) => { 
+        const errorMsg = e?.response?.data || e?.message || 'Unknown error';
+        const status = e?.response?.status;
+        const errorMsgStr = typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg);
+        
+        // Handle ngrok-specific errors
+        if (status === 503 || errorMsgStr.includes('ERR_NGROK') || errorMsgStr.includes('ngrok gateway')) {
+          console.error('Update bio/photo failed: Ngrok gateway error. This may be due to large file size or ngrok free tier limitations.');
+          console.error('Try reducing image size or use a direct connection.');
+        } else {
+          console.error('Update bio/photo failed:', errorMsg);
+        }
         console.error('Full error:', e);
         return null; 
       }),
-      socialPromise?.catch((e) => { console.error('Update social media failed:', e?.response?.data || e?.message); return null; }),
-      emailPromise?.catch((e) => { console.error('Update email failed:', e?.response?.data || e?.message); return null; }),
+      socialPromise?.catch((e: any) => { 
+        console.error('Update social media failed:', e?.response?.data || e?.message); 
+        return null; 
+      }),
+      emailPromise?.catch((e: any) => { 
+        console.error('Update email failed:', e?.response?.data || e?.message); 
+        return null; 
+      }),
     ]);
 
     // Update local storage with new data
@@ -1862,4 +1971,111 @@ export const uploadAttachment = async (file: any, conversationId: number) => {
 };
 
 export default api;
+
+/** Rewards & Engagement Points API */
+// Mobile -> Backend: GET /api/engagement/leaderboard/
+export const getEngagementLeaderboard = async (limit: number = 50, userType: string = 'all') => {
+  try {
+    const { data } = await api.get('/api/engagement/leaderboard/', {
+      params: { limit, user_type: userType }
+    });
+    return data;
+  } catch (error) {
+    console.error('Mobile getEngagementLeaderboard API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: GET /api/engagement/leaderboard/?user_type=all&limit=1000 (to get user points)
+export const getUserPoints = async (userId: number) => {
+  try {
+    const response = await api.get('/api/engagement/leaderboard/?user_type=all&limit=1000');
+    const leaderboard = response.data?.leaderboard || [];
+    const userPoints = leaderboard.find((item: any) => item.user_id === userId);
+    return userPoints || {
+      total_points: 0,
+      rank: null,
+      points_breakdown: {
+        likes: { points: 0, count: 0 },
+        comments: { points: 0, count: 0 },
+        shares: { points: 0, count: 0 },
+        replies: { points: 0, count: 0 },
+        posts: { points: 0, count: 0 },
+        posts_with_photos: { points: 0, count: 0 },
+        tracker_form: { points: 0, count: 0 }
+      }
+    };
+  } catch (error) {
+    console.error('Mobile getUserPoints API Error:', error);
+    return {
+      total_points: 0,
+      rank: null,
+      points_breakdown: {
+        likes: { points: 0, count: 0 },
+        comments: { points: 0, count: 0 },
+        shares: { points: 0, count: 0 },
+        replies: { points: 0, count: 0 },
+        posts: { points: 0, count: 0 },
+        posts_with_photos: { points: 0, count: 0 },
+        tracker_form: { points: 0, count: 0 }
+      }
+    };
+  }
+};
+
+// Mobile -> Backend: GET /api/inventory/
+export const getInventoryItems = async () => {
+  try {
+    const { data } = await api.get('/api/inventory/');
+    return data;
+  } catch (error) {
+    console.error('Mobile getInventoryItems API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/rewards/request/
+export const requestReward = async (rewardId: number) => {
+  try {
+    const { data } = await api.post('/api/rewards/request/', { reward_id: rewardId });
+    return data;
+  } catch (error) {
+    console.error('Mobile requestReward API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: GET /api/rewards/requests/
+export const getRewardRequests = async (status?: string) => {
+  try {
+    const url = status ? `/api/rewards/requests/?status=${status}` : '/api/rewards/requests/';
+    const { data } = await api.get(url);
+    return data;
+  } catch (error) {
+    console.error('Mobile getRewardRequests API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/rewards/requests/{request_id}/claim/
+export const claimRewardRequest = async (requestId: number) => {
+  try {
+    const { data } = await api.post(`/api/rewards/requests/${requestId}/claim/`);
+    return data;
+  } catch (error) {
+    console.error('Mobile claimRewardRequest API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: GET /api/engagement/points-settings/
+export const getEngagementPointsSettings = async () => {
+  try {
+    const { data } = await api.get('/api/engagement/points-settings/');
+    return data;
+  } catch (error) {
+    console.error('Mobile getEngagementPointsSettings API Error:', error);
+    throw error;
+  }
+};
 

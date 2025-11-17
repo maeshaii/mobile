@@ -2,11 +2,13 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment } from '../../services/api';
+import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment, getRepostDetail } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { Ionicons } from '@expo/vector-icons';
 import UserAvatar from '../../components/UserAvatar';
+import { getImagesFromContent } from '../../utils/imageUtils';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 dayjs.extend(relativeTime);
 
@@ -38,19 +40,120 @@ export default function RepostScreen() {
     const run = async () => {
       try {
         setLoading(true);
-        const [u, detail] = await Promise.all([
-          getUserInfo(),
-          postId ? (isForumPost ? getForumDetail(postId) : getPostDetail(postId)) : Promise.resolve(null),
-        ]);
+        const u = await getUserInfo();
         setMe(u);
-        setOriginal(detail);
-        // Detect if current user already reposted
+        
+        if (!postId) {
+          setLoading(false);
+          return;
+        }
+        
+        // First try to get as regular post/forum
+        let detail = null;
         try {
-          const meId = (u?.id || u?.user_id);
-          const mine = Array.isArray(detail?.reposts) ? detail.reposts.find((r:any)=> (r.user?.user_id) === meId) : null;
-          setMyRepostId(mine?.repost_id || null);
-          if (mine?.repost_caption) setCaption(String(mine.repost_caption));
-        } catch {}
+          detail = isForumPost ? await getForumDetail(postId) : await getPostDetail(postId);
+        } catch (error: any) {
+          // If 404, it might be a repost ID - try to get repost detail and extract original post
+          // This handles the case where someone accidentally passes a repost ID instead of a post ID
+          if (error?.response?.status === 404) {
+            try {
+              console.log('RepostScreen - Post not found (404), checking if it\'s a repost ID:', postId);
+              const repostData = await getRepostDetail(postId);
+              
+              // Check if we got valid repost data (not fallback)
+              // Fallback data has repost_id: 0 or no original data
+              if (repostData?.original && repostData.repost_id && repostData.repost_id !== 0 && repostData.repost_id === postId) {
+                // Use the original post from the repost
+                const original = repostData.original;
+                
+                // Get the original post ID based on type
+                const originalPostId = original.post_id || original.forum_id || original.donation_id;
+                
+                // Check if we got valid original post data (not fallback)
+                if (!originalPostId || originalPostId === 0) {
+                  // This means getRepostDetail returned fallback data, which means the repost doesn't exist
+                  // So the postId is not a repost ID, it's just a non-existent post ID
+                  console.error('RepostScreen - Invalid repost data, original post ID is 0 or missing');
+                  throw new Error('Post not found');
+                }
+                
+                console.log('RepostScreen - Found repost, loading original post:', originalPostId, 'type:', original.type);
+                
+                // Now load the actual original post detail to get full data including reposts
+                try {
+                  if (original.type === 'forum') {
+                    detail = await getForumDetail(originalPostId);
+                  } else if (original.type === 'donation') {
+                    const { getDonationDetail } = await import('../../services/api');
+                    detail = await getDonationDetail(originalPostId);
+                    // Normalize donation data
+                    detail = {
+                      ...detail,
+                      post_id: detail.donation_id,
+                      post_content: detail.description || detail.post_content || '',
+                      post_title: detail.post_title || '',
+                      post_image: detail.post_image || (detail.images?.[0]?.image_url || null),
+                      post_images: detail.images || [],
+                    };
+                  } else {
+                    detail = await getPostDetail(originalPostId);
+                  }
+                  console.log('RepostScreen - Successfully loaded original post detail');
+                } catch (loadError: any) {
+                  // If we can't load the original post, use the data from repost detail
+                  // Transform the repost detail original data to match post detail format
+                  console.warn('RepostScreen - Could not load original post detail, using repost data:', loadError);
+                  
+                  // Handle different content types - backend returns 'content' not 'post_content'
+                  const postContent = original.content || original.post_content || original.description || '';
+                  // Backend returns 'post_images' for posts, 'images' for forums/donations
+                  const postImages = original.post_images || original.images || [];
+                  const postImage = original.post_image || (postImages.length > 0 ? postImages[0]?.image_url : null);
+                  
+                  detail = {
+                    post_id: originalPostId,
+                    post_content: postContent,
+                    post_title: original.post_title || '',
+                    post_image: postImage,
+                    post_images: postImages,
+                    created_at: original.created_at,
+                    user: original.user || {
+                      user_id: 0,
+                      f_name: 'Unknown',
+                      l_name: 'User',
+                      profile_pic: null
+                    },
+                    likes_count: 0,
+                    comments_count: 0,
+                    reposts_count: 0,
+                    likes: [],
+                    comments: [],
+                    reposts: [],
+                    is_liked: false,
+                  };
+                  
+                  console.log('RepostScreen - Using repost detail fallback data:', detail);
+                }
+              } else {
+                // Not a valid repost, just a non-existent post
+                console.error('RepostScreen - Not a valid repost ID, post not found. Repost data:', repostData);
+                throw new Error('Post not found');
+              }
+            } catch (repostError: any) {
+              console.error('RepostScreen - Error loading repost detail:', repostError);
+              // Re-throw the original 404 error, not the repost error
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
+        
+        setOriginal(detail);
+        // Don't check if user already reposted - allow multiple reposts
+        // Users can repost the same post multiple times, each creating a new repost
+        setMyRepostId(null);
+        setCaption('');
       } catch (e) {
         console.error('RepostScreen - Error loading post:', e);
         Alert.alert('Error', 'Failed to load post');
@@ -59,42 +162,10 @@ export default function RepostScreen() {
       }
     };
     run();
-  }, [postId]);
+  }, [postId, isForumPost]);
 
-  const meAvatar = me?.profile_pic
-    ? { uri: (String(me.profile_pic).startsWith('http') || String(me.profile_pic).startsWith('data:')) ? String(me.profile_pic) : `${API_BASE_URL}${me.profile_pic}` }
-    : require('../../assets/images/sample_pic.jpg');
-
-  const origAvatar = original?.user?.profile_pic
-    ? { uri: (String(original.user.profile_pic).startsWith('http') || String(original.user.profile_pic).startsWith('data:')) ? String(original.user.profile_pic) : `${API_BASE_URL}${original.user.profile_pic}` }
-    : require('../../assets/images/sample_pic.jpg');
-
-  const imageUrl = original?.post_image
-    ? (String(original.post_image).startsWith('http') || String(original.post_image).startsWith('data:') ? String(original.post_image) : `${API_BASE_URL}${original.post_image}`)
-    : null;
-
-  // Get all images from both post_image and post_images array
-  const getAllImages = () => {
-    const images = [];
-    
-    // Add main post image if exists (backward compatibility)
-    if (imageUrl) {
-      images.push({
-        image_id: 0,
-        image_url: imageUrl,
-        order: 0
-      });
-    }
-    
-    // Add post_images array if exists (multiple images)
-    if (original?.post_images && Array.isArray(original.post_images)) {
-      images.push(...original.post_images);
-    }
-    
-    return images.sort((a, b) => a.order - b.order);
-  };
-
-  const allImages = getAllImages();
+  // Use the utility function to extract all images from the original post
+  const allImages = getImagesFromContent(original);
 
   const loadComments = async () => {
     if (!original?.post_id) return;
@@ -111,8 +182,24 @@ export default function RepostScreen() {
 
   const renderAvatar = (src?: string) => {
     if (!src) return require('../../assets/images/sample_pic.jpg');
-    const isAbs = String(src).startsWith('http') || String(src).startsWith('data:');
-    return { uri: isAbs ? src : `${API_BASE_URL}${src}` };
+    const s = String(src);
+    
+    // Handle data URIs
+    if (s.startsWith('data:')) return { uri: s };
+    
+    // Handle absolute URLs - check if it's localhost and replace with API_BASE_URL
+    if (s.startsWith('http')) {
+      const localhostPattern = /^https?:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2)(:\d+)?/i;
+      if (localhostPattern.test(s)) {
+        const urlObj = new URL(s);
+        return { uri: `${API_BASE_URL}${urlObj.pathname}${urlObj.search}` };
+      }
+      return { uri: s };
+    }
+    
+    // Handle relative URLs
+    const relativePath = s.startsWith('/') ? s : `/${s}`;
+    return { uri: `${API_BASE_URL}${relativePath}` };
   };
 
   const meId = me?.id || me?.user_id;
@@ -192,38 +279,22 @@ export default function RepostScreen() {
             setSubmitting(true);
             const cleaned = caption.trim();
         
-            if (myRepostId) {
-              // update my existing repost caption
-              console.log('Updating existing repost with ID:', myRepostId);
-              if (isForumPost) {
-                // For forum posts, we need to delete and recreate the repost
-                await deleteForumRepost(myRepostId);
-                await repostForumPost(postId, cleaned);
-              } else {
-                await updateRepost(myRepostId, cleaned);
-              }
+            // Always create a new repost - users can repost the same post multiple times
+            // Each repost will be of the original post, not the repost itself
+            console.log('Creating new repost for postId:', postId, 'isForumPost:', isForumPost);
+            const response = isForumPost 
+              ? await repostForumPost(postId, cleaned)
+              : await repostPost(postId, cleaned);
+            console.log('Repost response:', response);
+            
+            if (response.success !== false) {
               Alert.alert(
                 'Success',
-                'Your repost caption has been updated',
+                'Your repost has been published',
                 [{ text: 'OK', onPress: () => router.back() }],
               );
             } else {
-              // create repost; helper will omit caption if empty
-              console.log('Creating new repost for postId:', postId, 'isForumPost:', isForumPost);
-              const response = isForumPost 
-                ? await repostForumPost(postId, cleaned)
-                : await repostPost(postId, cleaned);
-              console.log('Repost response:', response);
-              
-              if (response.success !== false) {
-                Alert.alert(
-                  'Success',
-                  'Your repost has been published',
-                  [{ text: 'OK', onPress: () => router.back() }],
-                );
-              } else {
-                Alert.alert('Error', response.message || 'Failed to repost');
-              }
+              Alert.alert('Error', response.message || 'Failed to repost');
             }
           } catch (e: any) {
             console.error('Repost error:', e);
@@ -259,7 +330,13 @@ export default function RepostScreen() {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
           {/* User + caption input */}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-            <Image source={meAvatar} style={styles.avatar} />
+            <UserAvatar 
+              profilePic={me?.profile_pic}
+              firstName={me?.f_name}
+              lastName={me?.l_name}
+              size={40}
+              style={styles.avatar}
+            />
             <Text style={styles.meName}>{me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim()}</Text>
           </View>
           <TextInput
@@ -269,29 +346,30 @@ export default function RepostScreen() {
             placeholder="Add an optional caption..."
             multiline
           />
-          
-          
-          {myRepostId ? (
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
-              <TouchableOpacity
-                onPress={async () => { try { await deleteRepost(myRepostId); setMyRepostId(null); setCaption(''); Alert.alert('Deleted','Your repost was removed'); } catch { Alert.alert('Error','Failed to delete'); } }}
-              >
-                <Text style={{ color: 'red', fontWeight: 'bold' }}>Delete Repost</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
 
           {/* Nested original post card (tap to open original post detail) */}
           <TouchableOpacity style={styles.nestedCard} activeOpacity={0.8} onPress={() => { if (original?.post_id) router.push(`/posts/detail?postId=${original.post_id}`); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <Image source={origAvatar} style={styles.avatarSmall} />
+              <UserAvatar 
+                profilePic={original?.user?.profile_pic}
+                firstName={original?.user?.f_name}
+                lastName={original?.user?.l_name}
+                size={32}
+                style={styles.avatarSmall}
+              />
               <View style={{ flex: 1 }}>
                 <Text style={styles.origName}>{original?.user?.f_name} {original?.user?.l_name}</Text>
                 <Text style={styles.origMeta}>Original post</Text>
               </View>
             </View>
             {original?.post_title ? <Text style={styles.origTitle}>{original.post_title}</Text> : null}
-            {original?.post_content ? <Text style={styles.origContent}>{original.post_content}</Text> : null}
+            {original?.post_content ? (
+              <Text style={styles.origContent}>
+                {renderTextWithMentions(original.post_content, [], (userId) => {
+                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                })}
+              </Text>
+            ) : null}
             
             {/* Display all images */}
             {allImages.length > 0 && (
@@ -355,13 +433,13 @@ export default function RepostScreen() {
                 <ScrollView style={{ maxHeight: 320, marginTop: 8 }}>
                   {viewerType === 'likes' && (original?.likes || []).map((u:any, idx:number)=> (
                     <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
-                      <Image source={{ uri: (u.profile_pic && (String(u.profile_pic).startsWith('http') || String(u.profile_pic).startsWith('data:'))) ? u.profile_pic : (u.profile_pic ? `${API_BASE_URL}${u.profile_pic}` : '') }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                      <Image source={renderAvatar(u.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
                       <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{u.f_name || ''} {u.l_name || ''}</Text>
                     </View>
                   ))}
                   {viewerType === 'reposts' && (original?.reposts || []).map((r:any)=> (
                     <View key={r.repost_id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
-                      <Image source={{ uri: (r.user?.profile_pic && (String(r.user.profile_pic).startsWith('http') || String(r.user.profile_pic).startsWith('data:'))) ? r.user?.profile_pic : (r.user?.profile_pic ? `${API_BASE_URL}${r.user.profile_pic}` : '') }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                      <Image source={renderAvatar(r.user?.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
                       <View>
                         <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{r.user?.f_name || ''} {r.user?.l_name || ''}</Text>
                         <Text style={{ color: '#888', fontSize: 12 }}>{r.repost_date ? new Date(r.repost_date).toLocaleString() : ''}</Text>
@@ -483,14 +561,33 @@ export default function RepostScreen() {
                           </View>
                           {!!original.post_title && <Text style={styles.postTitle}>{original.post_title}</Text>}
                           {!!original.post_content && (
-                            <Text style={styles.postContent}>{original.post_content}</Text>
+                            <Text style={styles.postContent}>
+                              {renderTextWithMentions(original.post_content, [], (userId) => {
+                                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                              })}
+                            </Text>
                           )}
-                          {imageUrl && (
-                            <Image
-                              source={{ uri: imageUrl }}
-                              style={styles.postImage}
-                              resizeMode="cover"
-                            />
+                          {allImages.length > 0 && (
+                            <View style={{ marginTop: 10 }}>
+                              {allImages.length === 1 ? (
+                                <Image
+                                  source={renderAvatar(allImages[0].image_url)}
+                                  style={styles.postImage}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                                  {allImages.slice(0, 4).map((img, idx) => (
+                                    <Image
+                                      key={idx}
+                                      source={renderAvatar(img.image_url)}
+                                      style={{ width: '48%', height: 100, borderRadius: 8 }}
+                                      resizeMode="cover"
+                                    />
+                                  ))}
+                                </View>
+                              )}
+                            </View>
                           )}
                           <Text style={styles.sectionTitle}>Comments</Text>
                         </View>

@@ -14,6 +14,7 @@ const pesoLogo = require('../../assets/images/peso_logo.jpg');
 const forumLogo = require('../../assets/images/wny_logo.jpg');
 
 const allMenuItems = [
+  { label: 'Rewards', icon: <FontAwesome name="gift" size={24} color="#222" /> },
   { label: 'CCICT', icon: cciLogo },
   { label: 'Peso', icon: pesoLogo },
   { label: 'CCICT Forum', icon: forumLogo },
@@ -118,6 +119,7 @@ export default function ProfileTab() {
             style={styles.menuCard}
             onPress={() => {
               if (item.label === 'Log out') router.push('/logout');
+              else if (item.label === 'Rewards') router.push('/rewards/rewards');
               else if (item.label === 'CCICT') router.push('/ccict/ccictpage');
               else if (item.label === 'Peso') router.push('/peso/pesopage');
               else if (item.label === 'CCICT Forum') router.push('/forum/forumpage');

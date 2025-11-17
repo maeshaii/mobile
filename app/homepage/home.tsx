@@ -16,6 +16,7 @@ import DonationPostCard from '../donation/DonationPostCard';
 import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
 import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
+import { NotificationWebSocket } from '../../services/notificationWebSocket';
 
 interface Post {
   post_id: number;
@@ -136,6 +137,50 @@ const HomeScreen = () => {
     // Tick every minute to update relative timestamps
     const t = setInterval(() => setNowTick((x) => x + 1), 60000);
     return () => clearInterval(t);
+  }, []);
+
+  // Setup WebSocket for real-time points updates
+  useEffect(() => {
+    let notificationWs: NotificationWebSocket | null = null;
+
+    const setupWebSocket = async () => {
+      try {
+        const user = await getUserInfo();
+        const userId = user?.user_id || user?.id;
+        if (!userId) return;
+
+        const { getAccessToken } = await import('../../services/api');
+        const token = await getAccessToken();
+
+        notificationWs = new NotificationWebSocket(userId, API_BASE_URL, token);
+
+        notificationWs.onNotification((event) => {
+          console.log('HomePage NotificationWebSocket: Received event:', event.type, event);
+          if (event.type === 'points_update' && event.points) {
+            const pointsData = event.points;
+            console.log('HomePage NotificationWebSocket: Points update received:', pointsData);
+            // Points update is handled - the backend broadcasts to all connected clients
+            // The rewards screen will receive it directly via its own WebSocket connection
+          }
+        });
+
+        notificationWs.onStatus((status) => {
+          console.log('HomePage Notification WebSocket status:', status);
+        });
+
+        await notificationWs.connect();
+      } catch (error) {
+        console.error('HomePage: Failed to setup notification WebSocket:', error);
+      }
+    };
+
+    setupWebSocket();
+
+    return () => {
+      if (notificationWs) {
+        notificationWs.disconnect();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -404,11 +449,17 @@ const HomeScreen = () => {
         .filter((item: any) => item.type !== 'forum') // Exclude forum posts from home feed
         .forEach((item: any) => {
           if (item.item_type === 'repost') {
-            // Handle reposts
-            const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
-            const backendLiked = meId ? repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
-            const locallyLiked = likedRepostsSet.has(item.repost_id);
-            const repostLikedByMe = backendLiked || locallyLiked;
+            // Handle reposts - prioritize backend is_liked field
+            let repostLikedByMe = item.is_liked !== undefined ? item.is_liked : false;
+            if (repostLikedByMe === false && meId) {
+              // Fallback: check likes array if is_liked not provided
+              const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
+              repostLikedByMe = repostLikesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId);
+            }
+            // Also check local storage as final fallback
+            if (!repostLikedByMe) {
+              repostLikedByMe = likedRepostsSet.has(item.repost_id);
+            }
             
             feedItems.push({
               ...item,
@@ -416,9 +467,13 @@ const HomeScreen = () => {
               item_type: 'repost'
             });
           } else {
-            // Handle original posts
-            const likesArr = Array.isArray(item?.likes) ? item.likes : [];
-            const likedByMe = meId ? likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId) : false;
+            // Handle original posts - prioritize backend is_liked field
+            let likedByMe = item.is_liked !== undefined ? item.is_liked : false;
+            if (likedByMe === false && meId) {
+              // Fallback: check likes array if is_liked not provided
+              const likesArr = Array.isArray(item?.likes) ? item.likes : [];
+              likedByMe = likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId);
+            }
             
             feedItems.push({
               ...item,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,10 @@ import { useRouter } from 'expo-router';
 import { deleteNotifications } from '../../services/api';
 import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
+import TrackerNotificationModal from '../../components/TrackerNotificationModal';
+import NotificationModal from '../../components/NotificationModal';
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
+import { formatNotificationDate } from '../../utils/dateUtils';
 
 interface NotificationItem {
   id?: number;
@@ -33,11 +36,13 @@ interface NotificationItem {
   post_id?: number;
   forum_id?: number;
   comment_id?: number;
+  reply_id?: number;
   user_id?: number;
   repost_id?: number;
   donation_id?: number;
   isAdminNotification?: boolean;
   isPesoNotification?: boolean;
+  fullMessage?: string;
 }
 
 const NotificationScreen = () => {
@@ -62,97 +67,91 @@ const NotificationScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [trackerNotification, setTrackerNotification] = useState<NotificationItem | null>(null);
+  const [generalNotification, setGeneralNotification] = useState<NotificationItem | null>(null);
   const router = useRouter();
 
   // Transform real-time notifications to match component's expected format
-  const notifications = realTimeNotifications.map((n: any) => {
+  const notifications = realTimeNotifications.map((n: any, index: number) => {
     try {
       const fullMessage = n.content || n.message || n.notifi_content || '';
       const shortMessage =
         fullMessage.length > 80 ? fullMessage.substring(0, 80) + '...' : fullMessage;
 
-      // Extract post ID, forum ID, comment ID, repost ID, donation ID and user ID from various possible fields
+      // Extract post ID, forum ID, comment ID, reply ID, repost ID, donation ID and user ID from various possible fields
       let postId = n.post_id || n.postId || n.target_id || n.object_id;
       let forumId = n.forum_id || n.forumId;
       let commentId = n.comment_id || n.commentId;
+      let replyId = n.reply_id || n.replyId;
       let repostId = n.repost_id || n.repostId;
       let donationId = n.donation_id || n.donationId;
       let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
 
       // Try to extract IDs from the message content if not found in fields
       if (!postId && fullMessage) {
-        const postIdMatch = fullMessage.match(/<!--POST_ID:(\d+)-->/i) || fullMessage.match(/post[\/\s]*(\d+)/i) || fullMessage.match(/\/posts\/(\d+)/i);
-        if (postIdMatch) {
-          postId = parseInt(postIdMatch[1]);
-        }
+        const postIdMatch =
+          fullMessage.match(/<!--POST_ID:(\d+)-->/i) ||
+          fullMessage.match(/post[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/posts\/(\d+)/i);
+        if (postIdMatch) postId = parseInt(postIdMatch[1]);
       }
-
       if (!forumId && fullMessage) {
         const forumIdMatch = fullMessage.match(/<!--FORUM_ID:(\d+)-->/i);
-        if (forumIdMatch) {
-          forumId = parseInt(forumIdMatch[1]);
-        }
+        if (forumIdMatch) forumId = parseInt(forumIdMatch[1]);
       }
-
       if (!commentId && fullMessage) {
         const commentIdMatch = fullMessage.match(/<!--COMMENT_ID:(\d+)-->/i);
-        if (commentIdMatch) {
-          commentId = parseInt(commentIdMatch[1]);
-        }
+        if (commentIdMatch) commentId = parseInt(commentIdMatch[1]);
       }
-
+      if (!replyId && fullMessage) {
+        const replyIdMatch = fullMessage.match(/<!--REPLY_ID:(\d+)-->/i);
+        if (replyIdMatch) replyId = parseInt(replyIdMatch[1]);
+      }
       if (!repostId && fullMessage) {
-        const repostIdMatch = fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) || fullMessage.match(/repost[\/\s]*(\d+)/i) || fullMessage.match(/\/repost\/(\d+)/i);
-        if (repostIdMatch) {
-          repostId = parseInt(repostIdMatch[1]);
-        }
+        const repostIdMatch =
+          fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) ||
+          fullMessage.match(/repost[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/repost\/(\d+)/i);
+        if (repostIdMatch) repostId = parseInt(repostIdMatch[1]);
       }
-
       if (!donationId && fullMessage) {
-        const donationIdMatch = fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) || fullMessage.match(/donation[\/\s]*(\d+)/i) || fullMessage.match(/\/donation\/(\d+)/i);
-        if (donationIdMatch) {
-          donationId = parseInt(donationIdMatch[1]);
-        }
+        const donationIdMatch =
+          fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) ||
+          fullMessage.match(/donation[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/donation\/(\d+)/i);
+        if (donationIdMatch) donationId = parseInt(donationIdMatch[1]);
       }
-
       if (!userId && fullMessage) {
-        // Try different patterns for user ID extraction
-        const userIdMatch = fullMessage.match(/\|(\d+)\s+started following/i) || 
-                           fullMessage.match(/profile[\/\s]*(\d+)/i) || 
-                           fullMessage.match(/\/alumni\/profile\/(\d+)/i);
-        if (userIdMatch) {
-          userId = parseInt(userIdMatch[1]);
-        }
+        const userIdMatch =
+          fullMessage.match(/\|(\d+)\s+started following/i) ||
+          fullMessage.match(/profile[\/\s]*(\d+)/i) ||
+          fullMessage.match(/\/alumni\/profile\/(\d+)/i);
+        if (userIdMatch) userId = parseInt(userIdMatch[1]);
       }
 
       // Determine notification source for better naming
       const rawType = n.type || n.notification_type || n.action_type || '';
       const rawName = n.name || n.title || '';
-      const rawMessage = n.content || n.message || '';
-      
-      // Check if it's from admin/CCICT user
-      const isAdminNotification = 
+      const rawMsg = n.content || n.message || '';
+
+      const isAdminNotification =
         rawType.toLowerCase() === 'ccict' ||
         rawName.toLowerCase().includes('admin') ||
         rawName.toLowerCase().includes('ccict') ||
-        rawMessage.toLowerCase().includes('admin') ||
-        rawMessage.toLowerCase().includes('ccict') ||
-        // Check if the notification is FROM a CCICT user (not about CCICT content)
+        rawMsg.toLowerCase().includes('admin') ||
+        rawMsg.toLowerCase().includes('ccict') ||
         (n.f_name && (n.f_name.toLowerCase().includes('admin') || n.f_name.toLowerCase().includes('ccict'))) ||
         (n.l_name && (n.l_name.toLowerCase().includes('admin') || n.l_name.toLowerCase().includes('ccict')));
 
-      // Check if it's from PESO user
-      const isPesoNotification = 
+      const isPesoNotification =
         rawType.toLowerCase() === 'peso' ||
         rawName.toLowerCase().includes('peso') ||
-        rawMessage.toLowerCase().includes('peso') ||
-        rawMessage.toLowerCase().includes('employment') ||
-        rawMessage.toLowerCase().includes('job') ||
-        // Check if the notification is FROM a PESO user
+        rawMsg.toLowerCase().includes('peso') ||
+        rawMsg.toLowerCase().includes('employment') ||
+        rawMsg.toLowerCase().includes('job') ||
         (n.f_name && n.f_name.toLowerCase().includes('peso')) ||
         (n.l_name && n.l_name.toLowerCase().includes('peso'));
 
-      // Set appropriate name based on source
       let displayName = 'Notification';
       if (n.f_name || n.first_name) {
         displayName = `${n.f_name || n.first_name || ''} ${n.l_name || n.last_name || ''}`.trim();
@@ -165,15 +164,17 @@ const NotificationScreen = () => {
       }
 
       return {
-        id: n.id || n.notification_id || 0,
+        id: n.id || n.notification_id || index,
         name: displayName,
         message: shortMessage,
+        fullMessage,
         date: n.date || n.created_at || n.notif_date || new Date().toLocaleDateString(),
         notif_type: rawType,
         subject: n.subject,
         post_id: postId,
         forum_id: forumId,
         comment_id: commentId,
+        reply_id: replyId,
         user_id: userId,
         repost_id: repostId,
         donation_id: donationId,
@@ -181,14 +182,13 @@ const NotificationScreen = () => {
         first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
         last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
         read: n.is_read || n.read || false,
-        // Store the detected source for avatar rendering
         isAdminNotification,
         isPesoNotification,
       };
     } catch (transformError) {
       console.warn('Error transforming notification:', transformError);
       return {
-        id: 0,
+        id: index,
         name: 'Notification',
         message: 'Error loading notification',
         date: new Date().toLocaleDateString(),
@@ -207,7 +207,6 @@ const NotificationScreen = () => {
       toggleSelect(item.id || 0);
       return;
     }
-  
     // Mark notification as read when tapped
     if (item.id && !item.read) {
       console.log('📖 Marking notification as read:', item.id);
@@ -223,11 +222,33 @@ const NotificationScreen = () => {
       subject: item.subject,
       message: item.message
     });
-  
     const type = item.notif_type?.toLowerCase();
     const name = item.name?.toLowerCase();
     const message = item.message?.toLowerCase();
-  
+    const fullMessage = item.fullMessage || item.message || '';
+
+    // Special case: tracker notifications - redirect directly to tracker form
+    const isTrackerNotification = 
+      type === 'tracker_submission' ||
+      (type && type.includes('tracker')) || 
+      (item.subject && item.subject.toLowerCase().includes('tracker')) ||
+      (fullMessage && (fullMessage.toLowerCase().includes('tracker form') || fullMessage.toLowerCase().includes('tracker'))) ||
+      (message && (message.toLowerCase().includes('tracker form') || message.toLowerCase().includes('tracker')));
+    
+    if (isTrackerNotification) {
+      // Redirect directly to tracker form instead of showing modal
+      router.push('/forms/forms');
+      return;
+    }
+
+    // Special case: reward notifications - show modal first with content/images
+    const isRewardNotification = type === 'reward';
+    if (isRewardNotification) {
+      setGeneralNotification(item);
+      return;
+    }
+
+    // All other notifications redirect immediately
     // When a user follows me → go to their profile
     if (type === 'follow' || name?.includes('follow') || message?.includes('follow')) {
       if (item.user_id) {
@@ -237,12 +258,11 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        // If no user_id, try to extract from message or go to general profile
         Alert.alert('Follow Notification', 'Unable to navigate to user profile - user ID not found.');
         return;
       }
     }
-  
+
     // When user likes my post/repost → go to that post's detail page
     if (type === 'like' || name?.includes('like') || message?.includes('like')) {
       if (item.post_id) {
@@ -261,12 +281,100 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        // If no post_id, try to navigate to posts page or show alert
         Alert.alert('Like Notification', 'Unable to navigate to post - post ID not found.');
         return;
       }
     }
-  
+
+    // When user replies to my comment → go to that post's comments with reply highlighted
+    if (type === 'reply' || (message?.includes('replied to your comment'))) {
+      if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.post_id,
+            highlightCommentId: item.comment_id?.toString(),
+            highlightReplyId: item.reply_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.forum_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.forum_id,
+            isForumPost: 'true',
+            highlightCommentId: item.comment_id?.toString(),
+            highlightReplyId: item.reply_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.repost_id) {
+        router.push({
+          pathname: '/repost/repost-comments',
+          params: { 
+            repostId: item.repost_id,
+            highlightCommentId: item.comment_id?.toString(),
+            highlightReplyId: item.reply_id?.toString(),
+          },
+        });
+        return;
+      } else {
+        Alert.alert('Reply Notification', 'Unable to navigate to post - post ID not found.');
+        return;
+      }
+    }
+
+    // When user mentions me in a comment or reply → go to that post's comments with comment/reply highlighted
+    if (type === 'mention' || message?.includes('mentioned')) {
+      if (item.post_id) {
+        const params: any = { postId: item.post_id };
+        if (item.reply_id) {
+          params.highlightReplyId = item.reply_id.toString();
+          params.highlightCommentId = item.comment_id?.toString();
+        } else if (item.comment_id) {
+          params.highlightCommentId = item.comment_id.toString();
+        }
+        router.push({
+          pathname: '/posts/comments',
+          params,
+        });
+        return;
+      } else if (item.forum_id) {
+        const params: any = { 
+          postId: item.forum_id,
+          isForumPost: 'true',
+        };
+        if (item.reply_id) {
+          params.highlightReplyId = item.reply_id.toString();
+          params.highlightCommentId = item.comment_id?.toString();
+        } else if (item.comment_id) {
+          params.highlightCommentId = item.comment_id.toString();
+        }
+        router.push({
+          pathname: '/posts/comments',
+          params,
+        });
+        return;
+      } else if (item.repost_id) {
+        const params: any = { repostId: item.repost_id };
+        if (item.reply_id) {
+          params.highlightReplyId = item.reply_id.toString();
+          params.highlightCommentId = item.comment_id?.toString();
+        } else if (item.comment_id) {
+          params.highlightCommentId = item.comment_id.toString();
+        }
+        router.push({
+          pathname: '/repost/repost-comments',
+          params,
+        });
+        return;
+      } else {
+        Alert.alert('Mention Notification', 'Unable to navigate to post - post ID not found.');
+        return;
+      }
+    }
+
     // When user comments on my post/repost → go to that post's comments
     if (type === 'comment' || name?.includes('comment') || message?.includes('comment')) {
       if (item.post_id) {
@@ -293,7 +401,7 @@ const NotificationScreen = () => {
         return;
       }
     }
-  
+
     // When user reposts my post → go to that post's comments
     if (type === 'repost' || name?.includes('repost') || message?.includes('repost')) {
       if (item.post_id) {
@@ -331,19 +439,10 @@ const NotificationScreen = () => {
         return;
       }
     }
-  
+
     // When user interacts with my donation post → go to donation page
     if (type === 'donation' || name?.includes('donation') || message?.includes('donation')) {
       router.push('/donation/donationpage');
-      return;
-    }
-  
-    // Special case: forms/tracker notifications
-    if (
-      type === 'ccict' ||
-      (item.subject && item.subject.toLowerCase().includes('tracker'))
-    ) {
-      router.push('/forms/forms');
       return;
     }
 
@@ -374,7 +473,7 @@ const NotificationScreen = () => {
         return;
       }
     }
-  
+
     // Fallback: Show debug info and alert
     console.log('Unhandled notification type:', { type, name, item });
     Alert.alert('Notification', `This notification type is not yet handled.\nType: ${type}\nName: ${name}\nPost ID: ${item.post_id}\nUser ID: ${item.user_id}`);
@@ -429,20 +528,56 @@ const NotificationScreen = () => {
 
   const formatNotificationMessage = (item: NotificationItem) => {
     const message = item.message || '';
+    const fullMessage = item.fullMessage || message;
     const name = item.name || '';
     const type = item.notif_type?.toLowerCase() || '';
+    const subject = item.subject || '';
+    
+    // Extract user name from notification message if available
+    // Pattern: "Full Name liked/commented/reposted/mentioned..."
+    let userName = name;
+    if (fullMessage) {
+      // Try to extract name from the beginning of the message
+      // Pattern: "Full Name action..." or "Full Name|ID action..."
+      const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started)/i);
+      if (nameMatch && nameMatch[1]) {
+        userName = nameMatch[1].trim();
+      } else if (item.first_name && item.last_name) {
+        userName = `${item.first_name} ${item.last_name}`.trim();
+      } else if (item.first_name || item.last_name) {
+        userName = (item.first_name || item.last_name || '').trim();
+      }
+    } else if (item.first_name && item.last_name) {
+      userName = `${item.first_name} ${item.last_name}`.trim();
+    } else if (item.first_name || item.last_name) {
+      userName = (item.first_name || item.last_name || '').trim();
+    }
     
     // Use the pre-detected notification source
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
 
-    // Handle specific notification types
-    if (type === 'comment' || name.toLowerCase() === 'comment') {
-      return `💬 ${name} commented on your post`;
+    // Check for tracker notification FIRST (before other admin notifications)
+    const isTrackerNotification = 
+      type === 'tracker_submission' ||
+      type.includes('tracker') ||
+      subject.toLowerCase().includes('tracker') ||
+      fullMessage.toLowerCase().includes('tracker form') ||
+      fullMessage.toLowerCase().includes('tracker') ||
+      message.toLowerCase().includes('tracker form') ||
+      message.toLowerCase().includes('tracker');
+
+    if (isTrackerNotification) {
+      return '📋 Tracker Notification from CCICT';
     }
 
-    if (type === 'like' || name.toLowerCase() === 'like') {
-      return `❤️ ${name} liked your post`;
+    // Handle specific notification types
+    if (type === 'comment' || message.toLowerCase().includes('commented')) {
+      return `💬 ${userName} commented on your post`;
+    }
+
+    if (type === 'like' || message.toLowerCase().includes('liked')) {
+      return `❤️ ${userName} liked your post`;
     }
 
     if (type === 'admin_peso_post' || name.toLowerCase() === 'admin_peso_post') {
@@ -451,9 +586,6 @@ const NotificationScreen = () => {
 
     // Format admin/CCICT notifications
     if (isAdminNotification) {
-      if (message.toLowerCase().includes('tracker')) {
-        return '📋 New tracker update from CCICT';
-      }
       if (message.toLowerCase().includes('announcement')) {
         return '📢 New announcement from CCICT';
       }
@@ -479,26 +611,50 @@ const NotificationScreen = () => {
 
     // Format user notifications
     if (type === 'follow' || message.toLowerCase().includes('follow')) {
-      return `👤 ${name} started following you`;
+      // Extract name from message content (format: "Full Name started following you" or "Full Name|user_id started following you")
+      let followUserName = userName;
+      if (fullMessage) {
+        const nameMatch = fullMessage.match(/^(.+?)\s+started following/i);
+        if (nameMatch && nameMatch[1]) {
+          followUserName = nameMatch[1].split('|')[0].trim(); // Remove user_id if present
+        }
+      }
+      return `👤 ${followUserName} started following you`;
     }
-    if (type === 'repost' || message.toLowerCase().includes('repost')) {
-      return `🔄 ${name} shared your post`;
+    if (type === 'repost' || message.toLowerCase().includes('repost') || message.toLowerCase().includes('shared')) {
+      return `🔄 ${userName} shared your post`;
     }
     if (type === 'donation' || message.toLowerCase().includes('donation')) {
-      return `💰 ${name} interacted with your donation post`;
+      return `💰 ${userName} interacted with your donation post`;
     }
 
-    // Default formatting
-    return message.length > 80 ? message.substring(0, 80) + '...' : message;
+    // Format mention notifications
+    if (type === 'mention' || message.toLowerCase().includes('mentioned')) {
+      // Extract the full mention message from the backend
+      // The backend sends: "Full Name mentioned you in their comment/post/reply/etc"
+      // Remove HTML comments and return the clean message
+      const cleanMessage = fullMessage.replace(/<!--[^>]+-->/g, '').trim();
+      return cleanMessage || `🔔 ${userName} mentioned you`;
+    }
+
+    // Format reward notifications
+    if (type === 'reward' || message.toLowerCase().includes('reward')) {
+      return '🎁 Reward request update';
+    }
+
+    // Default formatting - clean HTML comments and return
+    const cleanMessage = fullMessage.replace(/<!--[^>]+-->/g, '').trim();
+    return cleanMessage.length > 80 ? cleanMessage.substring(0, 80) + '...' : cleanMessage;
   };
 
   const renderAvatar = (item: NotificationItem) => {
     // Use the pre-detected notification source
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
+    const isRewardNotification = item.notif_type?.toLowerCase() === 'reward';
 
-    // Admin/CCICT notifications - show CCICT logo
-    if (isAdminNotification && !isPesoNotification) {
+    // Admin/CCICT notifications - show CCICT logo (including reward notifications)
+    if ((isAdminNotification || isRewardNotification) && !isPesoNotification) {
       return (
         <Image
           source={require('../../assets/images/ccict_logo.jpg')}
@@ -546,7 +702,11 @@ const NotificationScreen = () => {
     return (
       <Swipeable key={item.id} renderRightActions={renderRightActions}>
         <TouchableOpacity
-          style={[styles.notification, isSelected && styles.selectedNotification]}
+          style={[
+            styles.notification, 
+            isSelected && styles.selectedNotification,
+            !item.read && styles.unreadNotification
+          ]}
           onPress={() => handleNotificationPress(item)}
           onLongPress={() => setSelectionMode(true)}
           activeOpacity={0.9}
@@ -558,8 +718,8 @@ const NotificationScreen = () => {
           )}
           {renderAvatar(item)}
           <View style={styles.messageBox}>
-            <Text style={styles.name}>{formatNotificationMessage(item)}</Text>
-            <Text style={styles.message}>{item.date}</Text>
+            <Text style={[styles.name, !item.read && styles.unreadName]}>{formatNotificationMessage(item)}</Text>
+            <Text style={[styles.message, !item.read && styles.unreadDate]}>{formatNotificationDate(item.date)}</Text>
           </View>
         </TouchableOpacity>
       </Swipeable>
@@ -638,6 +798,59 @@ const NotificationScreen = () => {
           contentContainerStyle={{ paddingBottom: 20 }}
         />
       )}
+
+      {/* Tracker Notification Modal */}
+      <TrackerNotificationModal
+        isVisible={!!trackerNotification}
+        onClose={() => setTrackerNotification(null)}
+        notification={trackerNotification ? {
+          subject: trackerNotification.subject,
+          content: trackerNotification.fullMessage || trackerNotification.message, // Use full message if available
+          date: trackerNotification.date,
+          type: trackerNotification.notif_type,
+        } : null}
+      />
+
+      <NotificationModal
+        isVisible={!!generalNotification}
+        onClose={() => setGeneralNotification(null)}
+        notification={generalNotification ? {
+          subject: generalNotification.subject,
+          content: generalNotification.fullMessage || generalNotification.message,
+          fullMessage: generalNotification.fullMessage || generalNotification.message,
+          date: generalNotification.date,
+          type: generalNotification.notif_type,
+          post_id: generalNotification.post_id,
+          forum_id: generalNotification.forum_id,
+          repost_id: generalNotification.repost_id,
+          donation_id: generalNotification.donation_id,
+          comment_id: generalNotification.comment_id,
+          user_id: generalNotification.user_id,
+        } : null}
+        onNavigate={() => {
+          if (generalNotification) {
+            const type = generalNotification.notif_type?.toLowerCase();
+            const isRewardNotification = type === 'reward';
+            
+            if (isRewardNotification) {
+              // Extract reward request ID from notification content
+              const fullMessage = generalNotification.fullMessage || generalNotification.message || '';
+              const requestIdMatch = fullMessage.match(/<!--REQUEST_ID:(\d+)-->/);
+              const requestId = requestIdMatch ? requestIdMatch[1] : null;
+              
+              // Navigate to rewards page with request ID if available
+              if (requestId) {
+                router.push({
+                  pathname: '/rewards/rewards',
+                  params: { requestId: requestId },
+                });
+              } else {
+                router.push('/rewards/rewards');
+              }
+            }
+          }
+        }}
+      />
     </View>
   );
 };
@@ -707,11 +920,26 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
+  unreadNotification: {
+    backgroundColor: '#f0f7ff',
+    borderLeftWidth: 4,
+    borderLeftColor: '#1e3a8a',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+  },
   selectedNotification: { borderColor: '#1e3a8a', borderWidth: 2 },
   avatar: { marginRight: 15, width: 44, height: 44, borderRadius: 22, backgroundColor: '#eee' },
   messageBox: { flex: 1 },
-  name: { fontWeight: 'bold', fontSize: 14 },
-  message: { fontSize: 13, color: '#333' },
+  name: { fontWeight: 'bold', fontSize: 14, color: '#222' },
+  unreadName: { 
+    fontWeight: '700', 
+    color: '#1e3a8a',
+  },
+  message: { fontSize: 12, color: '#666', marginTop: 2 },
+  unreadDate: { 
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
   date: { fontSize: 12, color: '#888', marginBottom: 4 },
   notificationActions: { alignItems: 'flex-end' },
   checkbox: {
