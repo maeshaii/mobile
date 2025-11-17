@@ -2,7 +2,8 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
-import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, clearRecentSearches, searchAlumni, searchOJT } from '../../services/api';
+import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, clearRecentSearches, searchAlumni, searchOJT, getAccessToken } from '../../services/api';
+import { RecentSearchWebSocket } from '../../services/recentSearchWebSocket';
 import * as SecureStore from 'expo-secure-store';
 import UserAvatar from '../../components/UserAvatar';
 
@@ -45,6 +46,17 @@ export default function SearchPage() {
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
+  const formatRecentSearches = React.useCallback((serverRecent: any[]) => {
+    return serverRecent.map((u: any) => ({
+      id: String(u.user_id ?? u.searched_user?.user_id ?? u.id),
+      name: `${u.f_name || u.searched_user?.f_name || ''} ${u.l_name || u.searched_user?.l_name || ''}`.trim() || 'User',
+      f_name: u.f_name || u.searched_user?.f_name,
+      l_name: u.l_name || u.searched_user?.l_name,
+      profile_pic: u.profile_pic || u.searched_user?.profile_pic,
+      time: '',
+    }));
+  }, []);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -54,14 +66,7 @@ export default function SearchPage() {
           const serverRecent = await listRecentSearches(10);
           if (Array.isArray(serverRecent) && serverRecent.length) {
             // Map to UI shape
-            const mappedRecent = serverRecent.map((u: any) => ({
-              id: String(u.user_id),
-              name: `${u.f_name || ''} ${u.l_name || ''}`.trim() || 'User',
-              f_name: u.f_name,
-              l_name: u.l_name,
-              profile_pic: u.profile_pic,
-              time: '',
-            }));
+            const mappedRecent = formatRecentSearches(serverRecent);
             setRecent(mappedRecent);
             // Also persist locally for offline
             await Storage.setItem('recentSearches', JSON.stringify(mappedRecent));
@@ -82,7 +87,7 @@ export default function SearchPage() {
       }
     };
     load();
-  }, []);
+  }, [formatRecentSearches]);
 
   // Handle search when query changes - search both alumni and OJT
   useEffect(() => {
@@ -150,10 +155,44 @@ export default function SearchPage() {
     return () => clearTimeout(timeoutId);
   }, [search]);
 
-  const saveRecent = async (items: any[]) => {
+  const saveRecent = React.useCallback(async (items: any[]) => {
     setRecent(items);
     try { await Storage.setItem('recentSearches', JSON.stringify(items)); } catch {}
-  };
+  }, []);
+
+  useEffect(() => {
+    let ws: RecentSearchWebSocket | null = null;
+    let isMounted = true;
+
+    const setupWebSocket = async () => {
+      try {
+        const token = await getAccessToken();
+        ws = new RecentSearchWebSocket(API_BASE_URL, token || undefined);
+        ws.onEvent((event) => {
+          if (event.type === 'recent_search_update') {
+            const normalized = formatRecentSearches(
+              event.recent_searches ?? event.recent ?? []
+            );
+            if (isMounted) {
+              void saveRecent(normalized);
+            }
+          }
+        });
+        ws.connect().catch((err) => console.warn('Recent search WS connect failed:', err));
+      } catch (error) {
+        console.warn('Recent search WS setup failed:', error);
+      }
+    };
+
+    setupWebSocket();
+
+    return () => {
+      isMounted = false;
+      if (ws) {
+        ws.disconnect();
+      }
+    };
+  }, [formatRecentSearches, saveRecent]);
 
   const handleOpenUser = async (item: any) => {
     if (selecting) {
@@ -168,14 +207,7 @@ export default function SearchPage() {
       try {
         const serverRecent = await listRecentSearches(10);
         if (Array.isArray(serverRecent)) {
-          const mappedRecent = serverRecent.map((u: any) => ({
-            id: String(u.user_id),
-            name: `${u.f_name || ''} ${u.l_name || ''}`.trim() || 'User',
-            f_name: u.f_name,
-            l_name: u.l_name,
-            profile_pic: u.profile_pic,
-            time: '',
-          }));
+          const mappedRecent = formatRecentSearches(serverRecent);
           await saveRecent(mappedRecent);
         }
       } catch {}
