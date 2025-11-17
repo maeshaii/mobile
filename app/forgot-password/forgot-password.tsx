@@ -16,53 +16,38 @@ import { forgotPassword } from '../../services/api';
 import { useRouter } from 'expo-router';
 
 export default function ForgotPasswordScreen() {
-  const [formData, setFormData] = useState({
-    ctu_id: '',
-    email: '',
-    last_name: '',
-    first_name: '',
-    middle_name: '',
-  });
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (error) setError('');
-  };
-
   const handleSubmit = async () => {
-    // Validate required fields
-    if (!formData.ctu_id.trim() || !formData.email.trim() || 
-        !formData.last_name.trim() || !formData.first_name.trim()) {
-      setError('Please fill in all required fields');
+    // Validate email
+    if (!email.trim()) {
+      setError('Please enter your email address');
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address');
       return;
     }
 
     setError('');
+    setSuccess('');
     setLoading(true);
 
     try {
-      const response = await forgotPassword({
-        ctu_id: formData.ctu_id.trim(),
-        email: formData.email.trim(),
-        last_name: formData.last_name.trim(),
-        first_name: formData.first_name.trim(),
-        middle_name: formData.middle_name.trim(),
-      });
+      const response = await forgotPassword({ email: email.trim() });
 
       if (response.success) {
-        // Navigate to temporary password screen with the generated password
-        router.push({
-          pathname: '/temporary-password/temporary-password',
-          params: {
-            tempPassword: response.temp_password,
-            userName: response.user_name,
-          },
-        });
+        setSuccess(response.message || 'Password reset link sent to your email');
+        setEmail(''); // Clear the form
       } else {
-        setError(response.message || 'Failed to generate temporary password');
+        setError(response.message || 'Failed to send reset link');
       }
     } catch (error: any) {
       console.error('Forgot password error:', error);
@@ -74,6 +59,7 @@ export default function ForgotPasswordScreen() {
 
   const clearError = () => {
     if (error) setError('');
+    if (success) setSuccess('');
   };
 
   return (
@@ -103,36 +89,19 @@ export default function ForgotPasswordScreen() {
             </View>
             
             <Text style={styles.subtitle}>
-              Please enter your credentials to generate a temporary password
+              Enter your email address and we'll send you a secure link to reset your password.
             </Text>
 
             <View style={styles.form}>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>CTU ID</Text>
+                <Text style={styles.label}>EMAIL ADDRESS</Text>
                 <TextInput
                   style={[styles.input, error && styles.inputError]}
-                  placeholder="Enter your CTU ID"
+                  placeholder="Enter your registered email"
                   placeholderTextColor="#999"
-                  value={formData.ctu_id}
+                  value={email}
                   onChangeText={(text) => {
-                    handleInputChange('ctu_id', text);
-                    clearError();
-                  }}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>EMAIL</Text>
-                <TextInput
-                  style={[styles.input, error && styles.inputError]}
-                  placeholder="Enter your email"
-                  placeholderTextColor="#999"
-                  value={formData.email}
-                  onChangeText={(text) => {
-                    handleInputChange('email', text);
+                    setEmail(text);
                     clearError();
                   }}
                   autoCapitalize="none"
@@ -142,60 +111,18 @@ export default function ForgotPasswordScreen() {
                 />
               </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>LAST NAME</Text>
-                <TextInput
-                  style={[styles.input, error && styles.inputError]}
-                  placeholder="Enter your last name"
-                  placeholderTextColor="#999"
-                  value={formData.last_name}
-                  onChangeText={(text) => {
-                    handleInputChange('last_name', text);
-                    clearError();
-                  }}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>FIRST NAME</Text>
-                <TextInput
-                  style={[styles.input, error && styles.inputError]}
-                  placeholder="Enter your first name"
-                  placeholderTextColor="#999"
-                  value={formData.first_name}
-                  onChangeText={(text) => {
-                    handleInputChange('first_name', text);
-                    clearError();
-                  }}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>MIDDLE NAME</Text>
-                <TextInput
-                  style={[styles.input, error && styles.inputError]}
-                  placeholder="Enter your middle name (optional)"
-                  placeholderTextColor="#999"
-                  value={formData.middle_name}
-                  onChangeText={(text) => {
-                    handleInputChange('middle_name', text);
-                    clearError();
-                  }}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  editable={!loading}
-                />
-              </View>
-
               {error ? (
                 <View style={styles.errorContainer}>
                   <Text style={styles.errorText}>{error}</Text>
+                </View>
+              ) : null}
+
+              {success ? (
+                <View style={styles.successContainer}>
+                  <Text style={styles.successText}>✅ {success}</Text>
+                  <Text style={styles.successSubtext}>
+                    Please check your email inbox (and spam folder) for the password reset link.
+                  </Text>
                 </View>
               ) : null}
 
@@ -207,8 +134,15 @@ export default function ForgotPasswordScreen() {
                 {loading ? (
                   <ActivityIndicator color="#1e3a8a" size="small" />
                 ) : (
-                  <Text style={styles.buttonText}>Confirm</Text>
+                  <Text style={styles.buttonText}>Send Reset Link</Text>
                 )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.backToLoginButton}
+                onPress={() => router.back()}
+              >
+                <Text style={styles.backToLoginText}>← Back to Login</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -311,6 +245,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
+  successContainer: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderWidth: 1,
+    borderColor: '#22c55e',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  successText: {
+    color: '#22c55e',
+    fontSize: 14,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  successSubtext: {
+    color: '#22c55e',
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.8,
+    lineHeight: 18,
+  },
   button: {
     backgroundColor: '#fff',
     paddingVertical: 12,
@@ -330,5 +286,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1e3a8a',
+  },
+  backToLoginButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  backToLoginText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '400',
+    opacity: 0.8,
   },
 });

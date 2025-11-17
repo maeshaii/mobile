@@ -2,12 +2,103 @@ import 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useEffect } from 'react';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { UserProvider } from '../contexts/UserContext';
+import { UserProvider, useUser } from '../contexts/UserContext';
+
+/**
+ * 🔒 SECURITY: Navigation Guard Component
+ * Handles automatic redirects based on authentication state
+ * 
+ * Security Features:
+ * - Real-time authentication monitoring
+ * - Prevents authenticated users from accessing login pages
+ * - Blocks unauthenticated users from protected routes
+ * - Continuous validation (not just on mount)
+ */
+function NavigationGuard() {
+  const { isAuthenticated, loading } = useUser();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    // Don't redirect while checking auth status
+    if (loading) return;
+
+    const currentPath = '/' + segments.join('/');
+
+    // Define public routes (accessible without authentication)
+    const publicRoutes = [
+      '',
+      'login',
+      'login/index',
+      'login/login',
+      'forgot-password/forgot-password',
+      'temporary-password/temporary-password',
+      'logout',
+    ];
+
+    const isPublicRoute = publicRoutes.includes(segments.join('/'));
+
+    console.log('[NavigationGuard]', {
+      currentPath,
+      isAuthenticated,
+      isPublicRoute,
+      segments,
+      timestamp: new Date().toISOString()
+    });
+
+    // 🔒 SECURITY: Redirect unauthenticated users to login
+    if (!isAuthenticated && !isPublicRoute) {
+      console.log('[NavigationGuard] 🔒 Redirecting to login - user not authenticated');
+      router.replace('/login/login');
+      return;
+    }
+
+    // 🔒 SECURITY: Redirect authenticated users away from login page
+    // This prevents the issue where logged-in users can manually navigate to /login
+    if (isAuthenticated && segments.join('/') === 'login/login') {
+      console.log('[NavigationGuard] 🔒 Redirecting to home - already authenticated');
+      router.replace('/homepage/home');
+      return;
+    }
+
+    // 🔒 SECURITY: Also check for other auth pages
+    const authPages = ['login/index', 'forgot-password/forgot-password', 'temporary-password/temporary-password'];
+    if (isAuthenticated && authPages.includes(segments.join('/'))) {
+      console.log('[NavigationGuard] 🔒 Redirecting to home - authenticated user on auth page');
+      router.replace('/homepage/home');
+      return;
+    }
+  }, [isAuthenticated, loading, segments, router]);
+
+  // 🔒 SECURITY FIX: Periodic validation every 3 seconds
+  // Ensures faster detection of authentication changes
+  useEffect(() => {
+    if (loading) return;
+
+    const intervalId = setInterval(() => {
+      const currentSegments = segments.join('/');
+      const isOnLoginPage = currentSegments === 'login/login' || 
+                            currentSegments === 'login/index' ||
+                            currentSegments === 'forgot-password/forgot-password';
+      
+      // If authenticated and on login page, redirect immediately
+      if (isAuthenticated && isOnLoginPage) {
+        console.log('[NavigationGuard] Periodic check: Authenticated user on login page - redirecting');
+        router.replace('/homepage/home');
+      }
+    }, 3000); // Check every 3 seconds
+
+    return () => clearInterval(intervalId);
+  }, [isAuthenticated, loading, segments, router]);
+
+  return null;
+}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -23,14 +114,19 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <UserProvider>
+        {/* 🔒 SECURITY: Centralized navigation guard */}
+        <NavigationGuard />
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
           <Stack>
+            {/* Public Routes */}
             <Stack.Screen name="login/index" options={{ title: 'landing', headerShown: false }} />
             <Stack.Screen name="logout" options={{ title: 'logout', headerShown: false }} />
             <Stack.Screen name="login/login" options={{ title: 'login', headerShown: false }} />
-            <Stack.Screen name="(tabs)/index" options={{ title: 'index', headerShown: false }} />
             <Stack.Screen name="forgot-password/forgot-password" options={{ title: 'forgot-password', headerShown: false }} />
             <Stack.Screen name="temporary-password/temporary-password" options={{ title: 'temporary-password', headerShown: false }} />
+            
+            {/* 🔒 Protected Routes - Require Authentication */}
+            <Stack.Screen name="(tabs)/index" options={{ title: 'index', headerShown: false }} />
             <Stack.Screen name="homepage/home" options={{ title: 'homepage', headerShown: false }} />
             <Stack.Screen name="posts/post" options={{ title: 'post', headerShown: false }} />
             <Stack.Screen name="notifications/notification" options={{ title: 'notification', headerShown: false }} />

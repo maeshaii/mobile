@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Platform } from 'react-native';
 import AuthService from '../services/authService';
 
 interface UserContextType {
@@ -31,7 +32,56 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
 
   useEffect(() => {
     checkAuthStatus();
-  }, []);
+
+    // 🔒 SECURITY: Real-time token monitoring (Web only - localStorage events)
+    // For native, we rely on periodic validation below
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'accessToken' || e.key === 'refreshToken' || e.key === 'user') {
+        if (e.newValue === null) {
+          console.warn('[Mobile Security] Auth data removed - logging out');
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+      }
+    };
+
+    // 🔒 SECURITY: Re-validate when app comes back to foreground (Web only)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Mobile Security] App became visible - re-validating auth');
+        checkAuthStatus();
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      window.addEventListener('storage', handleStorageChange);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    // 🔒 SECURITY: Periodic validation every 10 seconds (Native + Web)
+    // Faster detection of manual token deletions and token expiration
+    const intervalId = setInterval(async () => {
+      try {
+        const authenticated = await AuthService.getInstance().isAuthenticated();
+        if (!authenticated && isAuthenticated) {
+          console.warn('[Mobile Security] Periodic check: Session invalid - logging out');
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error('[Mobile Security] Periodic validation error:', error);
+      }
+    }, 10000); // Every 10 seconds (faster detection)
+
+    // Cleanup
+    return () => {
+      if (Platform.OS === 'web') {
+        window.removeEventListener('storage', handleStorageChange);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      clearInterval(intervalId);
+    };
+  }, [isAuthenticated]);
 
   const checkAuthStatus = async () => {
     try {
@@ -40,9 +90,14 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
         const userInfo = await AuthService.getInstance().getUserInfo();
         setUser(userInfo);
         setIsAuthenticated(true);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
       }
     } catch (error) {
       console.error('Auth status check failed:', error);
+      setUser(null);
+      setIsAuthenticated(false);
     } finally {
       setLoading(false);
     }

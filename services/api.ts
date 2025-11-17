@@ -1542,14 +1542,11 @@ export const repostDonation = async (donationId: number, repostCaption: string) 
 // Mobile -> Backend: DELETE /api/donation-reposts/{repost_id}/
 export const deleteDonationRepost = async (repostId: number) => (await api.delete(`/api/donation-reposts/${repostId}/`)).data;
 
-/** Forgot Password */
+/** Forgot Password - Secure Token-Based Reset */
 // Mobile -> Backend: POST /api/forgot-password/
+// 🔐 SECURITY: Now only requires email (sends reset link via email)
 export const forgotPassword = async (credentials: {
-  ctu_id: string;
   email: string;
-  last_name: string;
-  first_name: string;
-  middle_name?: string;
 }) => {
   try {
     const { data } = await api.post('/api/forgot-password/', credentials);

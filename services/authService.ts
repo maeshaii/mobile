@@ -29,6 +29,38 @@ const Storage = {
   },
 };
 
+/**
+ * 🔒 SECURITY: Decode JWT token to extract payload
+ * Returns null if token is invalid or malformed
+ */
+function decodeJwt(token: string): any | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    
+    const payload = parts[1];
+    const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(decoded);
+  } catch (error) {
+    console.error('[AuthService] JWT decode error:', error);
+    return null;
+  }
+}
+
+/**
+ * 🔒 SECURITY: Check if JWT token has expired
+ * Returns true if token is expired or invalid
+ */
+function isTokenExpired(token: string): boolean {
+  const payload = decodeJwt(token);
+  if (!payload || typeof payload.exp !== 'number') {
+    return true; // Treat invalid tokens as expired
+  }
+  
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return payload.exp <= nowSeconds;
+}
+
 export interface AuthCredentials {
   acc_username: string;
   acc_password: string;
@@ -108,15 +140,37 @@ class AuthService {
   }
 
   async isAuthenticated(): Promise<boolean> {
+    // 🔒 SECURITY: Step 1 - Check if session exists
     const session = await this.getCurrentSession();
-    if (!session) return false;
-    const now = new Date();
-    const tokenAge = now.getTime() - session.lastLogin.getTime();
-    const maxAge = 24 * 60 * 60 * 1000;
-    if (tokenAge > maxAge) {
+    if (!session) {
+      console.log('[AuthService] No session found');
+      return false;
+    }
+
+    // 🔒 SECURITY: Step 2 - Validate access token exists
+    if (!session.accessToken || session.accessToken.trim() === '') {
+      console.warn('[AuthService] Access token missing or empty');
       await this.logout();
       return false;
     }
+
+    // 🔒 SECURITY: Step 3 - Validate JWT token expiration
+    if (isTokenExpired(session.accessToken)) {
+      console.warn('[AuthService] Access token expired');
+      await this.logout();
+      return false;
+    }
+
+    // 🔒 SECURITY: Step 4 - Check session age (fallback for tokens without exp)
+    const now = new Date();
+    const tokenAge = now.getTime() - session.lastLogin.getTime();
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    if (tokenAge > maxAge) {
+      console.warn('[AuthService] Session age exceeded 24 hours');
+      await this.logout();
+      return false;
+    }
+
     return true;
   }
 
