@@ -87,46 +87,83 @@ const NotificationScreen = () => {
       let donationId = n.donation_id || n.donationId;
       let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
 
-      // Try to extract IDs from the message content if not found in fields
-      if (!postId && fullMessage) {
-        const postIdMatch =
-          fullMessage.match(/<!--POST_ID:(\d+)-->/i) ||
-          fullMessage.match(/post[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/posts\/(\d+)/i);
-        if (postIdMatch) postId = parseInt(postIdMatch[1]);
-      }
-      if (!forumId && fullMessage) {
+      // Try to extract IDs from the message content if not found in fields (prioritize HTML comments like web)
+      if (fullMessage) {
+        // Extract POST_ID from HTML comment (most reliable, matches web)
+        const postIdMatch = fullMessage.match(/<!--POST_ID:(\d+)-->/i);
+        if (postIdMatch && postIdMatch[1]) {
+          postId = parseInt(postIdMatch[1], 10);
+        } else if (!postId) {
+          // Fallback patterns if HTML comment not found
+          const fallbackPostIdMatch = 
+            fullMessage.match(/post[\/\s]*(\d+)/i) ||
+            fullMessage.match(/\/posts\/(\d+)/i);
+          if (fallbackPostIdMatch && fallbackPostIdMatch[1]) {
+            postId = parseInt(fallbackPostIdMatch[1], 10);
+          }
+        }
+        
+        // Extract FORUM_ID from HTML comment
         const forumIdMatch = fullMessage.match(/<!--FORUM_ID:(\d+)-->/i);
-        if (forumIdMatch) forumId = parseInt(forumIdMatch[1]);
-      }
-      if (!commentId && fullMessage) {
+        if (forumIdMatch && forumIdMatch[1]) {
+          forumId = parseInt(forumIdMatch[1], 10);
+        }
+        
+        // Extract COMMENT_ID from HTML comment
         const commentIdMatch = fullMessage.match(/<!--COMMENT_ID:(\d+)-->/i);
-        if (commentIdMatch) commentId = parseInt(commentIdMatch[1]);
-      }
-      if (!replyId && fullMessage) {
+        if (commentIdMatch && commentIdMatch[1]) {
+          commentId = parseInt(commentIdMatch[1], 10);
+        }
+        
+        // Extract REPLY_ID from HTML comment
         const replyIdMatch = fullMessage.match(/<!--REPLY_ID:(\d+)-->/i);
-        if (replyIdMatch) replyId = parseInt(replyIdMatch[1]);
-      }
-      if (!repostId && fullMessage) {
-        const repostIdMatch =
-          fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) ||
-          fullMessage.match(/repost[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/repost\/(\d+)/i);
-        if (repostIdMatch) repostId = parseInt(repostIdMatch[1]);
-      }
-      if (!donationId && fullMessage) {
-        const donationIdMatch =
-          fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) ||
-          fullMessage.match(/donation[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/donation\/(\d+)/i);
-        if (donationIdMatch) donationId = parseInt(donationIdMatch[1]);
-      }
-      if (!userId && fullMessage) {
-        const userIdMatch =
-          fullMessage.match(/\|(\d+)\s+started following/i) ||
-          fullMessage.match(/profile[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/alumni\/profile\/(\d+)/i);
-        if (userIdMatch) userId = parseInt(userIdMatch[1]);
+        if (replyIdMatch && replyIdMatch[1]) {
+          replyId = parseInt(replyIdMatch[1], 10);
+        }
+        
+        // Extract REPOST_ID from HTML comment
+        const repostIdMatch = fullMessage.match(/<!--REPOST_ID:(\d+)-->/i);
+        if (repostIdMatch && repostIdMatch[1]) {
+          repostId = parseInt(repostIdMatch[1], 10);
+        } else if (!repostId) {
+          // Fallback patterns for repost
+          const fallbackRepostIdMatch =
+            fullMessage.match(/repost[\/\s]*(\d+)/i) ||
+            fullMessage.match(/\/repost\/(\d+)/i);
+          if (fallbackRepostIdMatch && fallbackRepostIdMatch[1]) {
+            repostId = parseInt(fallbackRepostIdMatch[1], 10);
+          }
+        }
+        
+        // Extract DONATION_ID from HTML comment
+        const donationIdMatch = fullMessage.match(/<!--DONATION_ID:(\d+)-->/i);
+        if (donationIdMatch && donationIdMatch[1]) {
+          donationId = parseInt(donationIdMatch[1], 10);
+        } else if (!donationId) {
+          // Fallback patterns for donation
+          const fallbackDonationIdMatch =
+            fullMessage.match(/donation[\/\s]*(\d+)/i) ||
+            fullMessage.match(/\/donation\/(\d+)/i);
+          if (fallbackDonationIdMatch && fallbackDonationIdMatch[1]) {
+            donationId = parseInt(fallbackDonationIdMatch[1], 10);
+          }
+        }
+        
+        // Extract USER_ID from HTML comment or follow notification format
+        if (!userId) {
+          const actorIdMatch = fullMessage.match(/<!--ACTOR_ID:(\d+)-->/i);
+          if (actorIdMatch && actorIdMatch[1]) {
+            userId = parseInt(actorIdMatch[1], 10);
+          } else {
+            const userIdMatch =
+              fullMessage.match(/\|(\d+)\s+started following/i) ||
+              fullMessage.match(/profile[\/\s]*(\d+)/i) ||
+              fullMessage.match(/\/alumni\/profile\/(\d+)/i);
+            if (userIdMatch && userIdMatch[1]) {
+              userId = parseInt(userIdMatch[1], 10);
+            }
+          }
+        }
       }
 
       // Determine notification source for better naming
@@ -163,6 +200,13 @@ const NotificationScreen = () => {
         displayName = rawName || 'User';
       }
 
+      // Ensure all IDs are numbers or undefined (not NaN or strings)
+      const safeParseId = (id: any): number | undefined => {
+        if (id === null || id === undefined) return undefined;
+        const num = typeof id === 'number' ? id : parseInt(String(id), 10);
+        return isNaN(num) ? undefined : num;
+      };
+
       return {
         id: n.id || n.notification_id || index,
         name: displayName,
@@ -171,13 +215,13 @@ const NotificationScreen = () => {
         date: n.date || n.created_at || n.notif_date || new Date().toLocaleDateString(),
         notif_type: rawType,
         subject: n.subject,
-        post_id: postId,
-        forum_id: forumId,
-        comment_id: commentId,
-        reply_id: replyId,
-        user_id: userId,
-        repost_id: repostId,
-        donation_id: donationId,
+        post_id: safeParseId(postId),
+        forum_id: safeParseId(forumId),
+        comment_id: safeParseId(commentId),
+        reply_id: safeParseId(replyId),
+        user_id: safeParseId(userId),
+        repost_id: safeParseId(repostId),
+        donation_id: safeParseId(donationId),
         profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic,
         first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
         last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
@@ -265,23 +309,54 @@ const NotificationScreen = () => {
 
     // When user likes my post/repost → go to that post's detail page
     if (type === 'like' || name?.includes('like') || message?.includes('like')) {
+      console.log('Like notification pressed:', {
+        post_id: item.post_id,
+        forum_id: item.forum_id,
+        donation_id: item.donation_id,
+        repost_id: item.repost_id,
+        fullMessage: item.fullMessage,
+        message: item.message
+      });
+      
+      // Prioritize post_id, then forum_id, then donation_id (matches web behavior)
       if (item.post_id) {
+        console.log('Navigating to post detail with postId:', item.post_id);
         router.push({
           pathname: '/posts/detail',
-          params: { postId: item.post_id },
+          params: { postId: item.post_id.toString() },
         });
         return;
       } else if (item.forum_id) {
+        console.log('Navigating to forum post detail with forumId:', item.forum_id);
         router.push({
           pathname: '/posts/detail',
           params: { 
-            postId: item.forum_id,
+            postId: item.forum_id.toString(),
             isForumPost: 'true',
           },
         });
         return;
+      } else if (item.donation_id) {
+        console.log('Navigating to donation post detail with donationId:', item.donation_id);
+        router.push({
+          pathname: '/posts/detail',
+          params: { 
+            postId: item.donation_id.toString(),
+            isDonationPost: 'true',
+          },
+        });
+        return;
       } else {
-        Alert.alert('Like Notification', 'Unable to navigate to post - post ID not found.');
+        console.error('Like notification: No post ID found', {
+          post_id: item.post_id,
+          forum_id: item.forum_id,
+          donation_id: item.donation_id,
+          fullMessage: item.fullMessage
+        });
+        Alert.alert(
+          'Like Notification', 
+          'Unable to navigate to post - post ID not found in notification. Please try viewing the post from the dashboard.'
+        );
         return;
       }
     }
