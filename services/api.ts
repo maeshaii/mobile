@@ -86,7 +86,7 @@ const devDefault = Platform.select({
 // Production fallback (override with expo.extra.API_BASE_URL for real deployments)
 const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || (defaultUrl as string));
+export const API_BASE_URL = normalizeBaseUrl('https://unfished-jack-overimaginatively.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);

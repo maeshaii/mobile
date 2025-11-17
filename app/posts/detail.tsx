@@ -82,7 +82,12 @@ export default function PostDetailScreen() {
   const hideComposer = !!actionFor || editingId !== null || editingReplyId !== null || editingPost;
 
   const load = async () => {
-    if (!postId) return;
+    if (postId === undefined || postId === null || isNaN(postId)) {
+      console.error('PostDetailScreen: Invalid postId:', postId, 'params:', params);
+      Alert.alert('Error', 'Invalid post ID. Please try again.');
+      router.back();
+      return;
+    }
     try {
       setLoading(true);
       console.log('Loading post detail for postId:', postId, 'isForumPost:', isForumPost, 'isDonationPost:', isDonationPost);
