@@ -8,6 +8,7 @@ import { API_BASE_URL, createPost, createForumPost, getUserInfo } from '../../se
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 import UserAvatar from '../../components/UserAvatar';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 interface UserInfo {
   name?: string;
@@ -271,7 +272,7 @@ export default function PostScreen() {
     );
   }
 
-  const userName = user ? (user.name || `${user.f_name || ''} ${user.l_name || ''}`.trim()) || 'User' : 'User';
+  const userName = user ? (user.name || formatUserFullName(user)) || 'User' : 'User';
 
   return (
     <View style={styles.container}>

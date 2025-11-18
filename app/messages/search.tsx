@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { View, TextInput, FlatList, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { searchUsersForMessaging, createConversation } from '../../services/api';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 type UserRow = { user_id: number; f_name: string; l_name: string };
 
@@ -28,7 +29,7 @@ const SearchMessagesScreen = () => {
   const startConversation = async (user: UserRow) => {
     try {
       const convo = await createConversation(user.user_id);
-      router.replace({ pathname: '/messages/chatmessage', params: { conversationId: String(convo.conversation_id), name: `${user.f_name} ${user.l_name}` } });
+      router.replace({ pathname: '/messages/chatmessage', params: { conversationId: String(convo.conversation_id), name: formatUserFullName(user) } });
     } catch (e) {
       console.warn('Create conversation failed', e);
     }
@@ -49,7 +50,7 @@ const SearchMessagesScreen = () => {
         keyExtractor={(item) => String(item.user_id)}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.row} onPress={() => startConversation(item)}>
-            <Text style={styles.name}>{item.f_name} {item.l_name}</Text>
+            <Text style={styles.name}>{formatUserFullName(item)}</Text>
             <Text style={styles.action}>{loading ? '' : 'Start chat'}</Text>
           </TouchableOpacity>
         )}

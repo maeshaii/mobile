@@ -14,6 +14,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import UserAvatar from '../../components/UserAvatar';
 import { fetchFollowers, fetchFollowing, followUser, unfollowUser, getUserInfo } from '../../services/api';
+import { formatUserFullName } from '../../utils/nameUtils';
 import api from '../../services/api';
 import { wp, hp, rf, getPercentageWidth, getResponsivePadding, getResponsiveFontSize, isTablet } from '../../utils/responsive';
 
@@ -202,7 +203,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                       />
                       <View style={styles.userInfo}>
                         <Text style={styles.userName} numberOfLines={1}>
-                          {user.name || `${user.f_name || ''} ${user.l_name || ''}`.trim()}
+                          {user.name || formatUserFullName(user)}
                         </Text>
                         <Text style={styles.userHandle}>@{user.ctu_id}</Text>
                         {user.batch && (
@@ -250,11 +251,8 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                     size={48}
                     color="#ccc"
                   />
-                  <Text style={styles.emptyText}>No {type} yet</Text>
-                  <Text style={styles.emptySubText}>
-                    {type === 'followers' 
-                      ? 'This user doesn\'t have any followers yet.' 
-                      : 'This user isn\'t following anyone yet.'}
+                  <Text style={styles.emptyText}>
+                    {type === 'followers' ? 'No followers yet.' : 'No following yet.'}
                   </Text>
                 </View>
               )}

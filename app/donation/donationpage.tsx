@@ -12,6 +12,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import MentionInput from '../../components/MentionInput';
 import { convertImageToBase64 } from '../../utils/imageUtils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const ctuLogo = require('../../assets/images/ctu_logo.png');
 
@@ -26,7 +27,7 @@ interface PostItem {
   comments_count: number;
   reposts_count?: number;
   is_liked?: boolean;
-  user: { user_id: number; f_name: string; l_name: string; profile_pic?: string | null };
+  user: { user_id: number; f_name: string; m_name?: string | null; l_name: string; profile_pic?: string | null };
 }
 
 interface UserProfile {
@@ -556,7 +557,11 @@ export default function DonationPage() {
           </View>
         </View>
         {/* Posts and Reposts */}
-        {loading ? null : posts.map((item: any, index) => {
+        {loading ? null : posts.length === 0 ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Text style={{ color: '#666', fontSize: 16 }}>No donation requests yet</Text>
+          </View>
+        ) : posts.map((item: any, index) => {
         if (item.item_type === 'repost') {
           return (
             <RepostCard
@@ -700,7 +705,7 @@ export default function DonationPage() {
                     size={36}
                     style={styles.listAvatar}
                   />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                 </View>
               ))}
 
@@ -714,7 +719,7 @@ export default function DonationPage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
@@ -762,7 +767,7 @@ export default function DonationPage() {
                 size={40}
                 style={styles.avatar}
               />
-              <Text style={styles.userName}>{user?.f_name} {user?.l_name}</Text>
+              <Text style={styles.userName}>{formatUserFullName(user)}</Text>
             </View>
 
             {/* Post Input */}

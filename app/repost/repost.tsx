@@ -1,14 +1,14 @@
-import { FontAwesome } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment, getRepostDetail } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { Ionicons } from '@expo/vector-icons';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 dayjs.extend(relativeTime);
 
@@ -337,7 +337,7 @@ export default function RepostScreen() {
               size={40}
               style={styles.avatar}
             />
-            <Text style={styles.meName}>{me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim()}</Text>
+            <Text style={styles.meName}>{me?.name || formatUserFullName(me)}</Text>
           </View>
           <TextInput
             style={styles.captionInput}
@@ -358,7 +358,7 @@ export default function RepostScreen() {
                 style={styles.avatarSmall}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.origName}>{original?.user?.f_name} {original?.user?.l_name}</Text>
+                <Text style={styles.origName}>{formatUserFullName(original?.user)}</Text>
                 <Text style={styles.origMeta}>Original post</Text>
               </View>
             </View>
@@ -434,14 +434,14 @@ export default function RepostScreen() {
                   {viewerType === 'likes' && (original?.likes || []).map((u:any, idx:number)=> (
                     <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
                       <Image source={renderAvatar(u.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
-                      <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{u.f_name || ''} {u.l_name || ''}</Text>
+                      <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{formatUserFullName(u)}</Text>
                     </View>
                   ))}
                   {viewerType === 'reposts' && (original?.reposts || []).map((r:any)=> (
                     <View key={r.repost_id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
                       <Image source={renderAvatar(r.user?.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
                       <View>
-                        <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{r.user?.f_name || ''} {r.user?.l_name || ''}</Text>
+                        <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{formatUserFullName(r.user)}</Text>
                         <Text style={{ color: '#888', fontSize: 12 }}>{r.repost_date ? new Date(r.repost_date).toLocaleString() : ''}</Text>
                         {r.user?.user_id === (me?.id || me?.user_id) && (
                           <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
@@ -502,7 +502,7 @@ export default function RepostScreen() {
                             <View style={{ flex: 1 }}>
                               <View style={styles.cHeaderRow}>
                                 <Text style={styles.cName}>
-                                  {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
+                                  {formatUserFullName(c.user)}
                                 </Text>
                                 {!!c.date_created && (
                                   <Text style={styles.cMeta}>{dayjs(c.date_created).fromNow()}</Text>
@@ -552,7 +552,7 @@ export default function RepostScreen() {
                             <Image source={renderAvatar(original.user?.profile_pic)} style={styles.avatar} />
                             <View>
                               <Text style={styles.name}>
-                                {`${original.user?.f_name || ''} ${original.user?.l_name || ''}`.trim() || 'User'}
+                                {formatUserFullName(original.user)}
                               </Text>
                               {!!original.created_at && (
                                 <Text style={styles.subtle}>{dayjs(original.created_at).fromNow()}</Text>
@@ -701,7 +701,7 @@ export default function RepostScreen() {
             style={styles.imageViewerCloseButton}
             onPress={() => setImageViewerVisible(false)}
           >
-            <FontAwesome name="times" size={24} color="#fff" />
+            <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
           
           <ScrollView

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Dimensions, findNodeHandle, UIManager, Keyboard, Platform } from 'react-native';
 import { getFollowingForMentions } from '../services/api';
 import UserAvatar from './UserAvatar';
+import { formatUserFullName } from '../utils/nameUtils';
 
 interface MentionInputProps {
   value: string;
@@ -195,7 +196,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
     const afterCaret = value.substring(caretEnd);
     // Build mention token without spaces to match backend regex (@FirstLast)
     // The backend regex r'@([^@\s]+)' doesn't support spaces, so we use @FirstLast format
-    const displayName = (user.name || `${user.f_name || ''} ${user.l_name || ''}`).trim();
+    const displayName = (user.name || formatUserFullName(user)).trim();
     const token = displayName.replace(/\s+/g, '');
     const insert = `@${token} `;
     const newValue = beforeMention + insert + afterCaret;
@@ -233,7 +234,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
         if (!cancelled && Array.isArray(results) && results.length) {
           const mapped = results.map((u: any) => ({
             user_id: u.user_id || u.id,
-            name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim(),
+            name: u.name || formatUserFullName(u),
             f_name: u.f_name || u.first_name || '',
             m_name: u.m_name || u.middle_name || '',
             l_name: u.l_name || u.last_name || '',
@@ -369,7 +370,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
                 />
                 <View style={styles.suggestionInfo}>
                   <Text style={styles.suggestionName}>
-                    {user.f_name} {user.m_name || ''} {user.l_name}
+                    {formatUserFullName(user)}
                   </Text>
                 </View>
               </TouchableOpacity>

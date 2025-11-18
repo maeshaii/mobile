@@ -84,9 +84,10 @@ const devDefault = Platform.select({
   default: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
 });
 // Production fallback (override with expo.extra.API_BASE_URL for real deployments)
-const ngrokUrl = 'https://biogenetic-crissy-askew.ngrok-free.dev';
+const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || (defaultUrl as string));
+// Use explicit config from Expo extra or env, otherwise fall back to default
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || defaultUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -337,39 +338,61 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
     
     return { success: true, ...response.data };
   } catch (error: any) {
-    // Safely log error without circular references and truncate large error messages
-    try {
-      let errorData = error.response?.data;
-      // If error data is a string and too long, truncate it
-      if (typeof errorData === 'string' && errorData.length > 500) {
-        errorData = errorData.substring(0, 500) + '... (truncated)';
-      } else if (typeof errorData === 'object') {
-        // If it's an object, try to stringify but limit size
-        const dataStr = JSON.stringify(errorData);
-        if (dataStr.length > 500) {
-          errorData = dataStr.substring(0, 500) + '... (truncated)';
+    // Extract error message from response for better user feedback
+    let errorMessage = 'Login failed';
+    if (error.response?.data?.non_field_errors) {
+      errorMessage = error.response.data.non_field_errors[0] || errorMessage;
+    } else if (error.response?.data?.message) {
+      errorMessage = error.response.data.message;
+    } else if (typeof error.response?.data === 'string') {
+      errorMessage = error.response.data;
+    }
+    
+    // Only log unexpected errors with full details (avoid stack trace for expected errors)
+    const status = error.response?.status;
+    const isExpectedError = status === 400 || status === 401 || status === 404;
+    
+    if (!isExpectedError) {
+      // Log unexpected errors with details (but avoid console.error to prevent stack trace)
+      try {
+        let errorData = error.response?.data;
+        if (typeof errorData === 'string' && errorData.length > 500) {
+          errorData = errorData.substring(0, 500) + '... (truncated)';
+        } else if (typeof errorData === 'object') {
+          const dataStr = JSON.stringify(errorData);
+          if (dataStr.length > 500) {
+            errorData = dataStr.substring(0, 500) + '... (truncated)';
+          }
         }
+        
+        console.warn('Mobile: Login error:', {
+          status: error.response?.status,
+          message: error.message,
+          code: error.code,
+        });
+      } catch (logError) {
+        // Silent fail on logging
       }
-      
-      const errorDetails = {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: errorData,
-        message: error.message,
-        code: error.code,
-        url: error.config?.url,
-        method: error.config?.method,
-        baseURL: error.config?.baseURL,
-      };
-      console.error('Mobile: Login error details:', JSON.stringify(errorDetails, null, 2));
-    } catch (logError) {
-      // If logging fails, just log the message
-      console.error('Mobile: Login error:', error.message || 'Unknown error');
+    } else {
+      // For expected errors, just log a simple message
+      console.log(`Mobile: Login failed (${status}):`, errorMessage);
     }
     
     // Provide more specific error messages (SAME AS WEB)
     if (error.response?.status === 400) {
-      return { success: false, message: 'Invalid credentials or request format' };
+      return { success: false, message: errorMessage || 'Invalid credentials or request format' };
+    } else if (error.response?.status === 404) {
+      // Check if it's an ngrok offline error
+      const errorDataStr = typeof error.response?.data === 'string' 
+        ? error.response.data 
+        : JSON.stringify(error.response?.data || '');
+      if (errorDataStr.includes('ngrok') && errorDataStr.includes('offline')) {
+        return { 
+          success: false, 
+          message: 'The ngrok tunnel is offline. Please check if the backend server is running and the ngrok URL is correct.' 
+        };
+      }
+      return { success: false, message: 'Endpoint not found - the server may be offline or the URL is incorrect' };
     } else if (error.response?.status === 500) {
       return { success: false, message: 'Server error - please try again later' };
     } else if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
@@ -377,7 +400,8 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
       const errorMsg = API_BASE_URL.includes('ngrok') 
         ? 'Network error - ngrok tunnel may be down. Please check if the backend is running and the ngrok URL is correct.'
         : 'Network error - check your connection and ensure the backend server is running.';
-      console.error('Mobile: Network error detected. API Base URL:', API_BASE_URL);
+      // Use console.warn instead of console.error to avoid stack trace issues in React Native
+      console.warn('Mobile: Network error detected. API Base URL:', API_BASE_URL);
       return { success: false, message: errorMsg };
     } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       return { success: false, message: 'Request timeout - the server took too long to respond' };

@@ -3,9 +3,13 @@
  */
 
 /**
- * Formats a date string to show:
- * - Hours/minutes if the notification is from today
- * - Date if the notification is 24+ hours old or from tomorrow
+ * Formats a date string to show relative time:
+ * - "Just now" for less than 1 second
+ * - "X seconds ago" for less than 1 minute
+ * - "X mins ago" for less than 1 hour
+ * - "X hours ago" for less than 24 hours
+ * - "Yesterday" for 1 day ago
+ * - Date format for older notifications
  * 
  * @param dateString - The date string to format (can be ISO string, date string, etc.)
  * @returns Formatted date string
@@ -16,7 +20,29 @@ export function formatNotificationDate(dateString: string | Date): string {
   }
 
   try {
-    const notificationDate = new Date(dateString);
+    // Parse date string as UTC by appending 'Z' if no timezone info present
+    // This fixes the issue where timestamps without timezone are interpreted as local time
+    let dateStr: string;
+    if (dateString instanceof Date) {
+      dateStr = dateString.toISOString();
+    } else {
+      dateStr = String(dateString);
+      // If the string doesn't end with 'Z' or have a timezone offset, treat it as UTC
+      if (!dateStr.endsWith('Z') && !dateStr.match(/[+-]\d{2}:\d{2}$/)) {
+        // If it's a space-separated datetime, replace space with 'T' and add 'Z'
+        if (dateStr.includes(' ')) {
+          dateStr = dateStr.replace(' ', 'T') + 'Z';
+        } else if (!dateStr.includes('T')) {
+          // If it's just a date, add time and timezone
+          dateStr = dateStr + 'T00:00:00Z';
+        } else {
+          // If it has 'T' but no timezone, add 'Z'
+          dateStr = dateStr + 'Z';
+        }
+      }
+    }
+    
+    const notificationDate = new Date(dateStr);
     const now = new Date();
     
     // Check if the date is valid
@@ -24,39 +50,28 @@ export function formatNotificationDate(dateString: string | Date): string {
       return String(dateString);
     }
 
-    // Get today's date at midnight for comparison
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const notificationDay = new Date(
-      notificationDate.getFullYear(),
-      notificationDate.getMonth(),
-      notificationDate.getDate()
-    );
-
     // Calculate difference in milliseconds
     const diffMs = now.getTime() - notificationDate.getTime();
-    const diffHours = diffMs / (1000 * 60 * 60);
+    const diffSeconds = Math.floor(diffMs / 1000);
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    // If notification is from today and less than 24 hours old, show time
-    if (notificationDay.getTime() === today.getTime() && diffHours < 24) {
-      // Format as hours:minutes (e.g., "2:30 PM" or "14:30")
-      const hours = notificationDate.getHours();
-      const minutes = notificationDate.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours % 12 || 12;
-      const displayMinutes = minutes.toString().padStart(2, '0');
-      
-      // If less than 1 hour, show "X minutes ago"
-      if (diffHours < 1) {
-        const diffMinutes = Math.floor(diffMs / (1000 * 60));
-        if (diffMinutes < 1) {
-          return 'Just now';
-        }
-        return `${diffMinutes} ${diffMinutes === 1 ? 'minute' : 'minutes'} ago`;
-      }
-      
-      // If less than 24 hours but more than 1 hour, show time
-      return `${displayHours}:${displayMinutes} ${ampm}`;
+    // Show relative time for recent notifications
+    if (diffSeconds < 1) {
+      return 'Just now';
+    }
+    
+    if (diffSeconds < 60) {
+      return `${diffSeconds} ${diffSeconds === 1 ? 'second' : 'seconds'} ago`;
+    }
+    
+    if (diffMinutes < 60) {
+      return `${diffMinutes} ${diffMinutes === 1 ? 'min' : 'mins'} ago`;
+    }
+    
+    if (diffHours < 24) {
+      return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
     }
 
     // If notification is from yesterday (1 day ago), show "Yesterday"

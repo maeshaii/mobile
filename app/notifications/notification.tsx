@@ -21,6 +21,7 @@ import TrackerNotificationModal from '../../components/TrackerNotificationModal'
 import NotificationModal from '../../components/NotificationModal';
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
 import { formatNotificationDate } from '../../utils/dateUtils';
+import { formatFullName, formatUserFullName } from '../../utils/nameUtils';
 
 interface NotificationItem {
   id?: number;
@@ -29,6 +30,7 @@ interface NotificationItem {
   date: string;
   profile_pic?: string;
   first_name?: string;
+  middle_name?: string;
   last_name?: string;
   read?: boolean;
   notif_type?: string;
@@ -87,46 +89,83 @@ const NotificationScreen = () => {
       let donationId = n.donation_id || n.donationId;
       let userId = n.user_id || n.from_user_id || n.fromUserId || n.actor_id || n.sender_id;
 
-      // Try to extract IDs from the message content if not found in fields
-      if (!postId && fullMessage) {
-        const postIdMatch =
-          fullMessage.match(/<!--POST_ID:(\d+)-->/i) ||
-          fullMessage.match(/post[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/posts\/(\d+)/i);
-        if (postIdMatch) postId = parseInt(postIdMatch[1]);
-      }
-      if (!forumId && fullMessage) {
+      // Try to extract IDs from the message content if not found in fields (prioritize HTML comments like web)
+      if (fullMessage) {
+        // Extract POST_ID from HTML comment (most reliable, matches web)
+        const postIdMatch = fullMessage.match(/<!--POST_ID:(\d+)-->/i);
+        if (postIdMatch && postIdMatch[1]) {
+          postId = parseInt(postIdMatch[1], 10);
+        } else if (!postId) {
+          // Fallback patterns if HTML comment not found
+          const fallbackPostIdMatch = 
+            fullMessage.match(/post[\/\s]*(\d+)/i) ||
+            fullMessage.match(/\/posts\/(\d+)/i);
+          if (fallbackPostIdMatch && fallbackPostIdMatch[1]) {
+            postId = parseInt(fallbackPostIdMatch[1], 10);
+          }
+        }
+        
+        // Extract FORUM_ID from HTML comment
         const forumIdMatch = fullMessage.match(/<!--FORUM_ID:(\d+)-->/i);
-        if (forumIdMatch) forumId = parseInt(forumIdMatch[1]);
-      }
-      if (!commentId && fullMessage) {
+        if (forumIdMatch && forumIdMatch[1]) {
+          forumId = parseInt(forumIdMatch[1], 10);
+        }
+        
+        // Extract COMMENT_ID from HTML comment
         const commentIdMatch = fullMessage.match(/<!--COMMENT_ID:(\d+)-->/i);
-        if (commentIdMatch) commentId = parseInt(commentIdMatch[1]);
-      }
-      if (!replyId && fullMessage) {
+        if (commentIdMatch && commentIdMatch[1]) {
+          commentId = parseInt(commentIdMatch[1], 10);
+        }
+        
+        // Extract REPLY_ID from HTML comment
         const replyIdMatch = fullMessage.match(/<!--REPLY_ID:(\d+)-->/i);
-        if (replyIdMatch) replyId = parseInt(replyIdMatch[1]);
-      }
-      if (!repostId && fullMessage) {
-        const repostIdMatch =
-          fullMessage.match(/<!--REPOST_ID:(\d+)-->/i) ||
-          fullMessage.match(/repost[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/repost\/(\d+)/i);
-        if (repostIdMatch) repostId = parseInt(repostIdMatch[1]);
-      }
-      if (!donationId && fullMessage) {
-        const donationIdMatch =
-          fullMessage.match(/<!--DONATION_ID:(\d+)-->/i) ||
-          fullMessage.match(/donation[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/donation\/(\d+)/i);
-        if (donationIdMatch) donationId = parseInt(donationIdMatch[1]);
-      }
-      if (!userId && fullMessage) {
-        const userIdMatch =
-          fullMessage.match(/\|(\d+)\s+started following/i) ||
-          fullMessage.match(/profile[\/\s]*(\d+)/i) ||
-          fullMessage.match(/\/alumni\/profile\/(\d+)/i);
-        if (userIdMatch) userId = parseInt(userIdMatch[1]);
+        if (replyIdMatch && replyIdMatch[1]) {
+          replyId = parseInt(replyIdMatch[1], 10);
+        }
+        
+        // Extract REPOST_ID from HTML comment
+        const repostIdMatch = fullMessage.match(/<!--REPOST_ID:(\d+)-->/i);
+        if (repostIdMatch && repostIdMatch[1]) {
+          repostId = parseInt(repostIdMatch[1], 10);
+        } else if (!repostId) {
+          // Fallback patterns for repost
+          const fallbackRepostIdMatch =
+            fullMessage.match(/repost[\/\s]*(\d+)/i) ||
+            fullMessage.match(/\/repost\/(\d+)/i);
+          if (fallbackRepostIdMatch && fallbackRepostIdMatch[1]) {
+            repostId = parseInt(fallbackRepostIdMatch[1], 10);
+          }
+        }
+        
+        // Extract DONATION_ID from HTML comment
+        const donationIdMatch = fullMessage.match(/<!--DONATION_ID:(\d+)-->/i);
+        if (donationIdMatch && donationIdMatch[1]) {
+          donationId = parseInt(donationIdMatch[1], 10);
+        } else if (!donationId) {
+          // Fallback patterns for donation
+          const fallbackDonationIdMatch =
+            fullMessage.match(/donation[\/\s]*(\d+)/i) ||
+            fullMessage.match(/\/donation\/(\d+)/i);
+          if (fallbackDonationIdMatch && fallbackDonationIdMatch[1]) {
+            donationId = parseInt(fallbackDonationIdMatch[1], 10);
+          }
+        }
+        
+        // Extract USER_ID from HTML comment or follow notification format
+        if (!userId) {
+          const actorIdMatch = fullMessage.match(/<!--ACTOR_ID:(\d+)-->/i);
+          if (actorIdMatch && actorIdMatch[1]) {
+            userId = parseInt(actorIdMatch[1], 10);
+          } else {
+            const userIdMatch =
+              fullMessage.match(/\|(\d+)\s+started following/i) ||
+              fullMessage.match(/profile[\/\s]*(\d+)/i) ||
+              fullMessage.match(/\/alumni\/profile\/(\d+)/i);
+            if (userIdMatch && userIdMatch[1]) {
+              userId = parseInt(userIdMatch[1], 10);
+            }
+          }
+        }
       }
 
       // Determine notification source for better naming
@@ -153,14 +192,75 @@ const NotificationScreen = () => {
         (n.l_name && n.l_name.toLowerCase().includes('peso'));
 
       let displayName = 'Notification';
+      
+      // Try to get name from direct fields first (f_name/first_name, m_name/middle_name, l_name/last_name)
       if (n.f_name || n.first_name) {
-        displayName = `${n.f_name || n.first_name || ''} ${n.l_name || n.last_name || ''}`.trim();
-      } else if (isAdminNotification) {
+        displayName = formatUserFullName({
+          f_name: n.f_name || n.first_name,
+          m_name: n.m_name || n.middle_name,
+          l_name: n.l_name || n.last_name,
+        });
+      } 
+      // Try to get name from nested user object
+      else if (n.user && (n.user.f_name || n.user.first_name)) {
+        displayName = formatUserFullName({
+          f_name: n.user.f_name || n.user.first_name,
+          m_name: n.user.m_name || n.user.middle_name,
+          l_name: n.user.l_name || n.user.last_name,
+        });
+      }
+      // Try to get name from from_user object
+      else if (n.from_user && (n.from_user.f_name || n.from_user.first_name)) {
+        displayName = formatUserFullName({
+          f_name: n.from_user.f_name || n.from_user.first_name,
+          m_name: n.from_user.m_name || n.from_user.middle_name,
+          l_name: n.from_user.l_name || n.from_user.last_name,
+        });
+      }
+      // Try to extract name from message content (before action word like "liked", "commented", etc.)
+      else if (fullMessage) {
+        const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started|replied)/i);
+        if (nameMatch && nameMatch[1]) {
+          const extractedName = nameMatch[1].trim();
+          // Only use extracted name if it looks like a real name (has at least 2 words or is not too short)
+          if (extractedName.length > 2 && extractedName.split(' ').length >= 1) {
+            displayName = extractedName;
+          }
+        }
+      }
+      // Check for admin/peso notifications
+      if (isAdminNotification && (displayName === 'Notification' || displayName === 'User')) {
         displayName = 'CCICT';
-      } else if (isPesoNotification) {
+      } else if (isPesoNotification && (displayName === 'Notification' || displayName === 'User')) {
         displayName = 'PESO';
-      } else {
+      }
+      // Final fallback
+      if (displayName === 'Notification' || displayName === 'User') {
         displayName = rawName || 'User';
+      }
+
+      // Ensure all IDs are numbers or undefined (not NaN or strings)
+      const safeParseId = (id: any): number | undefined => {
+        if (id === null || id === undefined) return undefined;
+        const num = typeof id === 'number' ? id : parseInt(String(id), 10);
+        return isNaN(num) ? undefined : num;
+      };
+
+      // Extract name fields from various possible sources
+      let firstName = n.f_name || n.first_name || n.from_first_name || n.fromFirstName;
+      let middleName = n.m_name || n.middle_name || n.from_middle_name || n.fromMiddleName;
+      let lastName = n.l_name || n.last_name || n.from_last_name || n.fromLastName;
+      
+      // If not found in direct fields, try nested objects
+      if (!firstName && n.user) {
+        firstName = n.user.f_name || n.user.first_name;
+        middleName = n.user.m_name || n.user.middle_name;
+        lastName = n.user.l_name || n.user.last_name;
+      }
+      if (!firstName && n.from_user) {
+        firstName = n.from_user.f_name || n.from_user.first_name;
+        middleName = n.from_user.m_name || n.from_user.middle_name;
+        lastName = n.from_user.l_name || n.from_user.last_name;
       }
 
       return {
@@ -171,16 +271,17 @@ const NotificationScreen = () => {
         date: n.date || n.created_at || n.notif_date || new Date().toLocaleDateString(),
         notif_type: rawType,
         subject: n.subject,
-        post_id: postId,
-        forum_id: forumId,
-        comment_id: commentId,
-        reply_id: replyId,
-        user_id: userId,
-        repost_id: repostId,
-        donation_id: donationId,
-        profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic,
-        first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
-        last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
+        post_id: safeParseId(postId),
+        forum_id: safeParseId(forumId),
+        comment_id: safeParseId(commentId),
+        reply_id: safeParseId(replyId),
+        user_id: safeParseId(userId),
+        repost_id: safeParseId(repostId),
+        donation_id: safeParseId(donationId),
+        profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic || (n.user && (n.user.profile_pic || n.user.profile_image)) || (n.from_user && (n.from_user.profile_pic || n.from_user.profile_image)),
+        first_name: firstName,
+        middle_name: middleName,
+        last_name: lastName,
         read: n.is_read || n.read || false,
         isAdminNotification,
         isPesoNotification,
@@ -265,23 +366,54 @@ const NotificationScreen = () => {
 
     // When user likes my post/repost → go to that post's detail page
     if (type === 'like' || name?.includes('like') || message?.includes('like')) {
+      console.log('Like notification pressed:', {
+        post_id: item.post_id,
+        forum_id: item.forum_id,
+        donation_id: item.donation_id,
+        repost_id: item.repost_id,
+        fullMessage: item.fullMessage,
+        message: item.message
+      });
+      
+      // Prioritize post_id, then forum_id, then donation_id (matches web behavior)
       if (item.post_id) {
+        console.log('Navigating to post detail with postId:', item.post_id);
         router.push({
           pathname: '/posts/detail',
-          params: { postId: item.post_id },
+          params: { postId: item.post_id.toString() },
         });
         return;
       } else if (item.forum_id) {
+        console.log('Navigating to forum post detail with forumId:', item.forum_id);
         router.push({
           pathname: '/posts/detail',
           params: { 
-            postId: item.forum_id,
+            postId: item.forum_id.toString(),
             isForumPost: 'true',
           },
         });
         return;
+      } else if (item.donation_id) {
+        console.log('Navigating to donation post detail with donationId:', item.donation_id);
+        router.push({
+          pathname: '/posts/detail',
+          params: { 
+            postId: item.donation_id.toString(),
+            isDonationPost: 'true',
+          },
+        });
+        return;
       } else {
-        Alert.alert('Like Notification', 'Unable to navigate to post - post ID not found.');
+        console.error('Like notification: No post ID found', {
+          post_id: item.post_id,
+          forum_id: item.forum_id,
+          donation_id: item.donation_id,
+          fullMessage: item.fullMessage
+        });
+        Alert.alert(
+          'Like Notification', 
+          'Unable to navigate to post - post ID not found in notification. Please try viewing the post from the dashboard.'
+        );
         return;
       }
     }
@@ -402,27 +534,29 @@ const NotificationScreen = () => {
       }
     }
 
-    // When user reposts my post → go to that post's comments
+    // When user reposts my post → go to the detail of that repost (the repost that was created)
     if (type === 'repost' || name?.includes('repost') || message?.includes('repost')) {
+      // Prioritize repost_id - navigate to the repost detail (the repost that was created)
+      if (item.repost_id) {
+        router.push({
+          pathname: '/repost/repost-comments',
+          params: { 
+            repostId: item.repost_id,
+            highlightCommentId: item.comment_id?.toString(),
+          },
+        });
+        return;
+      }
+      
+      // Fallback: if no repost_id, try to navigate to original post (shouldn't happen for repost notifications)
       if (item.post_id) {
-        // Check if this is a repost notification (has repost_id)
-        if (item.repost_id) {
-          router.push({
-            pathname: '/repost/repost-comments',
-            params: { 
-              repostId: item.repost_id,
-              highlightCommentId: item.comment_id?.toString(),
-            },
-          });
-        } else {
-          router.push({
-            pathname: '/posts/comments',
-            params: { 
-              postId: item.post_id,
-              highlightCommentId: item.comment_id?.toString(),
-            },
-          });
-        }
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.post_id,
+            highlightCommentId: item.comment_id?.toString(),
+          },
+        });
         return;
       } else if (item.forum_id) {
         router.push({
@@ -435,7 +569,7 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        Alert.alert('Repost Notification', 'Unable to navigate to post - post ID not found.');
+        Alert.alert('Repost Notification', 'Unable to navigate to repost - repost ID not found.');
         return;
       }
     }
@@ -526,6 +660,90 @@ const NotificationScreen = () => {
     setSelectedIds(allIds);
   };
 
+  const getNotificationIcon = (item: NotificationItem): string | null => {
+    const message = item.message || '';
+    const fullMessage = item.fullMessage || message;
+    const name = item.name || '';
+    const type = item.notif_type?.toLowerCase() || '';
+    const subject = item.subject || '';
+    
+    // Use the pre-detected notification source
+    const isAdminNotification = item.isAdminNotification || false;
+    const isPesoNotification = item.isPesoNotification || false;
+
+    // Check for tracker notification FIRST (before other admin notifications)
+    const isTrackerNotification = 
+      type === 'tracker_submission' ||
+      type.includes('tracker') ||
+      subject.toLowerCase().includes('tracker') ||
+      fullMessage.toLowerCase().includes('tracker form') ||
+      fullMessage.toLowerCase().includes('tracker') ||
+      message.toLowerCase().includes('tracker form') ||
+      message.toLowerCase().includes('tracker');
+
+    if (isTrackerNotification) {
+      return 'clipboard';
+    }
+
+    // Handle specific notification types
+    if (type === 'comment' || type === 'reply' || message.toLowerCase().includes('commented') || message.toLowerCase().includes('replied')) {
+      return 'comment';
+    }
+
+    if (type === 'like' || message.toLowerCase().includes('liked')) {
+      return 'heart';
+    }
+
+    if (type === 'admin_peso_post' || name.toLowerCase() === 'admin_peso_post') {
+      return 'file-text';
+    }
+
+    // Format admin/CCICT notifications
+    if (isAdminNotification) {
+      if (message.toLowerCase().includes('announcement')) {
+        return 'bullhorn';
+      }
+      if (message.toLowerCase().includes('post')) {
+        return 'file-text';
+      }
+      return 'bullhorn';
+    }
+
+    // Format PESO notifications
+    if (isPesoNotification) {
+      if (message.toLowerCase().includes('job') || message.toLowerCase().includes('employment')) {
+        return 'briefcase';
+      }
+      if (message.toLowerCase().includes('post')) {
+        return 'file-text';
+      }
+      return 'briefcase';
+    }
+
+    // Format user notifications
+    if (type === 'follow' || message.toLowerCase().includes('follow')) {
+      return 'user-plus';
+    }
+    if (type === 'repost' || message.toLowerCase().includes('repost') || message.toLowerCase().includes('shared')) {
+      return 'retweet';
+    }
+    if (type === 'donation' || message.toLowerCase().includes('donation')) {
+      return 'money';
+    }
+
+    // Format mention notifications
+    if (type === 'mention' || message.toLowerCase().includes('mentioned')) {
+      return 'at';
+    }
+
+    // Format reward notifications
+    if (type === 'reward' || message.toLowerCase().includes('reward')) {
+      return 'gift';
+    }
+
+    return null;
+  };
+
   const formatNotificationMessage = (item: NotificationItem) => {
     const message = item.message || '';
     const fullMessage = item.fullMessage || message;
@@ -533,24 +751,20 @@ const NotificationScreen = () => {
     const type = item.notif_type?.toLowerCase() || '';
     const subject = item.subject || '';
     
-    // Extract user name from notification message if available
-    // Pattern: "Full Name liked/commented/reposted/mentioned..."
-    let userName = name;
-    if (fullMessage) {
-      // Try to extract name from the beginning of the message
+    // Always use full name (first + middle + last) when available
+    // Priority: Use item.name (which already has full name) > first_name + middle_name + last_name > extracted from message
+    let userName = name || 'User';
+    
+    // If item.name is not set or is just a fallback, try to construct from individual name parts
+    if ((!name || name === 'User' || name === 'Notification') && (item.first_name || item.last_name)) {
+      userName = formatFullName(item.first_name, item.middle_name, item.last_name, 'User');
+    } else if (!name && fullMessage) {
+      // Try to extract name from the beginning of the message as last resort
       // Pattern: "Full Name action..." or "Full Name|ID action..."
       const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started)/i);
       if (nameMatch && nameMatch[1]) {
         userName = nameMatch[1].trim();
-      } else if (item.first_name && item.last_name) {
-        userName = `${item.first_name} ${item.last_name}`.trim();
-      } else if (item.first_name || item.last_name) {
-        userName = (item.first_name || item.last_name || '').trim();
       }
-    } else if (item.first_name && item.last_name) {
-      userName = `${item.first_name} ${item.last_name}`.trim();
-    } else if (item.first_name || item.last_name) {
-      userName = (item.first_name || item.last_name || '').trim();
     }
     
     // Use the pre-detected notification source
@@ -568,64 +782,60 @@ const NotificationScreen = () => {
       message.toLowerCase().includes('tracker');
 
     if (isTrackerNotification) {
-      return '📋 Tracker Notification from CCICT';
+      return 'Tracker Notification from CCICT';
     }
 
     // Handle specific notification types
     if (type === 'comment' || message.toLowerCase().includes('commented')) {
-      return `💬 ${userName} commented on your post`;
+      return `${userName} commented on your post`;
     }
 
     if (type === 'like' || message.toLowerCase().includes('liked')) {
-      return `❤️ ${userName} liked your post`;
+      return `${userName} liked your post`;
     }
 
     if (type === 'admin_peso_post' || name.toLowerCase() === 'admin_peso_post') {
-      return `📝 New post from ${name}`;
+      return `New post from ${name}`;
     }
 
     // Format admin/CCICT notifications
     if (isAdminNotification) {
       if (message.toLowerCase().includes('announcement')) {
-        return '📢 New announcement from CCICT';
+        return 'New announcement from CCICT';
       }
       if (message.toLowerCase().includes('post')) {
-        return '📝 New post from CCICT';
+        return 'New post from CCICT';
       }
-      return '📢 New notification from CCICT';
+      return 'New notification from CCICT';
     }
 
     // Format PESO notifications
     if (isPesoNotification) {
       if (message.toLowerCase().includes('job')) {
-        return '💼 New job opportunity from PESO';
+        return 'New job opportunity from PESO';
       }
       if (message.toLowerCase().includes('employment')) {
-        return '💼 New employment update from PESO';
+        return 'New employment update from PESO';
       }
       if (message.toLowerCase().includes('post')) {
-        return '📝 New post from PESO';
+        return 'New post from PESO';
       }
-      return '💼 New notification from PESO';
+      return 'New notification from PESO';
     }
 
     // Format user notifications
     if (type === 'follow' || message.toLowerCase().includes('follow')) {
-      // Extract name from message content (format: "Full Name started following you" or "Full Name|user_id started following you")
-      let followUserName = userName;
-      if (fullMessage) {
-        const nameMatch = fullMessage.match(/^(.+?)\s+started following/i);
-        if (nameMatch && nameMatch[1]) {
-          followUserName = nameMatch[1].split('|')[0].trim(); // Remove user_id if present
-        }
-      }
-      return `👤 ${followUserName} started following you`;
+      // Use the full name from item.name (which already includes middle name) or construct from parts
+      const followUserName = item.name && item.name !== 'User' && item.name !== 'Notification' 
+        ? item.name 
+        : formatFullName(item.first_name, item.middle_name, item.last_name, userName);
+      return `${followUserName} started following you`;
     }
     if (type === 'repost' || message.toLowerCase().includes('repost') || message.toLowerCase().includes('shared')) {
-      return `🔄 ${userName} shared your post`;
+      return `${userName} reposted your post`;
     }
     if (type === 'donation' || message.toLowerCase().includes('donation')) {
-      return `💰 ${userName} interacted with your donation post`;
+      return `${userName} interacted with your donation post`;
     }
 
     // Format mention notifications
@@ -634,12 +844,12 @@ const NotificationScreen = () => {
       // The backend sends: "Full Name mentioned you in their comment/post/reply/etc"
       // Remove HTML comments and return the clean message
       const cleanMessage = fullMessage.replace(/<!--[^>]+-->/g, '').trim();
-      return cleanMessage || `🔔 ${userName} mentioned you`;
+      return cleanMessage || `${userName} mentioned you`;
     }
 
     // Format reward notifications
     if (type === 'reward' || message.toLowerCase().includes('reward')) {
-      return '🎁 Reward request update';
+      return 'Reward request update';
     }
 
     // Default formatting - clean HTML comments and return
@@ -652,38 +862,60 @@ const NotificationScreen = () => {
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
     const isRewardNotification = item.notif_type?.toLowerCase() === 'reward';
+    const iconName = getNotificationIcon(item);
 
     // Admin/CCICT notifications - show CCICT logo (including reward notifications)
     if ((isAdminNotification || isRewardNotification) && !isPesoNotification) {
       return (
-        <Image
-          source={require('../../assets/images/ccict_logo.jpg')}
-          style={styles.avatar}
-          resizeMode="cover"
-        />
+        <View style={styles.avatarContainer}>
+          <Image
+            source={require('../../assets/images/ccict_logo.jpg')}
+            style={styles.avatar}
+            resizeMode="cover"
+          />
+          {iconName && (
+            <View style={styles.iconBadge}>
+              <FontAwesome name={iconName as any} size={12} color="#fff" />
+            </View>
+          )}
+        </View>
       );
     }
     
     // PESO notifications - show PESO logo
     if (isPesoNotification) {
       return (
-        <Image
-          source={require('../../assets/images/peso_logo.jpg')}
-          style={styles.avatar}
-          resizeMode="cover"
-        />
+        <View style={styles.avatarContainer}>
+          <Image
+            source={require('../../assets/images/peso_logo.jpg')}
+            style={styles.avatar}
+            resizeMode="cover"
+          />
+          {iconName && (
+            <View style={styles.iconBadge}>
+              <FontAwesome name={iconName as any} size={12} color="#fff" />
+            </View>
+          )}
+        </View>
       );
     }
     
     // For user notifications, use UserAvatar with proper fallback
     return (
-      <UserAvatar
-        profilePic={item.profile_pic}
-        firstName={item.first_name}
-        lastName={item.last_name}
-        size={44}
-        style={styles.avatar}
-      />
+      <View style={styles.avatarContainer}>
+        <UserAvatar
+          profilePic={item.profile_pic}
+          firstName={item.first_name}
+          lastName={item.last_name}
+          size={44}
+          style={styles.avatar}
+        />
+        {iconName && (
+          <View style={styles.iconBadge}>
+            <FontAwesome name={iconName as any} size={12} color="#fff" />
+          </View>
+        )}
+      </View>
     );
   };
 
@@ -744,13 +976,6 @@ const NotificationScreen = () => {
       <View style={[styles.notificationsHeader, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerLeft}>
           <Text style={styles.notificationsTitle}>Notifications</Text>
-          {/* Real-time status indicator */}
-          {isConnected && (
-            <View style={styles.connectedIndicator}>
-              <View style={styles.connectedDot} />
-              <Text style={styles.connectedText}>Live</Text>
-            </View>
-          )}
         </View>
         {selectionMode ? (
           <View style={styles.selectionActions}>
@@ -870,26 +1095,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   notificationsTitle: { fontWeight: 'bold', fontSize: 27, color: '#222' },
-  connectedIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#d4edda',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    gap: 4,
-  },
-  connectedDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#28a745',
-  },
-  connectedText: {
-    fontSize: 11,
-    color: '#155724',
-    fontWeight: '600',
-  },
   selectionActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cancelText: { color: '#666', fontSize: 14 },
   deleteButton: {
@@ -928,7 +1133,26 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   selectedNotification: { borderColor: '#1e3a8a', borderWidth: 2 },
-  avatar: { marginRight: 15, width: 44, height: 44, borderRadius: 22, backgroundColor: '#eee' },
+  avatarContainer: { 
+    marginRight: 15, 
+    position: 'relative',
+    width: 44,
+    height: 44,
+  },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#eee' },
+  iconBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    backgroundColor: '#1e3a8a',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
   messageBox: { flex: 1 },
   name: { fontWeight: 'bold', fontSize: 14, color: '#222' },
   unreadName: { 

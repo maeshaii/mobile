@@ -9,6 +9,7 @@ import { listConversations, ConversationSummary, getOnlineUsers, createConversat
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import UserAvatar from '../../components/UserAvatar';
 import ErrorBoundary from '../../components/ErrorBoundary';
+import { formatUserFullName } from '../../utils/nameUtils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { profilePicCache } from '../../services/profilePicCache';
 
@@ -186,7 +187,7 @@ const MessageScreen = () => {
         .map((u: any) => ({
           id: -u.user_id, // sentinel negative id for virtual row
           targetUserId: u.user_id,
-          name: u.name || `${u.f_name || ''} ${u.l_name || ''}`.trim(),
+          name: u.name || formatUserFullName(u),
           lastMessage: '',
           date: new Date().toLocaleDateString(),
           profilePic: u.profile_pic || undefined,

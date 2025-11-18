@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 dayjs.extend(relativeTime);
 
@@ -30,6 +31,7 @@ interface OriginalPost {
   user: { 
     user_id: number; 
     f_name: string; 
+    m_name?: string | null;
     l_name: string; 
     profile_pic?: string | null;
     account_type?: string;
@@ -43,6 +45,7 @@ interface Repost {
   created_at: string;
   user: {
     f_name: string;
+    m_name?: string | null;
     l_name: string;
     profile_pic?: string;
     user_id?: number;
@@ -105,8 +108,8 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   const [editingComment, setEditingComment] = useState<{ [key: number]: boolean }>({});
   const [editCommentText, setEditCommentText] = useState<{ [key: number]: string }>({});
 
-  const repostUserName = `${repost.user?.f_name || ''} ${repost.user?.l_name || ''}`.trim() || 'User';
-  const originalUserName = `${repost.original_post.user?.f_name || ''} ${repost.original_post.user?.l_name || ''}`.trim() || 'User';
+  const repostUserName = formatUserFullName(repost.user);
+  const originalUserName = formatUserFullName(repost.original_post.user);
   
   // Check if users are admin or peso for priority display
   const repostUserType = repost.user?.account_type || repost.user?.user_type || 'user';
@@ -738,7 +741,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                             style={styles.listAvatar} 
                           />
                           <Text style={styles.listText}>
-                            {user.f_name || 'User'} {user.l_name || ''}
+                            {formatUserFullName(user)}
                           </Text>
                         </View>
                       );

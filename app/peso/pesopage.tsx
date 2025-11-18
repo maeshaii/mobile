@@ -16,12 +16,13 @@ import {
 import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
 import PostCard from '../posts/postCard';
 import UserAvatar from '../../components/UserAvatar';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const pesoLogo = require('../../assets/images/peso_logo.jpg');
 
 const orgInfo = {
   name: 'PESO',
-  username: '@PESO_CTU_MAIN_CAMPUS',
+  username: 'PESO_CTU_MAIN_CAMPUS',
   bio: 'Peso CTU-Main Campus',
   profile_pic: pesoLogo,
 };
@@ -103,15 +104,14 @@ export default function PESOPage() {
         const pesoUserId = pesoUserIds[0];
         console.log('PESO page - Getting profile for peso user ID:', pesoUserId);
         
-        const pesoDetails = await getAlumniDetails(pesoUserId);
+        const pesoDetailsResponse = await getAlumniDetails(pesoUserId);
+        console.log('PESO page - Peso details response:', pesoDetailsResponse);
+        const pesoDetails = pesoDetailsResponse?.alumni || pesoDetailsResponse || {};
         console.log('PESO page - Peso details:', pesoDetails);
         
         // Create peso profile object using actual user data
         const pesoProfileData = {
-          name: pesoDetails?.f_name && pesoDetails?.l_name 
-            ? `${pesoDetails.f_name} ${pesoDetails.m_name ? pesoDetails.m_name + ' ' : ''}${pesoDetails.l_name}`.trim()
-            : pesoDetails?.acc_username || 'PESO',
-          username: pesoDetails?.acc_username || '@PESO_CTU_MAIN_CAMPUS',
+          name: pesoDetails?.acc_username || 'Peso User',
           bio: pesoDetails?.profile_bio || '', // Use actual profile_bio, empty string if not set
           profile_pic: pesoDetails?.profile_pic 
             ? (String(pesoDetails.profile_pic).startsWith('http') || String(pesoDetails.profile_pic).startsWith('data:'))
@@ -126,8 +126,7 @@ export default function PESOPage() {
         // Fallback to default PESO info if no peso found
         console.log('PESO page - No peso users found, using default');
         setPesoProfile({
-          name: 'PESO',
-          username: '@PESO_CTU_MAIN_CAMPUS',
+          name: 'Peso User',
           bio: '', // No hardcoded bio, use empty string
           profile_pic: pesoLogo,
         });
@@ -136,8 +135,7 @@ export default function PESOPage() {
       console.error('PESO page - Error loading peso profile:', error);
       // Fallback to default PESO info on error
       setPesoProfile({
-        name: 'PESO',
-        username: '@PESO_CTU_MAIN_CAMPUS',
+        name: 'Peso User',
         bio: '', // No hardcoded bio, use empty string
         profile_pic: pesoLogo,
       });
@@ -161,7 +159,7 @@ export default function PESOPage() {
       // Filter for peso posts by checking user account type or name patterns
       const pesoPosts = allPostsData.filter((post: any) => {
         const user = post.user || {};
-        const userName = `${user.f_name || ''} ${user.l_name || ''}`.toLowerCase();
+        const userName = formatUserFullName(user).toLowerCase();
         const isPesoPost = 
           user.account_type === 'peso' ||
           user.user_type === 'peso' ||
@@ -171,7 +169,7 @@ export default function PESOPage() {
           post.type === 'peso';
         
         console.log(`PESO page - Post ${post.id || post.post_id}:`);
-        console.log(`  - User name: ${user.f_name} ${user.l_name}`);
+        console.log(`  - User name: ${formatUserFullName(user)}`);
         console.log(`  - User account_type: ${user.account_type}`);
         console.log(`  - User user_type: ${user.user_type}`);
         console.log(`  - Post type: ${post.type}`);
@@ -270,8 +268,7 @@ export default function PESOPage() {
             style={styles.profileImage} 
           />
         </View>
-        <Text style={styles.profileName}>{pesoProfile?.name || 'PESO'}</Text>
-        <Text style={styles.profileUsername}>{pesoProfile?.username || '@PESO_CTU_MAIN_CAMPUS'}</Text>
+        <Text style={styles.profileName}>{pesoProfile?.name || 'Peso User'}</Text>
         {pesoProfile?.bio && pesoProfile.bio.trim() ? (
           <View style={styles.bioRow}>
             <Text style={styles.bioText}>{pesoProfile.bio}</Text>
@@ -288,10 +285,7 @@ export default function PESOPage() {
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No PESO posts yet</Text>
-            <Text style={styles.noPostsSubtext}>
-              Posts from PESO admin users will appear here
-            </Text>
+            <Text style={styles.noPostsText}>This user has not posted anything yet.</Text>
           </View>
         ) : (
           posts.map(post => (
@@ -368,7 +362,7 @@ export default function PESOPage() {
                     size={32}
                     style={styles.listAvatar}
                   />
-                  <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                 </View>
               ))}
 
@@ -388,7 +382,7 @@ export default function PESOPage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>
@@ -518,11 +512,6 @@ const styles = StyleSheet.create({
   noPostsText: {
     fontSize: 16,
     color: '#888',
-  },
-  noPostsSubtext: {
-    fontSize: 12,
-    color: '#bbb',
-    marginTop: 4,
   },
   modalOverlay: {
     flex: 1,

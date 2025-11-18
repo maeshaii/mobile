@@ -37,6 +37,7 @@ import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -208,7 +209,7 @@ export default function OJTProfilePage() {
         const emailResult = emailData.status === 'fulfilled' ? emailData.value : null;
         
         const profile: UserProfile = {
-          name: me?.name || `${me?.f_name || ''} ${me?.l_name || ''}`.trim(),
+          name: me?.name || formatUserFullName(me) || 'User',
           username: me?.acc_username || '@user',
           bio: profileResult?.profile_bio || me?.profile_bio || 'Bio',
           socialMedia: socialMediaResult?.social_media || '',
@@ -332,7 +333,11 @@ export default function OJTProfilePage() {
           console.log('Alumni details response:', details);
           console.log('Alumni data:', a);
           const profile: UserProfile = {
-            name: a.name || `${a.first_name || ''} ${a.last_name || ''}`.trim() || 'User',
+            name: a.name || formatUserFullName({
+              first_name: a.first_name,
+              middle_name: a.middle_name,
+              last_name: a.last_name
+            }) || 'User',
             username: a.ctu_id ? `@${a.ctu_id}` : '@user',
             bio: a.profile_bio || '',
             socialMedia: a.social_media || '',
@@ -574,7 +579,7 @@ export default function OJTProfilePage() {
                         const newFollower = {
                           user_id: currentUser.id || currentUser.user_id,
                           ctu_id: currentUser.acc_username || 'current_user',
-                          name: currentUser.name || `${currentUser.f_name || ''} ${currentUser.l_name || ''}`.trim(),
+                          name: currentUser.name || formatUserFullName(currentUser) || 'User',
                           profile_pic: currentUser.profile_pic,
                           followed_at: new Date().toISOString()
                         };
@@ -776,7 +781,7 @@ export default function OJTProfilePage() {
         <Text style={styles.postsHeader}>Posts</Text>
         {posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet.</Text>
+            <Text style={styles.noPostsText}>This user has not posted anything yet.</Text>
           </View>
         ) : (
           posts.map((item) => {
@@ -1113,7 +1118,7 @@ export default function OJTProfilePage() {
                       size={36}
                       style={styles.listAvatar}
                     />
-                    <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                   </View>
                 );
               })}
@@ -1134,7 +1139,7 @@ export default function OJTProfilePage() {
                     style={styles.listAvatar}
                   />
                   <View>
-                    <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                     <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                   </View>
                 </View>

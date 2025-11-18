@@ -82,11 +82,17 @@ export default function ProfileTab() {
 
   return (
     <View style={styles.container}>
-      <NavBar />
       <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Menu</Text>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: 30, paddingTop: 8 }}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={{ 
+          paddingBottom: insets.bottom + 100, // Extra padding for navbar (60-70px) + safe area
+          paddingTop: 8 
+        }}
+        showsVerticalScrollIndicator={true}
+      >
         {/* Profile Card */}
         <TouchableOpacity style={styles.profileCard} activeOpacity={0.8} onPress={() => router.push('/profile/profilepage')}>
           <UserAvatar
@@ -98,11 +104,6 @@ export default function ProfileTab() {
           />
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={styles.profileName}>{user?.name || 'Your Name'}</Text>
-            <Text style={styles.profileUsername}>{
-              (user?.ctu_id != null && String(user?.ctu_id).trim() !== '')
-                ? String(user?.ctu_id)
-                : (user?.acc_username || user?.username || '@username')
-            }</Text>
           </View>
           {/* <TouchableOpacity style={styles.profileActionBtn}>
             <FontAwesome name="plus" size={18} color="#222" />
@@ -136,6 +137,7 @@ export default function ProfileTab() {
           </TouchableOpacity>
         ))}
       </ScrollView>
+      <NavBar />
     </View>
   );
 }
@@ -147,6 +149,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
+  },
+  scrollView: {
+    flex: 1,
   },
   headerRow: {
     flexDirection: 'row',

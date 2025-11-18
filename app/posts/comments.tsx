@@ -96,6 +96,7 @@ import MentionInput from '../../components/MentionInput';
 import { getImagesFromContent } from '../../utils/imageUtils';
 
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 
 
@@ -377,7 +378,7 @@ export default function PostCommentsScreen() {
 
           is_liked: !!postDetail.is_liked,
 
-          user: postDetail.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null }
+          user: postDetail.user || { user_id: 0, f_name: 'Unknown', m_name: null, l_name: 'User', profile_pic: null }
 
         };
 
@@ -656,14 +657,14 @@ export default function PostCommentsScreen() {
           // Replying to a reply - mention the reply author
           const reply = commentReplies[commentId]?.find(r => r.reply_id === replyingToReply.replyId);
           if (reply) {
-            const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+            const replyAuthorName = formatUserFullName(reply.user);
             mentionText = `@${replyAuthorName} `;
           }
         } else {
           // Replying to a comment - mention the comment author
           const comment = comments.find(c => c.comment_id === commentId);
           if (comment) {
-            const commentAuthorName = `${comment.user?.f_name || ''} ${comment.user?.l_name || ''}`.trim() || 'User';
+            const commentAuthorName = formatUserFullName(comment.user);
             mentionText = `@${commentAuthorName} `;
           } else {
             mentionText = '';
@@ -872,7 +873,7 @@ export default function PostCommentsScreen() {
 
                 <Text style={styles.cName}>
 
-                  {`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}
+                  {formatUserFullName(c.user)}
 
                 </Text>
 
@@ -1085,7 +1086,7 @@ export default function PostCommentsScreen() {
 
                       <Text style={styles.replyingToText}>
 
-                        {`Replying to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}`}
+                        {`Replying to ${formatUserFullName(c.user)}`}
 
                       </Text>
 
@@ -1108,7 +1109,7 @@ export default function PostCommentsScreen() {
 
                         onChange={setReplyText}
 
-                        placeholder={`Reply to ${`${c.user?.f_name || ''} ${c.user?.l_name || ''}`.trim() || 'User'}...`}
+                        placeholder={`Reply to ${formatUserFullName(c.user)}...`}
 
                         style={{ flex: 1, backgroundColor: 'transparent' }}
                         textInputStyle={{ 
@@ -1225,7 +1226,7 @@ export default function PostCommentsScreen() {
 
                                   ]}>
 
-                                    {`${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User'}
+                                    {formatUserFullName(reply.user)}
 
                                   </Text>
 
@@ -1384,7 +1385,7 @@ export default function PostCommentsScreen() {
                                       // Start replying to this reply
                                       setReplyingToReply({ replyId: reply.reply_id, commentId: c.comment_id });
                                       setReplyingTo(c.comment_id);
-                                      const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                      const replyAuthorName = formatUserFullName(reply.user);
                                       setReplyText(`@${replyAuthorName} `);
                                     }
                                   }}
@@ -1403,7 +1404,7 @@ export default function PostCommentsScreen() {
                                 <View style={styles.replyingToContainer}>
                                   <Text style={styles.replyingToText}>
                                     {(() => {
-                                      const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                      const replyAuthorName = formatUserFullName(reply.user);
                                       return `Replying to ${replyAuthorName}`;
                                     })()}
                                   </Text>
@@ -1418,7 +1419,7 @@ export default function PostCommentsScreen() {
                                   value={replyText}
                                   onChange={setReplyText}
                                   placeholder={(() => {
-                                    const replyAuthorName = `${reply.user?.f_name || ''} ${reply.user?.l_name || ''}`.trim() || 'User';
+                                    const replyAuthorName = formatUserFullName(reply.user);
                                     return `Reply to ${replyAuthorName}...`;
                                   })()}
                                   style={styles.replyInput}
@@ -1552,7 +1553,7 @@ export default function PostCommentsScreen() {
 
                     <Text style={styles.name}>
 
-                      {`${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User'}
+                      {formatUserFullName(post.user)}
 
                     </Text>
 

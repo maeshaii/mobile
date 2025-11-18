@@ -15,6 +15,7 @@ import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 
 
@@ -53,6 +54,8 @@ interface Post {
     user_id: number; 
 
     f_name: string; 
+
+    m_name?: string | null;
 
     l_name: string; 
 
@@ -121,7 +124,7 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
 
 
-  const userName = `${post.user?.f_name || ''} ${post.user?.l_name || ''}`.trim() || 'User';
+  const userName = formatUserFullName(post.user);
 
   const isPriorityUser = post.user?.account_type === 'admin' || post.user?.account_type === 'peso' || 
 

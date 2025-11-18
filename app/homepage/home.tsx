@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TrackerReminderModal from '../../components/TrackerReminderModal';
 import NavBar from '../(tabs)/navbar';
-import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getFeed } from '../../services/api';
+import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getFeed, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
@@ -17,6 +17,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
 import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 interface Post {
   post_id: number;
@@ -189,11 +190,77 @@ const HomeScreen = () => {
     }
   }, [(params as any)?.trackerReminder]);
 
-  // Refetch posts whenever this screen gains focus (e.g., after creating a post)
+  // Check tracker status function
+  const checkTrackerStatus = React.useCallback(async () => {
+    try {
+      console.log('🔍 Homepage: Checking tracker status for user...');
+      const [activeForm, status] = await Promise.all([
+        getActiveTrackerForm(),
+        checkUserTrackerStatus()
+      ]);
+
+      console.log('📊 Homepage: Tracker API responses:', { activeForm, status });
+
+      // Get accepting status from the active form
+      let acceptingStatus = null;
+      try {
+        acceptingStatus = await getTrackerAcceptingStatus(activeForm?.tracker_form_id);
+        console.log('📋 Homepage: Accepting status:', acceptingStatus);
+      } catch (error) {
+        console.warn('⚠️ Homepage: Could not get accepting status, defaulting to true:', error);
+        // Default to true if we can't get the status (assume form is accepting)
+        acceptingStatus = { accepting_responses: true };
+      }
+
+      const trackerData = {
+        accepting: Boolean(acceptingStatus?.accepting_responses),
+        hasSubmitted: Boolean(status?.has_submitted)
+      };
+
+      console.log('📋 Homepage: Processed tracker data:', trackerData);
+
+      // Show modal if form is accepting and user hasn't submitted
+      if (trackerData.accepting && !trackerData.hasSubmitted) {
+        console.log('🚀 Homepage: Showing tracker modal - form accepting and user not submitted');
+        setShowTrackerReminder(true);
+      } else {
+        console.log('❌ Homepage: Not showing modal - accepting:', trackerData.accepting, 'hasSubmitted:', trackerData.hasSubmitted);
+      }
+    } catch (error) {
+      console.error('❌ Homepage: Error checking tracker status:', error);
+      // Don't show modal if there's an error checking status
+    }
+  }, []);
+
+  // Refetch posts and check tracker status whenever this screen gains focus
   useFocusEffect(
     React.useCallback(() => {
       loadPosts();
-    }, [])
+      // Check tracker status every time homepage is focused
+      const checkAndShowTracker = async () => {
+        try {
+          // Get current user info if not already loaded
+          let currentUser = user;
+          if (!currentUser) {
+            currentUser = await getUserInfo();
+            if (currentUser) {
+              setUser(currentUser);
+            }
+          }
+          
+          // Check tracker status if user is alumni
+          const accountType = (currentUser as any)?.account_type;
+          if (currentUser && (accountType?.user || accountType === 'alumni')) {
+            console.log('🎓 Homepage focused - checking tracker status for alumni user');
+            await checkTrackerStatus();
+          }
+        } catch (err) {
+          console.error('Homepage: Error checking tracker in focus effect:', err);
+        }
+      };
+      
+      checkAndShowTracker();
+    }, [user, checkTrackerStatus])
   );
 
   // Add refresh functionality
@@ -715,7 +782,7 @@ const HomeScreen = () => {
           </View>
         ) : posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet. Be the first to share something!</Text>
+            <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
             <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
           </View>
         ) : (
@@ -824,7 +891,7 @@ const HomeScreen = () => {
                       size={32}
                       style={styles.listAvatar}
                     />
-                    <Text style={styles.listText}>{u.f_name} {u.l_name}</Text>
+                    <Text style={styles.listText}>{formatUserFullName(u)}</Text>
                   </View>
                 ))}
 
@@ -838,7 +905,7 @@ const HomeScreen = () => {
                       style={styles.listAvatar}
                     />
                     <View>
-                      <Text style={styles.listText}>{r.user?.f_name} {r.user?.l_name}</Text>
+                      <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
                       <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
                     </View>
                   </View>
@@ -856,7 +923,7 @@ const HomeScreen = () => {
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.commentName}>{c.user?.f_name} {c.user?.l_name}</Text>
+                          <Text style={styles.commentName}>{formatUserFullName(c.user)}</Text>
                           <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
                         </View>
                       </View>
