@@ -97,13 +97,14 @@ export default function CCICTPage() {
         const adminUserId = adminUserIds[0];
         console.log('CCICT page - Getting profile for admin user ID:', adminUserId);
         
-        const adminDetails = await getAlumniDetails(adminUserId);
+        const adminDetailsResponse = await getAlumniDetails(adminUserId);
+        console.log('CCICT page - Admin details response:', adminDetailsResponse);
+        const adminDetails = adminDetailsResponse?.alumni || adminDetailsResponse || {};
         console.log('CCICT page - Admin details:', adminDetails);
         
         // Create admin profile object using actual user data
         const adminProfileData = {
-          name: formatUserFullName(adminDetails) || adminDetails?.acc_username || 'CCICT Admin',
-          username: adminDetails?.acc_username || '@CCICT_CTU_MAIN_CAMPUS',
+          name: adminDetails?.acc_username || 'Admin User',
           bio: adminDetails?.profile_bio || '', // Use actual profile_bio, empty string if not set
           profile_pic: adminDetails?.profile_pic 
             ? (String(adminDetails.profile_pic).startsWith('http') || String(adminDetails.profile_pic).startsWith('data:'))
@@ -118,8 +119,7 @@ export default function CCICTPage() {
         // Fallback to default CCICT info if no admin found
         console.log('CCICT page - No admin users found, using default');
         setAdminProfile({
-          name: 'CCICT',
-          username: '@CCICT_CTU_MAIN_CAMPUS',
+          name: 'Admin User',
           bio: '', // No hardcoded bio, use empty string
           profile_pic: ccictLogo,
         });
@@ -128,8 +128,7 @@ export default function CCICTPage() {
       console.error('CCICT page - Error loading admin profile:', error);
       // Fallback to default CCICT info on error
       setAdminProfile({
-        name: 'CCICT',
-        username: '@CCICT_CTU_MAIN_CAMPUS',
+        name: 'Admin User',
         bio: '', // No hardcoded bio, use empty string
         profile_pic: ccictLogo,
       });
@@ -266,8 +265,7 @@ export default function CCICTPage() {
             style={styles.profileImage} 
           />
         </View>
-        <Text style={styles.profileName}>{adminProfile?.name || 'CCICT'}</Text>
-        <Text style={styles.profileUsername}>{adminProfile?.username || '@CCICT_CTU_MAIN_CAMPUS'}</Text>
+        <Text style={styles.profileName}>{adminProfile?.name || 'Admin User'}</Text>
         {adminProfile?.bio && adminProfile.bio.trim() ? (
           <View style={styles.bioRow}>
             <Text style={styles.bioText}>{adminProfile.bio}</Text>

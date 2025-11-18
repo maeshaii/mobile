@@ -199,7 +199,11 @@ export default function OtherUserPage() {
             userData = {
               id: ojtUser.CTU_ID || ojtUser.user_id || Number(viewUserId),
               user_id: ojtUser.CTU_ID || ojtUser.user_id || Number(viewUserId),
-              name: `${ojtUser.First_Name || ''} ${ojtUser.Last_Name || ''}`.trim() || 'OJT User',
+              name: formatUserFullName({
+                f_name: ojtUser.First_Name || '',
+                m_name: ojtUser.Middle_Name || '',
+                l_name: ojtUser.Last_Name || ''
+              }) || 'OJT User',
               f_name: ojtUser.First_Name || '',
               m_name: ojtUser.Middle_Name || '',
               l_name: ojtUser.Last_Name || '',

@@ -20,7 +20,29 @@ export function formatNotificationDate(dateString: string | Date): string {
   }
 
   try {
-    const notificationDate = new Date(dateString);
+    // Parse date string as UTC by appending 'Z' if no timezone info present
+    // This fixes the issue where timestamps without timezone are interpreted as local time
+    let dateStr: string;
+    if (dateString instanceof Date) {
+      dateStr = dateString.toISOString();
+    } else {
+      dateStr = String(dateString);
+      // If the string doesn't end with 'Z' or have a timezone offset, treat it as UTC
+      if (!dateStr.endsWith('Z') && !dateStr.match(/[+-]\d{2}:\d{2}$/)) {
+        // If it's a space-separated datetime, replace space with 'T' and add 'Z'
+        if (dateStr.includes(' ')) {
+          dateStr = dateStr.replace(' ', 'T') + 'Z';
+        } else if (!dateStr.includes('T')) {
+          // If it's just a date, add time and timezone
+          dateStr = dateStr + 'T00:00:00Z';
+        } else {
+          // If it has 'T' but no timezone, add 'Z'
+          dateStr = dateStr + 'Z';
+        }
+      }
+    }
+    
+    const notificationDate = new Date(dateStr);
     const now = new Date();
     
     // Check if the date is valid

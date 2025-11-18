@@ -31,6 +31,7 @@ interface OriginalPost {
   user: { 
     user_id: number; 
     f_name: string; 
+    m_name?: string | null;
     l_name: string; 
     profile_pic?: string | null;
     account_type?: string;
@@ -44,6 +45,7 @@ interface Repost {
   created_at: string;
   user: {
     f_name: string;
+    m_name?: string | null;
     l_name: string;
     profile_pic?: string;
     user_id?: number;

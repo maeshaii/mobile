@@ -97,7 +97,23 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
     try {
-      const date = new Date(dateStr);
+      // Parse date string as UTC by appending 'Z' if no timezone info present
+      // This fixes the issue where timestamps without timezone are interpreted as local time
+      let dateToParse = dateStr;
+      if (!dateToParse.endsWith('Z') && !dateToParse.match(/[+-]\d{2}:\d{2}$/)) {
+        // If it's a space-separated datetime, replace space with 'T' and add 'Z'
+        if (dateToParse.includes(' ')) {
+          dateToParse = dateToParse.replace(' ', 'T') + 'Z';
+        } else if (!dateToParse.includes('T')) {
+          // If it's just a date, add time and timezone
+          dateToParse = dateToParse + 'T00:00:00Z';
+        } else {
+          // If it has 'T' but no timezone, add 'Z'
+          dateToParse = dateToParse + 'Z';
+        }
+      }
+      
+      const date = new Date(dateToParse);
       const now = new Date();
       const diffMs = now.getTime() - date.getTime();
       const diffMins = Math.floor(diffMs / 60000);

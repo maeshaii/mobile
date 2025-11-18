@@ -96,11 +96,77 @@ export default function DashboardScreen() {
     loadUserInfo();
   }, []);
 
-  // Auto-refresh feed whenever dashboard regains focus
+  const checkTrackerStatus = useCallback(async () => {
+    try {
+      console.log('🔍 Checking tracker status for user...');
+      const [activeForm, status] = await Promise.all([
+        getActiveTrackerForm(),
+        checkUserTrackerStatus()
+      ]);
+
+      console.log('📊 Tracker API responses:', { activeForm, status });
+
+      // Get accepting status from the active form
+      let acceptingStatus = null;
+      try {
+        acceptingStatus = await getTrackerAcceptingStatus(activeForm?.tracker_form_id);
+        console.log('📋 Accepting status:', acceptingStatus);
+      } catch (error) {
+        console.warn('⚠️ Could not get accepting status, defaulting to true:', error);
+        // Default to true if we can't get the status (assume form is accepting)
+        acceptingStatus = { accepting_responses: true };
+      }
+
+      const trackerData = {
+        accepting: Boolean(acceptingStatus?.accepting_responses),
+        hasSubmitted: Boolean(status?.has_submitted)
+      };
+
+      console.log('📋 Processed tracker data:', trackerData);
+      setTrackerStatus(trackerData);
+
+      // Show modal if form is accepting and user hasn't submitted
+      if (trackerData.accepting && !trackerData.hasSubmitted) {
+        console.log('🚀 Showing tracker modal - form accepting and user not submitted');
+        setShowTrackerModal(true);
+      } else {
+        console.log('❌ Not showing modal - accepting:', trackerData.accepting, 'hasSubmitted:', trackerData.hasSubmitted);
+      }
+    } catch (error) {
+      console.error('❌ Error checking tracker status:', error);
+      // Don't show modal if there's an error checking status
+    }
+  }, []);
+
+  // Auto-refresh feed and check tracker status whenever dashboard regains focus
   useFocusEffect(
     useCallback(() => {
       loadPosts();
-    }, [])
+      // Check tracker status every time dashboard is focused
+      const checkAndShowTracker = async () => {
+        try {
+          // Get current user info if not already loaded
+          let currentUser = user;
+          if (!currentUser) {
+            currentUser = await getUserInfo();
+            if (currentUser) {
+              setUser(currentUser);
+            }
+          }
+          
+          // Check tracker status if user is alumni
+          const accountType = (currentUser as any)?.account_type;
+          if (currentUser && (accountType?.user || accountType === 'alumni')) {
+            console.log('🎓 Dashboard focused - checking tracker status for alumni user');
+            await checkTrackerStatus();
+          }
+        } catch (err) {
+          console.error('Error checking tracker in focus effect:', err);
+        }
+      };
+      
+      checkAndShowTracker();
+    }, [user, checkTrackerStatus])
   );
 
   const loadPosts = async () => {
@@ -204,8 +270,9 @@ export default function DashboardScreen() {
       });
 
       // Check tracker status for alumni users
-      console.log('👤 User account type:', userInfo.account_type);
-      if (userInfo.account_type === 'alumni') {
+      const accountType = (userInfo as any)?.account_type;
+      console.log('👤 User account type:', accountType);
+      if (accountType?.user || accountType === 'alumni') {
         console.log('🎓 User is alumni, checking tracker status...');
         await checkTrackerStatus();
       } else {
@@ -294,47 +361,6 @@ export default function DashboardScreen() {
     }
   };
 
-  const checkTrackerStatus = async () => {
-    try {
-      console.log('🔍 Checking tracker status for user...');
-      const [activeForm, status] = await Promise.all([
-        getActiveTrackerForm(),
-        checkUserTrackerStatus()
-      ]);
-
-      console.log('📊 Tracker API responses:', { activeForm, status });
-
-      // Get accepting status from the active form
-      let acceptingStatus = null;
-      try {
-        acceptingStatus = await getTrackerAcceptingStatus(activeForm?.tracker_form_id);
-        console.log('📋 Accepting status:', acceptingStatus);
-      } catch (error) {
-        console.warn('⚠️ Could not get accepting status, defaulting to true:', error);
-        // Default to true if we can't get the status (assume form is accepting)
-        acceptingStatus = { accepting_responses: true };
-      }
-
-      const trackerData = {
-        accepting: Boolean(acceptingStatus?.accepting_responses),
-        hasSubmitted: Boolean(status?.has_submitted)
-      };
-
-      console.log('📋 Processed tracker data:', trackerData);
-      setTrackerStatus(trackerData);
-
-      // Show modal if form is accepting and user hasn't submitted
-      if (trackerData.accepting && !trackerData.hasSubmitted) {
-        console.log('🚀 Showing tracker modal - form accepting and user not submitted');
-        setShowTrackerModal(true);
-      } else {
-        console.log('❌ Not showing modal - accepting:', trackerData.accepting, 'hasSubmitted:', trackerData.hasSubmitted);
-      }
-    } catch (error) {
-      console.error('❌ Error checking tracker status:', error);
-      // Don't show modal if there's an error checking status
-    }
-  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -428,7 +454,7 @@ export default function DashboardScreen() {
       )}
 
       {/* Tracker Status Button for Alumni */}
-      {user && user.account_type === 'alumni' && (
+      {user && ((user as any)?.account_type?.user || (user as any)?.account_type === 'alumni') && (
         <View style={styles.trackerStatusCard}>
           <View style={styles.trackerStatusContent}>
             <FontAwesome name="clipboard" size={20} color="#1e3a8a" />

@@ -192,17 +192,50 @@ const NotificationScreen = () => {
         (n.l_name && n.l_name.toLowerCase().includes('peso'));
 
       let displayName = 'Notification';
+      
+      // Try to get name from direct fields first (f_name/first_name, m_name/middle_name, l_name/last_name)
       if (n.f_name || n.first_name) {
         displayName = formatUserFullName({
           f_name: n.f_name || n.first_name,
           m_name: n.m_name || n.middle_name,
           l_name: n.l_name || n.last_name,
         });
-      } else if (isAdminNotification) {
+      } 
+      // Try to get name from nested user object
+      else if (n.user && (n.user.f_name || n.user.first_name)) {
+        displayName = formatUserFullName({
+          f_name: n.user.f_name || n.user.first_name,
+          m_name: n.user.m_name || n.user.middle_name,
+          l_name: n.user.l_name || n.user.last_name,
+        });
+      }
+      // Try to get name from from_user object
+      else if (n.from_user && (n.from_user.f_name || n.from_user.first_name)) {
+        displayName = formatUserFullName({
+          f_name: n.from_user.f_name || n.from_user.first_name,
+          m_name: n.from_user.m_name || n.from_user.middle_name,
+          l_name: n.from_user.l_name || n.from_user.last_name,
+        });
+      }
+      // Try to extract name from message content (before action word like "liked", "commented", etc.)
+      else if (fullMessage) {
+        const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started|replied)/i);
+        if (nameMatch && nameMatch[1]) {
+          const extractedName = nameMatch[1].trim();
+          // Only use extracted name if it looks like a real name (has at least 2 words or is not too short)
+          if (extractedName.length > 2 && extractedName.split(' ').length >= 1) {
+            displayName = extractedName;
+          }
+        }
+      }
+      // Check for admin/peso notifications
+      if (isAdminNotification && (displayName === 'Notification' || displayName === 'User')) {
         displayName = 'CCICT';
-      } else if (isPesoNotification) {
+      } else if (isPesoNotification && (displayName === 'Notification' || displayName === 'User')) {
         displayName = 'PESO';
-      } else {
+      }
+      // Final fallback
+      if (displayName === 'Notification' || displayName === 'User') {
         displayName = rawName || 'User';
       }
 
@@ -212,6 +245,23 @@ const NotificationScreen = () => {
         const num = typeof id === 'number' ? id : parseInt(String(id), 10);
         return isNaN(num) ? undefined : num;
       };
+
+      // Extract name fields from various possible sources
+      let firstName = n.f_name || n.first_name || n.from_first_name || n.fromFirstName;
+      let middleName = n.m_name || n.middle_name || n.from_middle_name || n.fromMiddleName;
+      let lastName = n.l_name || n.last_name || n.from_last_name || n.fromLastName;
+      
+      // If not found in direct fields, try nested objects
+      if (!firstName && n.user) {
+        firstName = n.user.f_name || n.user.first_name;
+        middleName = n.user.m_name || n.user.middle_name;
+        lastName = n.user.l_name || n.user.last_name;
+      }
+      if (!firstName && n.from_user) {
+        firstName = n.from_user.f_name || n.from_user.first_name;
+        middleName = n.from_user.m_name || n.from_user.middle_name;
+        lastName = n.from_user.l_name || n.from_user.last_name;
+      }
 
       return {
         id: n.id || n.notification_id || index,
@@ -228,10 +278,10 @@ const NotificationScreen = () => {
         user_id: safeParseId(userId),
         repost_id: safeParseId(repostId),
         donation_id: safeParseId(donationId),
-        profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic,
-        first_name: n.f_name || n.first_name || n.from_first_name || n.fromFirstName,
-        middle_name: n.m_name || n.middle_name || n.from_middle_name || n.fromMiddleName,
-        last_name: n.l_name || n.last_name || n.from_last_name || n.fromLastName,
+        profile_pic: n.profile_pic || n.profile_image || n.avatar || n.profilePic || (n.user && (n.user.profile_pic || n.user.profile_image)) || (n.from_user && (n.from_user.profile_pic || n.from_user.profile_image)),
+        first_name: firstName,
+        middle_name: middleName,
+        last_name: lastName,
         read: n.is_read || n.read || false,
         isAdminNotification,
         isPesoNotification,
@@ -702,14 +752,14 @@ const NotificationScreen = () => {
     const subject = item.subject || '';
     
     // Always use full name (first + middle + last) when available
-    // Priority: first_name + middle_name + last_name > extracted from message > name field
-    let userName = formatFullName(item.first_name, item.middle_name, item.last_name, name || 'User');
+    // Priority: Use item.name (which already has full name) > first_name + middle_name + last_name > extracted from message
+    let userName = name || 'User';
     
-    // If we have first_name and last_name, always use them (even if message has different name)
-    if (item.first_name && item.last_name) {
+    // If item.name is not set or is just a fallback, try to construct from individual name parts
+    if ((!name || name === 'User' || name === 'Notification') && (item.first_name || item.last_name)) {
       userName = formatFullName(item.first_name, item.middle_name, item.last_name, 'User');
-    } else if (fullMessage) {
-      // Try to extract name from the beginning of the message as fallback
+    } else if (!name && fullMessage) {
+      // Try to extract name from the beginning of the message as last resort
       // Pattern: "Full Name action..." or "Full Name|ID action..."
       const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started)/i);
       if (nameMatch && nameMatch[1]) {
@@ -775,8 +825,10 @@ const NotificationScreen = () => {
 
     // Format user notifications
     if (type === 'follow' || message.toLowerCase().includes('follow')) {
-      // Always prioritize first_name + middle_name + last_name for full name display
-      const followUserName = formatFullName(item.first_name, item.middle_name, item.last_name, userName);
+      // Use the full name from item.name (which already includes middle name) or construct from parts
+      const followUserName = item.name && item.name !== 'User' && item.name !== 'Notification' 
+        ? item.name 
+        : formatFullName(item.first_name, item.middle_name, item.last_name, userName);
       return `${followUserName} started following you`;
     }
     if (type === 'repost' || message.toLowerCase().includes('repost') || message.toLowerCase().includes('shared')) {

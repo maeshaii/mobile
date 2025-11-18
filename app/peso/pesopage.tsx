@@ -22,7 +22,7 @@ const pesoLogo = require('../../assets/images/peso_logo.jpg');
 
 const orgInfo = {
   name: 'PESO',
-  username: '@PESO_CTU_MAIN_CAMPUS',
+  username: 'PESO_CTU_MAIN_CAMPUS',
   bio: 'Peso CTU-Main Campus',
   profile_pic: pesoLogo,
 };
@@ -104,13 +104,14 @@ export default function PESOPage() {
         const pesoUserId = pesoUserIds[0];
         console.log('PESO page - Getting profile for peso user ID:', pesoUserId);
         
-        const pesoDetails = await getAlumniDetails(pesoUserId);
+        const pesoDetailsResponse = await getAlumniDetails(pesoUserId);
+        console.log('PESO page - Peso details response:', pesoDetailsResponse);
+        const pesoDetails = pesoDetailsResponse?.alumni || pesoDetailsResponse || {};
         console.log('PESO page - Peso details:', pesoDetails);
         
         // Create peso profile object using actual user data
         const pesoProfileData = {
-          name: formatUserFullName(pesoDetails) || pesoDetails?.acc_username || 'PESO',
-          username: pesoDetails?.acc_username || '@PESO_CTU_MAIN_CAMPUS',
+          name: pesoDetails?.acc_username || 'Peso User',
           bio: pesoDetails?.profile_bio || '', // Use actual profile_bio, empty string if not set
           profile_pic: pesoDetails?.profile_pic 
             ? (String(pesoDetails.profile_pic).startsWith('http') || String(pesoDetails.profile_pic).startsWith('data:'))
@@ -125,8 +126,7 @@ export default function PESOPage() {
         // Fallback to default PESO info if no peso found
         console.log('PESO page - No peso users found, using default');
         setPesoProfile({
-          name: 'PESO',
-          username: '@PESO_CTU_MAIN_CAMPUS',
+          name: 'Peso User',
           bio: '', // No hardcoded bio, use empty string
           profile_pic: pesoLogo,
         });
@@ -135,8 +135,7 @@ export default function PESOPage() {
       console.error('PESO page - Error loading peso profile:', error);
       // Fallback to default PESO info on error
       setPesoProfile({
-        name: 'PESO',
-        username: '@PESO_CTU_MAIN_CAMPUS',
+        name: 'Peso User',
         bio: '', // No hardcoded bio, use empty string
         profile_pic: pesoLogo,
       });
@@ -269,8 +268,7 @@ export default function PESOPage() {
             style={styles.profileImage} 
           />
         </View>
-        <Text style={styles.profileName}>{pesoProfile?.name || 'PESO'}</Text>
-        <Text style={styles.profileUsername}>{pesoProfile?.username || '@PESO_CTU_MAIN_CAMPUS'}</Text>
+        <Text style={styles.profileName}>{pesoProfile?.name || 'Peso User'}</Text>
         {pesoProfile?.bio && pesoProfile.bio.trim() ? (
           <View style={styles.bioRow}>
             <Text style={styles.bioText}>{pesoProfile.bio}</Text>

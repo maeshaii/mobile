@@ -29,6 +29,7 @@ interface Post {
   user: { 
     user_id: number; 
     f_name: string; 
+    m_name?: string | null;
     l_name: string; 
     profile_pic?: string | null;
     account_type?: string;

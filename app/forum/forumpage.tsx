@@ -29,7 +29,7 @@ interface PostItem {
   comments_count: number;
   reposts_count?: number;
   is_liked?: boolean;
-  user: { user_id: number; f_name: string; l_name: string; profile_pic?: string | null };
+  user: { user_id: number; f_name: string; m_name?: string | null; l_name: string; profile_pic?: string | null };
 }
 
 interface UserProfile {

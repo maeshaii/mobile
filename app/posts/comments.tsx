@@ -378,7 +378,7 @@ export default function PostCommentsScreen() {
 
           is_liked: !!postDetail.is_liked,
 
-          user: postDetail.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null }
+          user: postDetail.user || { user_id: 0, f_name: 'Unknown', m_name: null, l_name: 'User', profile_pic: null }
 
         };
 

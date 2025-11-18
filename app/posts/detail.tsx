@@ -195,7 +195,7 @@ export default function PostDetailScreen() {
     }
     
     // Simple solution: Check if user name contains admin/peso indicators
-    const fullName = `${user.f_name || ''} ${user.l_name || ''}`.toLowerCase();
+    const fullName = formatUserFullName(user).toLowerCase();
     
     // Check for admin indicators
     if (fullName.includes('admin') || 

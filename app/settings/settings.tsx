@@ -14,7 +14,7 @@ import {
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import NavBar from '../(tabs)/navbar';
-import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL, changePassword } from '../../services/api';
+import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL, changePassword, getAccessToken } from '../../services/api';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
@@ -307,13 +307,24 @@ export default function SettingsPage() {
 
   const loadEmploymentData = async (userId: number) => {
     try {
-      const accessToken = await AsyncStorage.getItem('accessToken');
-      const response = await fetch(`${API_BASE_URL}/api/alumni/employment/${userId}/`, {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        console.error('No access token found');
+        setHasJobInDB(false);
+        return;
+      }
+      
+      const url = `${API_BASE_URL}/api/alumni/employment/${userId}/`;
+      console.log('Fetching employment data from:', url);
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         }
       });
+      
+      console.log('Employment API response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
@@ -398,17 +409,51 @@ export default function SettingsPage() {
         if (accType === 'ojt') {
           const hasEmploymentData = data.has_employment_data || (data.organization_name && data.organization_name.trim() !== '');
           setHasJobInDB(hasEmploymentData);
+          console.log('OJT - hasEmploymentData:', hasEmploymentData);
         } else {
           // For Alumni accounts: check if they have Part III tracker data
+          const hasTrackerData = data.has_tracker_data || false;
           const hasPartIIIData = data.has_part_iii_data || false;
           
           // For alumni: if they have Part III data, show it
           setHasJobInDB(hasPartIIIData);
+          
+          console.log('Alumni - hasTrackerData:', hasTrackerData);
+          console.log('Alumni - hasPartIIIData:', hasPartIIIData);
+          console.log('Alumni - hasJobInDB:', hasPartIIIData);
+          console.log('Alumni - Debug info:', data.debug || 'No debug info');
+          console.log('Alumni - Full employment data:', data);
         }
+        
+        console.log('Employment data loaded:', data);
+      } else {
+        // Try to get error details from response
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorText = await response.text();
+          console.error('Failed to fetch employment data - Response text:', errorText);
+          // Try to parse as JSON
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.error || errorData.message || errorMessage;
+            console.error('Failed to fetch employment data - Error details:', errorData);
+          } catch (e) {
+            // Not JSON, use text as is
+            errorMessage = errorText || errorMessage;
+          }
+        } catch (e) {
+          console.error('Failed to read error response:', e);
+        }
+        console.error('Failed to fetch employment data - Status:', response.status, 'Message:', errorMessage);
+        // Set to false to show "no data" state instead of keeping in loading
+        setHasJobInDB(false);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading employment data:', error);
-      setHasJobInDB(null);
+      console.error('Error message:', error?.message);
+      console.error('Error stack:', error?.stack);
+      // Set to false to show "no data" state instead of keeping in loading
+      setHasJobInDB(false);
     }
   };
 
@@ -451,12 +496,23 @@ export default function SettingsPage() {
 
   const onSaveEmployment = async () => {
     try {
-      const userStr = await AsyncStorage.getItem('user');
-      if (!userStr) return;
+      const user = await getUserInfo();
+      if (!user) {
+        Alert.alert('Error', 'User not found');
+        return;
+      }
       
-      const user = JSON.parse(userStr);
       const userId = user.user_id || user.id;
-      const accessToken = await AsyncStorage.getItem('accessToken');
+      if (!userId) {
+        Alert.alert('Error', 'User ID not found');
+        return;
+      }
+      
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        Alert.alert('Error', 'Authentication required');
+        return;
+      }
       
       let employmentData;
       
