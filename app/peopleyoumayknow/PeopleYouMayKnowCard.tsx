@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { fetchSuggestedUsers, followUser } from '../../services/api';
+import { fetchSuggestedUsers, followUser, checkFollowStatus, getUserInfo } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { wp, hp, getPercentageWidth, getResponsiveFontSize, getResponsivePadding } from '../../utils/responsive';
 
@@ -56,8 +56,31 @@ export default function PeopleYouMayKnowCard() {
       setLoading(true);
       const response = await fetchSuggestedUsers();
       if (response.success) {
+        const users = response.users || [];
+        
+        // Get current user to exclude self
+        const currentUser = await getUserInfo();
+        const currentUserId = currentUser?.user_id || currentUser?.id;
+        
+        // Check follow status for each user and filter out already followed users
+        const usersWithFollowStatus = await Promise.all(
+          users.map(async (user: SuggestedUser) => {
+            try {
+              const followStatus = await checkFollowStatus(user.id);
+              return { ...user, isFollowing: followStatus.is_following || false };
+            } catch {
+              return { ...user, isFollowing: false };
+            }
+          })
+        );
+        
+        // Filter out users that are already being followed and the current user
+        const unfollowedUsers = usersWithFollowStatus
+          .filter(user => !user.isFollowing)
+          .filter(user => currentUserId ? Number(user.id) !== Number(currentUserId) : true);
+        
         // Show up to 10 users
-        setSuggestedUsers((response.users || []).slice(0, 10));
+        setSuggestedUsers(unfollowedUsers.slice(0, 10));
       }
     } catch (error) {
       console.error('Error loading suggested users:', error);

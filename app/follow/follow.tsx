@@ -186,30 +186,29 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                   data={users}
                   keyExtractor={(item) => item.user_id.toString()}
                   renderItem={({ item: user, index }) => (
-                    <TouchableOpacity 
-                      key={`${user.user_id}-${index}`}
-                      style={[styles.userCard, { backgroundColor: '#f8f9fa' }]}
-                      onPress={() => {
-                        onClose();
-                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
-                      }}
-                    >
-                      <UserAvatar
-                        profilePic={user.profile_pic}
-                        firstName={user.f_name}
-                        lastName={user.l_name}
-                        size={50}
-                        style={styles.avatar}
-                      />
-                      <View style={styles.userInfo}>
-                        <Text style={styles.userName} numberOfLines={1}>
-                          {user.name || formatUserFullName(user)}
-                        </Text>
-                        <Text style={styles.userHandle}>@{user.ctu_id}</Text>
-                        {user.batch && (
-                          <Text style={styles.userBatch}>Batch {user.batch}</Text>
-                        )}
-                      </View>
+                    <View style={styles.userCard}>
+                      <TouchableOpacity 
+                        style={styles.userCardContent}
+                        onPress={() => {
+                          onClose();
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <UserAvatar
+                          profilePic={user.profile_pic}
+                          firstName={user.f_name}
+                          lastName={user.l_name}
+                          size={50}
+                          style={styles.avatar}
+                        />
+                        <View style={styles.userInfo}>
+                          <Text style={styles.userName} numberOfLines={1}>
+                            {user.name || formatUserFullName(user)}
+                          </Text>
+                          <Text style={styles.userHandle}>@{user.ctu_id}</Text>
+                        </View>
+                      </TouchableOpacity>
                       {currentUserId !== user.user_id && (
                         <TouchableOpacity
                           style={[
@@ -230,7 +229,7 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                           </Text>
                         </TouchableOpacity>
                       )}
-                    </TouchableOpacity>
+                    </View>
                   )}
                   refreshControl={
                     <RefreshControl
@@ -290,7 +289,8 @@ const styles = StyleSheet.create({
   title: {
     fontSize: getResponsiveFontSize(20),
     fontWeight: 'bold',
-    color: '#222',
+    color: '#000',
+    flex: 1,
   },
   closeButton: {
     padding: wp(8),
@@ -306,7 +306,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    padding: getResponsivePadding(16),
   },
   list: {
     flex: 1,
@@ -317,66 +316,50 @@ const styles = StyleSheet.create({
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: getResponsivePadding(16),
+    justifyContent: 'space-between',
+    paddingHorizontal: getResponsivePadding(16),
+    paddingVertical: getResponsivePadding(12),
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    minHeight: hp(80),
-    marginBottom: hp(8),
-    borderRadius: wp(8),
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    borderBottomColor: '#f0f0f0',
+    minHeight: hp(70),
+  },
+  userCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   avatar: {
     marginRight: wp(12),
   },
   userInfo: {
     flex: 1,
-    marginRight: wp(8),
   },
   userName: {
     fontSize: getResponsiveFontSize(15),
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: '#000',
     marginBottom: hp(2),
   },
   userHandle: {
     fontSize: getResponsiveFontSize(13),
     color: '#666',
-    marginBottom: hp(2),
-  },
-  userBatch: {
-    fontSize: getResponsiveFontSize(11),
-    color: '#999',
   },
   followButton: {
     backgroundColor: '#174f84',
-    paddingHorizontal: wp(16),
+    paddingHorizontal: wp(20),
     paddingVertical: hp(8),
     borderRadius: wp(20),
-    minWidth: wp(80),
+    minWidth: wp(90),
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
+    justifyContent: 'center',
   },
   followingButton: {
     backgroundColor: '#6c757d',
   },
   followButtonText: {
     color: '#fff',
-    fontSize: getResponsiveFontSize(12),
+    fontSize: getResponsiveFontSize(13),
     fontWeight: '600',
   },
   followingButtonText: {

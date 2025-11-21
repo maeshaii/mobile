@@ -86,9 +86,11 @@ export default function TemporaryPasswordScreen() {
 
     setIsLoading(true);
     try {
-      const { changePassword } = await import('../../services/api');
+      const { changePassword, Storage } = await import('../../services/api');
       const resp = await changePassword(oldPassword, newPassword);
       if (resp.success) {
+        // Clear the must_change_password flag since password has been changed
+        await Storage.deleteItem('must_change_password');
         setSuccess('Password changed. Please login again.');
         setTimeout(() => {
           setIsLoading(false);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions, Animated } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CachedImage from '../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -17,6 +18,7 @@ import { getImagesFromContent, getFirstImageUrl, hasImages } from '../utils/imag
 import { formatUserFullName } from '../utils/nameUtils';
 
 export default function DashboardScreen() {
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<any>(null);
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,10 @@ export default function DashboardScreen() {
   const screenHeight = Dimensions.get('window').height;
   const imageScrollRef = useRef<ScrollView>(null);
   const scrollViewRef = useRef<ScrollView>(null);
+  const lastScrollY = useRef(0);
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
 
   const handleSuggestionsChange = (showSuggestions: boolean, inputPosition?: { x: number; y: number; width: number; height: number } | null) => {
     if (showSuggestions && scrollViewRef.current && inputPosition) {
@@ -56,6 +62,62 @@ export default function DashboardScreen() {
       }, 150);
     }
   };
+
+  // Handle scroll events to show/hide header
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const scrollingDown = currentScrollY > lastScrollY.current;
+    const scrollingUp = currentScrollY < lastScrollY.current;
+    
+    // Only hide/show if scrolled more than 10 pixels to avoid jitter
+    if (Math.abs(currentScrollY - lastScrollY.current) > 10) {
+      if (scrollingDown && currentScrollY > 50 && headerVisible) {
+        // Hide header when scrolling down
+        setHeaderVisible(false);
+        Animated.timing(headerTranslateY, {
+          toValue: -100,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      } else if (scrollingUp && !headerVisible) {
+        // Show header when scrolling up
+        setHeaderVisible(true);
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+    }
+    
+    lastScrollY.current = currentScrollY;
+    
+    // Clear existing timeout
+    if (scrollTimeout.current) {
+      clearTimeout(scrollTimeout.current);
+    }
+    
+    // Show header after scrolling stops
+    scrollTimeout.current = setTimeout(() => {
+      if (!headerVisible) {
+        setHeaderVisible(true);
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+    }, 500); // Show after 500ms of no scrolling
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeout.current) {
+        clearTimeout(scrollTimeout.current);
+      }
+    };
+  }, []);
 
   // Helpers: open original post detail for repost items
   const openOriginalPostIfAvailable = (post: any) => {
@@ -427,13 +489,30 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <Animated.View
+        style={[
+          styles.header,
+          styles.stickyHeader,
+          { paddingTop: insets.top + 15 },
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
         <Text style={styles.headerTitle}>Dashboard</Text>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutButtonText}>Logout</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
+      <ScrollView 
+        ref={scrollViewRef} 
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
       {user && (
         <View style={styles.profileCard}>
           <Image
@@ -551,8 +630,6 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
       </View>
-
-      <ScrollView ref={scrollViewRef} style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
             <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
@@ -1029,7 +1106,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e3a8a',
     paddingHorizontal: 20,
     paddingVertical: 15,
-    paddingTop: 50,
+  },
+  stickyHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   headerTitle: {
     fontSize: 20,
@@ -1155,6 +1243,10 @@ const styles = StyleSheet.create({
   scrollView: {
     marginTop: 10,
     paddingHorizontal: 10,
+  },
+  scrollContent: {
+    paddingTop: 85,
+    paddingBottom: 20,
   },
   postCard: {
     backgroundColor: 'white',

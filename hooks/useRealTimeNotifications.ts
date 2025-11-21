@@ -75,6 +75,13 @@ export function useRealTimeNotifications(
   // Fetch notifications from API
   const fetchNotificationsData = useCallback(async () => {
     try {
+      // Check if user is authenticated before making API call
+      const token = await getAccessToken();
+      if (!token) {
+        console.log('Mobile: No access token, skipping notification fetch');
+        return;
+      }
+
       const userId = await getCurrentUserId();
       if (!userId) {
         console.warn('No user ID available for fetching notifications');
@@ -97,7 +104,19 @@ export function useRealTimeNotifications(
         setNotifications([]);
         setNotificationCount(0);
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Suppress 401 errors that are being handled by the interceptor
+      if (err?.response?.status === 401) {
+        // Check if this is a final 401 after refresh attempt (indicates logout)
+        const token = await getAccessToken();
+        if (!token) {
+          // Token was cleared, user was logged out - this is expected
+          console.log('Mobile: User logged out, skipping notification fetch');
+          return;
+        }
+        // If token still exists, it might be a transient error - don't log
+        return;
+      }
       console.error('Mobile: Error fetching notifications:', err);
       setError('Failed to fetch notifications');
     } finally {
@@ -108,6 +127,13 @@ export function useRealTimeNotifications(
   // Fetch notification count (lightweight)
   const fetchCountData = useCallback(async () => {
     try {
+      // Check if user is authenticated before making API call
+      const token = await getAccessToken();
+      if (!token) {
+        console.log('Mobile: No access token, skipping notification count fetch');
+        return;
+      }
+
       const userId = await getCurrentUserId();
       if (!userId) return;
 
@@ -119,7 +145,18 @@ export function useRealTimeNotifications(
         setNotificationCount(unreadCount);
         console.log('📊 Mobile: Updated notification count:', unreadCount);
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Suppress 401 errors that are being handled by the interceptor
+      if (err?.response?.status === 401) {
+        // Check if this is a final 401 after refresh attempt (indicates logout)
+        const token = await getAccessToken();
+        if (!token) {
+          // Token was cleared, user was logged out - this is expected
+          return;
+        }
+        // If token still exists, it might be a transient error - don't log
+        return;
+      }
       console.error('Mobile: Error fetching notification count:', err);
     }
   }, [getCurrentUserId]);

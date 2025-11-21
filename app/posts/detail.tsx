@@ -1013,7 +1013,8 @@ export default function PostDetailScreen() {
                               // Start replying to comment
                               setReplyingTo(c.comment_id);
                               setReplyingToReply(null);
-                              setReplyText('');
+                              const commentAuthorName = formatUserFullName(c.user);
+                              setReplyText(`@${commentAuthorName} `);
                             }
                           }}
                         >
@@ -1247,19 +1248,25 @@ export default function PostDetailScreen() {
                                       {/* Reply input - show directly under this reply when replying to it */}
                                       {replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id && (
                                         <View style={[styles.replyInputContainer, { marginTop: 8, marginLeft: 0 }]}>
-                                          <View style={styles.replyingToContainer}>
-                                            <Text style={styles.replyingToText}>
-                                              {(() => {
-                                                const replyAuthorName = formatUserFullName(reply.user);
-                                                return `Replying to ${replyAuthorName}`;
-                                              })()}
-                                            </Text>
-                                            <TouchableOpacity onPress={() => {
+                                          {/* Original reply preview */}
+                                          <View style={styles.replyPreviewContainer}>
+                                            <View style={styles.replyPreviewBar} />
+                                            <View style={styles.replyPreviewContent}>
+                                              <TouchableOpacity 
+                                                onPress={() => {
                                               setReplyingToReply(null);
                                               setReplyText('');
-                                            }}>
+                                                }}
+                                                style={{ position: 'absolute', right: 0, top: 0, padding: 4, zIndex: 1 }}
+                                              >
                                               <Ionicons name="close" size={16} color="#6b7280" />
                                             </TouchableOpacity>
+                                              <View style={{ paddingRight: 24 }}>
+                                                {renderTextWithMentions(`@${formatUserFullName(reply.user)}`, [], (userId) => {
+                                                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                                }, styles.replyPreviewText)}
+                                              </View>
+                                            </View>
                                           </View>
                                           <MentionInput
                                             value={replyText}
@@ -2299,6 +2306,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     fontStyle: 'italic',
+  },
+  replyPreviewContainer: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 6,
+    padding: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#1e3a8a',
+  },
+  replyPreviewBar: {
+    width: 3,
+    backgroundColor: '#1e3a8a',
+    marginRight: 8,
+    borderRadius: 2,
+  },
+  replyPreviewContent: {
+    flex: 1,
+  },
+  replyPreviewText: {
+    fontSize: 12,
+    color: '#4b5563',
+    lineHeight: 16,
+  },
+  replyPreviewTextWrapper: {
+    maxHeight: 32,
+    overflow: 'hidden',
   },
   replyInputContainer: {
     backgroundColor: '#f9fafb',

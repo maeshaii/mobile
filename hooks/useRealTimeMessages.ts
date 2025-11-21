@@ -52,12 +52,34 @@ export function useRealTimeMessages(
   // Fetch conversations from API
   const fetchConversations = useCallback(async () => {
     try {
+      // Check if user is authenticated before making API call
+      const { getAccessToken } = await import('../services/api');
+      const token = await getAccessToken();
+      if (!token) {
+        console.log('Mobile: No access token, skipping conversation fetch');
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
       
       const conversations = await listConversations();
       calculateUnreadCount(conversations || []);
     } catch (err: any) {
+      // Suppress 401 errors that are being handled by the interceptor
+      // Only log if it's not a 401 or if it's a 401 that couldn't be refreshed
+      if (err?.response?.status === 401) {
+        // Check if this is a final 401 after refresh attempt (indicates logout)
+        const { getAccessToken } = await import('../services/api');
+        const token = await getAccessToken();
+        if (!token) {
+          // Token was cleared, user was logged out - this is expected
+          console.log('Mobile: User logged out, skipping conversation fetch');
+          return;
+        }
+        // If token still exists, it might be a transient error - don't log
+        return;
+      }
       console.error('Mobile: Error fetching conversations:', err);
       setError('Failed to fetch messages');
     } finally {

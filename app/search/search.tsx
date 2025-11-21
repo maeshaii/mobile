@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
-import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, clearRecentSearches, searchAlumni, searchOJT, getAccessToken } from '../../services/api';
+import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, deleteRecentSearch, clearRecentSearches, searchAlumni, searchOJT, getAccessToken } from '../../services/api';
 import { RecentSearchWebSocket } from '../../services/recentSearchWebSocket';
 import * as SecureStore from 'expo-secure-store';
 import UserAvatar from '../../components/UserAvatar';
@@ -47,40 +47,168 @@ export default function SearchPage() {
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
-  const formatRecentSearches = React.useCallback((serverRecent: any[]) => {
-    return serverRecent.map((u: any) => ({
-      id: String(u.user_id ?? u.searched_user?.user_id ?? u.id),
-      name: formatUserFullName(u.searched_user || u) || 'User',
-      f_name: u.f_name || u.searched_user?.f_name,
-      l_name: u.l_name || u.searched_user?.l_name,
-      profile_pic: u.profile_pic || u.searched_user?.profile_pic,
-      time: '',
-    }));
+  // Build full name helper (similar to web)
+  const buildFullName = React.useCallback((user: any) => {
+    const primaryParts = [
+      user?.f_name,
+      user?.m_name,
+      user?.l_name,
+    ];
+
+    const fallbackParts = [
+      user?.first_name,
+      user?.middle_name,
+      user?.last_name,
+    ];
+
+    const baseParts = primaryParts.some((part) => part && String(part).trim())
+      ? primaryParts
+      : fallbackParts;
+
+    const cleaned = baseParts
+      .map((part) => (part ? String(part).trim() : ''))
+      .filter(Boolean);
+
+    if (cleaned.length > 0) {
+      return cleaned.join(' ');
+    }
+
+    if (user?.name) {
+      return String(user.name);
+    }
+
+    if (user?.full_name) {
+      return String(user.full_name);
+    }
+
+    return '';
   }, []);
+
+  // Normalize recent search data (similar to web implementation)
+  const normalizeRecentSearchData = React.useCallback((detailed?: any[], legacy?: any[]) => {
+    const detailedList = Array.isArray(detailed) ? detailed : [];
+    const legacyList = Array.isArray(legacy) ? legacy : [];
+
+    const idLookup = new Map<number, number>();
+    detailedList.forEach((entry: any) => {
+      const searchedUser = entry?.searched_user ?? {};
+      const userId = Number(
+        searchedUser.user_id ??
+          searchedUser.id ??
+          entry?.searched_user_id ??
+          entry?.user_id ??
+          entry?.id
+      );
+      const recordId = Number(entry?.id);
+      if (
+        Number.isFinite(userId) &&
+        userId > 0 &&
+        Number.isFinite(recordId) &&
+        recordId > 0
+      ) {
+        idLookup.set(userId, recordId);
+      }
+    });
+
+    const normalized = (Array.isArray(detailedList) && detailedList.length > 0 ? detailedList : legacyList)
+      .map((item: any, index: number) => {
+        const userData = item?.searched_user ?? item ?? {};
+        const userId = Number(userData.user_id ?? userData.id ?? item?.user_id ?? item?.id);
+        if (!Number.isFinite(userId) || userId <= 0) {
+          return null;
+        }
+
+        const recordIdRaw = item?.id ?? item?.recent_id ?? idLookup.get(userId) ?? null;
+        let recordId: number | null = null;
+        if (recordIdRaw !== null && recordIdRaw !== undefined) {
+          const numericId = Number(recordIdRaw);
+          if (!Number.isNaN(numericId) && Number.isFinite(numericId) && numericId > 0) {
+            recordId = numericId;
+          }
+        }
+
+        return {
+          id: recordId ?? `${userId}-${index}`, // Use record ID if available, otherwise fallback
+          recordId: recordId, // Store record ID separately for deletion
+          userId: userId, // Store user ID for navigation
+          searched_user: {
+            user_id: userId,
+            f_name: userData.f_name ?? item?.f_name ?? '',
+            m_name: userData.m_name ?? item?.m_name ?? '',
+            l_name: userData.l_name ?? item?.l_name ?? '',
+            profile_pic: userData.profile_pic ?? item?.profile_pic ?? null,
+            full_name: buildFullName({
+              ...userData,
+              f_name: userData.f_name ?? item?.f_name ?? '',
+              m_name: userData.m_name ?? item?.m_name ?? '',
+              l_name: userData.l_name ?? item?.l_name ?? '',
+            }),
+          },
+          created_at: item?.created_at ?? null,
+          canDelete: recordId !== null,
+          // For backward compatibility with existing UI code
+          name: buildFullName({
+            ...userData,
+            f_name: userData.f_name ?? item?.f_name ?? '',
+            m_name: userData.m_name ?? item?.m_name ?? '',
+            l_name: userData.l_name ?? item?.l_name ?? '',
+          }) || 'User',
+          f_name: userData.f_name ?? item?.f_name ?? '',
+          l_name: userData.l_name ?? item?.l_name ?? '',
+          profile_pic: userData.profile_pic ?? item?.profile_pic ?? null,
+          time: '',
+        };
+      })
+      .filter(Boolean) as any[];
+
+    return normalized;
+  }, [buildFullName]);
+
+  // Legacy format function for backward compatibility
+  const formatRecentSearches = React.useCallback((serverRecent: any) => {
+    // If serverRecent is already in the new format (has recent_searches or recent), normalize it
+    if (serverRecent && typeof serverRecent === 'object' && !Array.isArray(serverRecent)) {
+      return normalizeRecentSearchData(serverRecent.recent_searches, serverRecent.recent);
+    }
+    // Otherwise, treat as array and normalize
+    return normalizeRecentSearchData(Array.isArray(serverRecent) ? serverRecent : [], []);
+  }, [normalizeRecentSearchData]);
+
+  const loadRecentSearches = React.useCallback(async () => {
+    try {
+      const response: any = await listRecentSearches(10);
+      // Handle both object format (with recent_searches/recent) and array format
+      const normalized = normalizeRecentSearchData(
+        response?.recent_searches,
+        Array.isArray(response) ? response : response?.recent
+      );
+      setRecent(normalized);
+      // Also persist locally for offline
+      try {
+        await Storage.setItem('recentSearches', JSON.stringify(normalized));
+      } catch {}
+      return normalized;
+    } catch (error) {
+      console.error('Error loading recent searches:', error);
+      // Fallback to local cache
+      try {
+        const raw = await Storage.getItem('recentSearches');
+        if (raw) {
+          const cached = JSON.parse(raw);
+          setRecent(cached);
+          return cached;
+        }
+      } catch {}
+      setRecent([]);
+      return [];
+    }
+  }, [normalizeRecentSearchData]);
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
-        // Load recent searches - prefer server, fall back to local cache
-        try {
-          const serverRecent = await listRecentSearches(10);
-          if (Array.isArray(serverRecent) && serverRecent.length) {
-            // Map to UI shape
-            const mappedRecent = formatRecentSearches(serverRecent);
-            setRecent(mappedRecent);
-            // Also persist locally for offline
-            await Storage.setItem('recentSearches', JSON.stringify(mappedRecent));
-          } else {
-            const raw = await Storage.getItem('recentSearches');
-            if (raw) setRecent(JSON.parse(raw));
-          }
-        } catch {
-          try {
-            const raw = await Storage.getItem('recentSearches');
-            if (raw) setRecent(JSON.parse(raw));
-          } catch {}
-        }
+        await loadRecentSearches();
       } catch (e) {
         setUsers([]);
       } finally {
@@ -88,7 +216,7 @@ export default function SearchPage() {
       }
     };
     load();
-  }, [formatRecentSearches]);
+  }, [loadRecentSearches]);
 
   // Handle search when query changes - search both alumni and OJT
   useEffect(() => {
@@ -161,6 +289,21 @@ export default function SearchPage() {
     try { await Storage.setItem('recentSearches', JSON.stringify(items)); } catch {}
   }, []);
 
+  // Delete a recent search (similar to web)
+  const handleDeleteRecentSearch = React.useCallback(async (searchId: number) => {
+    try {
+      await deleteRecentSearch(searchId);
+      // Reload recent searches to update the list
+      const updatedSearches = await loadRecentSearches();
+      return updatedSearches;
+    } catch (error) {
+      console.error('Error deleting recent search:', error);
+      // Reload anyway to sync with server
+      await loadRecentSearches();
+      return [];
+    }
+  }, [loadRecentSearches]);
+
   useEffect(() => {
     let ws: RecentSearchWebSocket | null = null;
     let isMounted = true;
@@ -171,8 +314,9 @@ export default function SearchPage() {
         ws = new RecentSearchWebSocket(API_BASE_URL, token || undefined);
         ws.onEvent((event) => {
           if (event.type === 'recent_search_update') {
-            const normalized = formatRecentSearches(
-              event.recent_searches ?? event.recent ?? []
+            const normalized = normalizeRecentSearchData(
+              event.recent_searches,
+              event.recent
             );
             if (isMounted) {
               void saveRecent(normalized);
@@ -193,7 +337,7 @@ export default function SearchPage() {
         ws.disconnect();
       }
     };
-  }, [formatRecentSearches, saveRecent]);
+  }, [normalizeRecentSearchData, saveRecent]);
 
   const handleOpenUser = async (item: any) => {
     if (selecting) {
@@ -202,23 +346,21 @@ export default function SearchPage() {
       setSelectedIds(prev => ({ ...prev, [key]: !prev[key] }));
       return;
     }
+    // Get user ID from item (could be userId or id field)
+    const userId = item.userId ?? item.searched_user?.user_id ?? item.id;
+    if (!userId || Number.isNaN(Number(userId))) return;
+    
     // Update backend recent searches and immediately sync from server
     try {
-      await addRecentSearch(Number(item.id));
-      try {
-        const serverRecent = await listRecentSearches(10);
-        if (Array.isArray(serverRecent)) {
-          const mappedRecent = formatRecentSearches(serverRecent);
-          await saveRecent(mappedRecent);
-        }
-      } catch {}
-    } catch {
-      // Fallback: update local list: unique by id, most recent first, cap 10
-      const existingIndex = recent.findIndex(r => String(r.id) === String(item.id));
-      const updated = [item, ...recent.filter((_, idx) => idx !== existingIndex)].slice(0, 10);
-      await saveRecent(updated);
+      await addRecentSearch(Number(userId));
+      // Reload recent searches to sync with server
+      await loadRecentSearches();
+    } catch (error) {
+      console.error('Error saving recent search:', error);
+      // Don't prevent navigation if saving fails
     }
-    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: item.id } });
+    
+    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: String(userId) } });
   };
 
   const clearRecent = async () => {
@@ -238,8 +380,21 @@ export default function SearchPage() {
   };
 
   const deleteSelected = async () => {
-    const remaining = recent.filter(r => !selectedIds[String(r.id)]);
-    await saveRecent(remaining);
+    // Delete each selected item from backend
+    const deletePromises = recent
+      .filter(r => selectedIds[String(r.id)] && r.canDelete && r.recordId)
+      .map(r => handleDeleteRecentSearch(r.recordId!));
+    
+    try {
+      await Promise.all(deletePromises);
+      // Reload to sync with server
+      await loadRecentSearches();
+    } catch (error) {
+      console.error('Error deleting selected recent searches:', error);
+      // Still reload to sync
+      await loadRecentSearches();
+    }
+    
     setSelecting(false);
     setSelectedIds({});
   };
@@ -317,14 +472,16 @@ export default function SearchPage() {
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.userRow} onPress={() => handleOpenUser(item)}>
               <UserAvatar 
-                profilePic={item.profile_pic}
-                firstName={item.f_name}
-                lastName={item.l_name}
+                profilePic={item.profile_pic ?? item.searched_user?.profile_pic}
+                firstName={item.f_name ?? item.searched_user?.f_name}
+                lastName={item.l_name ?? item.searched_user?.l_name}
                 size={40}
                 style={styles.avatar}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.userName}>{item.name}</Text>
+                <Text style={styles.userName}>
+                  {item.name ?? item.searched_user?.full_name ?? formatUserFullName(item.searched_user ?? item) ?? 'User'}
+                </Text>
                 <Text style={styles.userTime}>{item.time}</Text>
               </View>
               {selecting ? (
@@ -365,7 +522,7 @@ export default function SearchPage() {
                   style={styles.avatar}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.userName}>{item.name}</Text>
+                  <Text style={styles.userName}>{item.name ?? formatUserFullName(item) ?? 'User'}</Text>
                   <Text style={styles.userTime}>{item.time}</Text>
                 </View>
                 <FontAwesome name="angle-right" size={22} color="#174f84" />
