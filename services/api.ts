@@ -87,7 +87,7 @@ const devDefault = Platform.select({
 const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
 // Use explicit config from Expo extra or env, otherwise fall back to default
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || defaultUrl);
+export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -331,6 +331,7 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
     if (response.data.access && response.data.refresh) {
       await Storage.setItem('accessToken', response.data.access);
       await Storage.setItem('refreshToken', response.data.refresh);
+      await Storage.setItem('lastLogin', new Date().toISOString());
       if (response.data.user) {
         await Storage.setItem('user', JSON.stringify(response.data.user));
       }

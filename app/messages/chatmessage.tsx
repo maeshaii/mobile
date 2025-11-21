@@ -29,6 +29,7 @@ import ErrorBoundary from '../../components/ErrorBoundary';
 import { profilePicCache } from '../../services/profilePicCache';
 
 const samplePic = require('../../assets/images/sample_pic.jpg');
+const ctuLogo = require('../../assets/images/ctu_logo.png');
 
 type UiMsg = { 
   id: string; 
@@ -327,14 +328,21 @@ const ChatMessageScreen = () => {
       return;
     }
 
+    // Check if already connected
+    if (wsRef.current) {
+      console.log('⏭️ [WebSocket] Already connected, skipping reconnection');
+      return;
+    }
+
     const connectWebSocket = async () => {
       try {
-        console.log('Connecting WebSocket for conversation:', conversationId, 'user:', currentUser.id);
+        console.log('🔌 [WebSocket] Connecting for conversation:', conversationId, 'user:', currentUser.id);
         const wsBaseUrl = await getWebSocketBase();
+        console.log('🔌 [WebSocket] Base URL:', wsBaseUrl);
         
         // Get JWT token for WebSocket authentication
         const token = await getAccessToken();
-        console.log('WebSocket token available:', !!token);
+        console.log('🔌 [WebSocket] Token available:', !!token);
         
         // If no token or token is expired, try to refresh it
         let validToken = token;
@@ -368,14 +376,19 @@ const ChatMessageScreen = () => {
 
     // Create callback functions that can be properly cleaned up
     const statusCallback = (status: 'connecting' | 'connected' | 'disconnected' | 'error') => {
-      console.log('WebSocket status:', status);
+      console.log('🔌 [WebSocket] Status changed:', status);
       setConnectionStatus(status);
       if (status === 'connected') {
+        console.log('✅ [WebSocket] Connected successfully - Real-time messaging is active!');
         // Mark conversation as read when connected
         if (!hasMarkedAsRead.current) {
           markConversationRead(Number(conversationId)).catch(() => {});
           hasMarkedAsRead.current = true;
         }
+      } else if (status === 'error') {
+        console.error('❌ [WebSocket] Connection error - Messages will not be real-time');
+      } else if (status === 'disconnected') {
+        console.warn('⚠️ [WebSocket] Disconnected - Messages will not be real-time');
       }
     };
 
@@ -386,15 +399,16 @@ const ChatMessageScreen = () => {
       }
       
       const myId = currentUser.id;
-      console.log('WebSocket message received:', event.type, 'myId:', myId);
+      console.log('📨 [WebSocket] Message received:', event.type, 'myId:', myId);
       
       switch (event.type) {
         case 'message':
           // Skip WebSocket echo for own messages (like web)
           if (event.sender_id === myId) {
-            console.log('Skipping own message echo');
+            console.log('⏭️ [WebSocket] Skipping own message echo');
             break;
           }
+          console.log('📥 [WebSocket] NEW MESSAGE from other user! Real-time working!');
           
           // Validate message data before processing
           if (!event.message_id || !event.sender_id || !event.sender_name) {
@@ -451,23 +465,30 @@ const ChatMessageScreen = () => {
         
         // P0 Feature: Real-time Reaction Updates
         case 'reaction':
-          console.log('WebSocket reaction event:', event);
+          console.log('[Reaction] WebSocket event received:', event);
           if (event.message_id) {
             setMessages(prev => prev.map(m => {
               if (m.id === String(event.message_id)) {
                 const reactions = m.reactions || [];
                 if (event.action === 'add' && event.emoji && event.user_id) {
-                  // Add reaction
-                  return {
-                    ...m,
-                    reactions: [...reactions, {
-                      emoji: event.emoji,
-                      userId: event.user_id,
-                      userName: event.user_name || 'Unknown'
-                    }]
-                  };
+                  // Add reaction only if not already present (prevent duplicates)
+                  const alreadyExists = reactions.find(
+                    r => r.emoji === event.emoji && r.userId === event.user_id
+                  );
+                  if (!alreadyExists) {
+                    console.log(`[Reaction] Adding ${event.emoji} from user ${event.user_id} to message ${event.message_id}`);
+                    return {
+                      ...m,
+                      reactions: [...reactions, {
+                        emoji: event.emoji,
+                        userId: event.user_id,
+                        userName: event.user_name || 'Unknown'
+                      }]
+                    };
+                  }
                 } else if (event.action === 'remove' && event.emoji && event.user_id) {
                   // Remove reaction
+                  console.log(`[Reaction] Removing ${event.emoji} from user ${event.user_id} on message ${event.message_id}`);
                   return {
                     ...m,
                     reactions: reactions.filter(r =>
@@ -531,11 +552,13 @@ const ChatMessageScreen = () => {
 
     return () => {
       // Clean up WebSocket connection
+      console.log('🔌 [WebSocket] Cleaning up connection');
       if (wsRef.current) {
         wsRef.current.disconnect();
+        wsRef.current = null;
       }
     };
-  }, [conversationId, currentUser]);
+  }, [conversationId, currentUser?.id]); // Only reconnect if conversation or userId changes
 
   // Handle app state changes
   useEffect(() => {
@@ -552,9 +575,15 @@ const ChatMessageScreen = () => {
 
   const handleSend = async () => {
     try {
+      // Check for empty input before sanitization
+      const trimmedInput = input.trim();
+      if (!trimmedInput || !currentUser || !currentUser.id) {
+        return; // Silently return if input is empty
+      }
+      
       // Sanitize input on client side as first line of defense
-      const sanitizedText = sanitizeUserInput(input.trim());
-      if (!sanitizedText || !currentUser || !currentUser.id) return;
+      const sanitizedText = sanitizeUserInput(trimmedInput);
+      if (!sanitizedText) return;
     
       console.log('Sending message:', sanitizedText, 'user:', currentUser.id, 'replyingTo:', replyingToMessage?.id);
       
@@ -664,12 +693,25 @@ const ChatMessageScreen = () => {
     if (!reactionMessage || !currentUser) return;
     
     try {
-      // Client-side only reactions (like web version)
       // Check if user already reacted with this emoji
       const existingReaction = reactionMessage.reactions?.find(
         r => r.emoji === emoji && r.userId === currentUser.id
       );
       
+      const action = existingReaction ? 'remove' : 'add';
+      
+      // Send via WebSocket for real-time sync
+      if (wsRef.current) {
+        wsRef.current.send({
+          type: 'reaction',
+          message_id: parseInt(reactionMessage.id),
+          emoji: emoji,
+          action: action
+        });
+        console.log(`[Reaction] Sent via WebSocket: ${action} ${emoji} on message ${reactionMessage.id}`);
+      }
+      
+      // Optimistic UI update
       if (existingReaction) {
         // Remove reaction (toggle off)
         setMessages(prev => prev.map(m => {
@@ -1092,7 +1134,7 @@ const ChatMessageScreen = () => {
           styles.messagesArea,
           {
             marginBottom: (isKeyboardVisible || showEmojiPicker) ? 
-              (keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)) : 0
+              (keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)) + 60 : 0
           }
         ]}>
           <FlatList
@@ -1138,8 +1180,9 @@ const ChatMessageScreen = () => {
                     {/* Avatar for received messages */}
                     {!isActuallyMine && (
                       <Image
-                        source={otherParticipantAvatar ? { uri: otherParticipantAvatar } : samplePic}
+                        source={otherParticipantAvatar ? { uri: otherParticipantAvatar } : ctuLogo}
                         style={styles.messageAvatar}
+                        defaultSource={ctuLogo}
                       />
                     )}
                     <TouchableOpacity
@@ -1595,11 +1638,11 @@ const ChatMessageScreen = () => {
         </View>
       </Modal>
 
-      {/* Custom Emoji Picker - Replaces keyboard like Messenger */}
+      {/* Custom Emoji Picker - Positioned ABOVE input bar */}
       {showEmojiPicker && (
         <View style={{ 
           position: 'absolute', 
-          bottom: 0, 
+          bottom: 60, // Height of input bar (adjust if needed)
           left: 0, 
           right: 0,
           height: keyboardHeight > 0 ? keyboardHeight : (Platform.OS === 'ios' ? 290 : 270)

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { loginUser, clearAllTokens, checkUserTrackerStatus } from '../../services/api';
 import { useRouter } from 'expo-router';
+import { useUser } from '../../contexts/UserContext';
 import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
 
 export default function LoginScreen() {
@@ -20,6 +21,7 @@ export default function LoginScreen() {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { login: contextLogin, refreshUser } = useUser();
 
   const handleLogin = async () => {
     if (!ctuId.trim() || !password.trim()) {
@@ -38,6 +40,12 @@ export default function LoginScreen() {
       const data = await loginUser(ctuId.trim(), password.trim());
       
       if (data.success && data.user && data.user.account_type) {
+        // 🔒 CRITICAL FIX: Refresh UserContext to update authentication state
+        // This ensures NavigationGuard sees isAuthenticated = true
+        console.log('[Login] 🔄 Refreshing user context after successful login...');
+        await refreshUser();
+        console.log('[Login] ✅ User context refreshed - authentication state updated');
+        
         if (data.must_change_password) {
           // Navigate to first-time change password screen
           router.replace({ pathname: '/temporary-password/temporary-password', params: { first: '1' } as any });

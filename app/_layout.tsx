@@ -5,13 +5,8 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-<<<<<<< HEAD
-import { useEffect } from 'react';
-
-=======
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
->>>>>>> 49011d2accd16808c02ca582a5f3807a52d712b8
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { UserProvider, useUser } from '../contexts/UserContext';
 

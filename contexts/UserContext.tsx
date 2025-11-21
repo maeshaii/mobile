@@ -86,16 +86,19 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   const checkAuthStatus = async () => {
     try {
       const authenticated = await AuthService.getInstance().isAuthenticated();
+      console.log('[UserContext] 🔍 Auth check result:', authenticated);
       if (authenticated) {
         const userInfo = await AuthService.getInstance().getUserInfo();
+        console.log('[UserContext] ✅ Setting authenticated state with user:', userInfo?.id);
         setUser(userInfo);
         setIsAuthenticated(true);
       } else {
+        console.log('[UserContext] ❌ Not authenticated - clearing state');
         setUser(null);
         setIsAuthenticated(false);
       }
     } catch (error) {
-      console.error('Auth status check failed:', error);
+      console.error('[UserContext] Auth status check failed:', error);
       setUser(null);
       setIsAuthenticated(false);
     } finally {
