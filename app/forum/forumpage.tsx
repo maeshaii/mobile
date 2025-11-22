@@ -398,8 +398,22 @@ export default function CCICTPage() {
                       const likesData = await getPostLikes(repost.repost_id);
                       setSelectedPostStats((prev: any) => ({ ...prev, likes: likesData || [] }));
                     } else if (type === 'reposts') {
-                      const repostsData = await getPostReposts(repost.repost_id);
-                      setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                      // For reposts, get reposts of the original post, not the repost itself
+                      // Forum reposts don't have reposts, so use the repost detail to get original post info
+                      try {
+                        const repostDetail = await getRepostDetail(repost.repost_id);
+                        // If this is a repost of a regular post, get its reposts
+                        if (repostDetail?.original?.post_id) {
+                          const repostsData = await getPostReposts(repostDetail.original.post_id);
+                          setSelectedPostStats((prev: any) => ({ ...prev, reposts: repostsData || [] }));
+                        } else {
+                          // Forum or donation reposts don't have reposts of reposts
+                          setSelectedPostStats((prev: any) => ({ ...prev, reposts: [] }));
+                        }
+                      } catch (error) {
+                        console.warn('Error fetching repost detail for reposts viewer:', error);
+                        setSelectedPostStats((prev: any) => ({ ...prev, reposts: [] }));
+                      }
                     }
                   }
                 } catch (error) {

@@ -15,6 +15,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   getInventoryItems,
   getUserPoints,
@@ -26,6 +27,7 @@ import {
   API_BASE_URL,
 } from '../../services/api';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
+import EarnPointsModal from '../../components/EarnPointsModal';
 
 interface InventoryItem {
   id: number;
@@ -84,6 +86,8 @@ export default function RewardsScreen() {
     post_with_photo: 15,
     tracker_form: 0
   });
+  const [showEarnPointsModal, setShowEarnPointsModal] = useState(false);
+  const [trackerFormEnabled, setTrackerFormEnabled] = useState(false);
 
   const fetchUserPoints = async () => {
     try {
@@ -108,6 +112,8 @@ export default function RewardsScreen() {
               post_with_photo: settingsResponse.settings.post_with_photo_points || 0,
               tracker_form: settingsResponse.settings.tracker_form_points || 0
             });
+            // Check if tracker form is enabled
+            setTrackerFormEnabled(settingsResponse.settings.tracker_form_enabled !== false);
           }
         } catch (settingsError) {
           console.error('Error fetching points settings:', settingsError);
@@ -463,154 +469,80 @@ export default function RewardsScreen() {
         contentContainerStyle={{ paddingTop: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* Points Display */}
-        <View style={styles.pointsCard}>
-          <View style={styles.pointsHeader}>
-            <FontAwesome name="trophy" size={24} color="#f59e0b" />
-            <Text style={styles.pointsTitle}>Your Points</Text>
-          </View>
+        {/* Engagement Points Title */}
+        <View style={styles.titleContainer}>
+          <FontAwesome name="trophy" size={24} color="#f59e0b" />
+          <Text style={styles.titleText}>Engagement Points</Text>
+        </View>
+
+        {/* Main Points Card with Gradient */}
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.gradientCard}
+        >
+          <Text style={styles.totalPointsLabel}>Total Points</Text>
           <Text style={styles.pointsValue}>{userPoints?.total_points || 0}</Text>
           {userPoints?.rank && (
-            <Text style={styles.pointsRank}>Rank #{userPoints.rank}</Text>
+            <Text style={styles.rankText}>Rank #{userPoints.rank}</Text>
+          )}
+          
+          {/* Action Buttons inside Card */}
+          <View style={styles.cardActionsContainer}>
+            <TouchableOpacity
+              style={styles.cardActionButton}
+              onPress={() => {
+                fetchInventoryItems();
+                fetchUserRewardRequests();
+                setShowRewardsModal(true);
+              }}
+            >
+              <FontAwesome name="gift" size={18} color="#fff" />
+              <Text style={styles.cardActionButtonText}>View Rewards</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cardActionButton}
+              onPress={() => {
+                fetchUserRewardRequests();
+                setShowRequestsModal(true);
+              }}
+            >
+              <FontAwesome name="check" size={18} color="#fff" />
+              <Text style={styles.cardActionButtonText}>My Requests</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+
+        {/* Earn Points Buttons */}
+        <View style={styles.earnPointsContainer}>
+          <TouchableOpacity
+            style={styles.earnPointsButtonOrange}
+            onPress={() => setShowEarnPointsModal(true)}
+          >
+            <Text style={styles.earnPointsButtonText}>
+              Complete tasks to earn points!
+            </Text>
+          </TouchableOpacity>
+
+          {trackerFormEnabled && userInfo?.account_type?.user && !userInfo?.account_type?.ojt && (
+            <TouchableOpacity
+              style={styles.earnPointsButtonBlue}
+              onPress={() => router.push('/forms/forms')}
+            >
+              <Text style={styles.earnPointsButtonText}>
+                Complete Tracker Form to earn points!
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
 
-        {/* Points Breakdown */}
-        {userPoints?.points_breakdown && (
-          <View style={styles.breakdownCard}>
-            <Text style={styles.breakdownTitle}>Points Breakdown</Text>
-            
-            {/* Likes */}
-            <View style={styles.breakdownRow}>
-              <View style={styles.breakdownLeft}>
-                <FontAwesome name="heart" size={16} color="#6b7280" />
-                <Text style={styles.breakdownLabel}>Likes</Text>
-                <Text style={styles.breakdownCount}>
-                  ({userPoints.points_breakdown?.likes?.count || 0})
-                </Text>
-              </View>
-              <Text style={styles.breakdownPoints}>
-                +{(userPoints.points_breakdown?.likes?.count || 0) * pointsSettings.like}
-              </Text>
-            </View>
-
-            {/* Comments */}
-            <View style={styles.breakdownRow}>
-              <View style={styles.breakdownLeft}>
-                <FontAwesome name="comment" size={16} color="#6b7280" />
-                <Text style={styles.breakdownLabel}>Comments</Text>
-                <Text style={styles.breakdownCount}>
-                  ({userPoints.points_breakdown?.comments?.count || 0})
-                </Text>
-              </View>
-              <Text style={styles.breakdownPoints}>
-                +{(userPoints.points_breakdown?.comments?.count || 0) * pointsSettings.comment}
-              </Text>
-            </View>
-
-            {/* Reposts/Shares */}
-            <View style={styles.breakdownRow}>
-              <View style={styles.breakdownLeft}>
-                <FontAwesome name="retweet" size={16} color="#6b7280" />
-                <Text style={styles.breakdownLabel}>Repost</Text>
-                <Text style={styles.breakdownCount}>
-                  ({userPoints.points_breakdown?.shares?.count || 0})
-                </Text>
-              </View>
-              <Text style={styles.breakdownPoints}>
-                +{(userPoints.points_breakdown?.shares?.count || 0) * pointsSettings.share}
-              </Text>
-            </View>
-
-            {/* Replies */}
-            <View style={styles.breakdownRow}>
-              <View style={styles.breakdownLeft}>
-                <FontAwesome name="reply" size={16} color="#6b7280" />
-                <Text style={styles.breakdownLabel}>Replies</Text>
-                <Text style={styles.breakdownCount}>
-                  ({userPoints.points_breakdown?.replies?.count || 0})
-                </Text>
-              </View>
-              <Text style={styles.breakdownPoints}>
-                +{(userPoints.points_breakdown?.replies?.count || 0) * pointsSettings.reply}
-              </Text>
-            </View>
-
-            {/* Posts */}
-            <View style={styles.breakdownRow}>
-              <View style={styles.breakdownLeft}>
-                <FontAwesome name="file-text" size={16} color="#6b7280" />
-                <Text style={styles.breakdownLabel}>Posts</Text>
-                <Text style={styles.breakdownCount}>
-                  ({userPoints.points_breakdown?.posts?.count || 0})
-                </Text>
-              </View>
-              <Text style={styles.breakdownPoints}>
-                +{(userPoints.points_breakdown?.posts?.count || 0) * pointsSettings.post}
-              </Text>
-            </View>
-
-            {/* Posts with Photos */}
-            <View style={styles.breakdownRow}>
-              <View style={styles.breakdownLeft}>
-                <FontAwesome name="camera" size={16} color="#6b7280" />
-                <Text style={styles.breakdownLabel}>Posts w/ Photos</Text>
-                <Text style={styles.breakdownCount}>
-                  ({userPoints.points_breakdown?.posts_with_photos?.count || 0})
-                </Text>
-              </View>
-              <Text style={styles.breakdownPoints}>
-                +{(userPoints.points_breakdown?.posts_with_photos?.count || 0) * pointsSettings.post_with_photo}
-              </Text>
-            </View>
-
-            {/* Tracker Form - Only show for Alumni users, not OJT */}
-            {userPoints.points_breakdown?.tracker_form && 
-             userInfo?.account_type?.user && 
-             !userInfo?.account_type?.ojt && (
-              <View style={styles.breakdownRow}>
-                <View style={styles.breakdownLeft}>
-                  <FontAwesome name="clipboard" size={16} color="#6b7280" />
-                  <Text style={styles.breakdownLabel}>Tracker Form</Text>
-                  <Text style={styles.breakdownCount}>
-                    ({userPoints.points_breakdown?.tracker_form?.count || 0})
-                  </Text>
-                </View>
-                <Text style={styles.breakdownPoints}>
-                  +{(userPoints.points_breakdown?.tracker_form?.count || 0) * pointsSettings.tracker_form}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Actions */}
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => {
-              fetchInventoryItems();
-              fetchUserRewardRequests();
-              setShowRewardsModal(true);
-            }}
-          >
-            <FontAwesome name="gift" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>View Rewards</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonSecondary]}
-            onPress={() => {
-              fetchUserRewardRequests();
-              setShowRequestsModal(true);
-            }}
-          >
-            <FontAwesome name="list" size={20} color="#1e3a8a" />
-            <Text style={[styles.actionButtonText, styles.actionButtonTextSecondary]}>
-              My Requests ({userRewardRequests.length})
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* Earn Points Modal */}
+        <EarnPointsModal
+          isOpen={showEarnPointsModal}
+          onClose={() => setShowEarnPointsModal(false)}
+        />
 
         {/* Rewards Modal */}
         <Modal
@@ -1180,113 +1112,107 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  pointsCard: {
-    backgroundColor: '#fff',
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  pointsHeader: {
+  titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+    gap: 8,
   },
-  pointsTitle: {
-    fontSize: 18,
+  titleText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  gradientCard: {
+    margin: 16,
+    padding: 24,
+    borderRadius: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  totalPointsLabel: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#333',
-    marginLeft: 8,
-  },
-  pointsValue: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#1e3a8a',
+    color: '#fff',
+    opacity: 0.9,
     marginBottom: 8,
   },
-  pointsRank: {
-    fontSize: 14,
-    color: '#666',
+  pointsValue: {
+    fontSize: 64,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
   },
-  breakdownCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginTop: -8,
-    marginBottom: 16,
-    padding: 20,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  breakdownTitle: {
+  rankText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#174f84',
-    marginBottom: 16,
+    color: '#fff',
+    opacity: 0.9,
+    marginBottom: 24,
   },
-  breakdownRow: {
+  cardActionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  breakdownLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  breakdownLabel: {
-    fontSize: 14,
-    color: '#333',
-  },
-  breakdownCount: {
-    fontSize: 12,
-    color: '#999',
-  },
-  breakdownPoints: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#667eea',
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
+    width: '100%',
     gap: 12,
-    marginBottom: 16,
+    marginTop: 8,
   },
-  actionButton: {
+  cardActionButton: {
     flex: 1,
-    backgroundColor: '#1e3a8a',
-    padding: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
-  actionButtonSecondary: {
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#1e3a8a',
+  cardActionButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  actionButtonText: {
+  earnPointsContainer: {
+    paddingHorizontal: 16,
+    gap: 12,
+    marginBottom: 16,
+  },
+  earnPointsButtonOrange: {
+    backgroundColor: '#F97316',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  earnPointsButtonBlue: {
+    backgroundColor: '#1e3a8a',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  earnPointsButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  actionButtonTextSecondary: {
-    color: '#1e3a8a',
   },
   modalOverlay: {
     flex: 1,

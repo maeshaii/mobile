@@ -169,6 +169,8 @@ export default function RepostCommentsScreen() {
   const [now, setNow] = useState(dayjs());
 
   const flatListRef = useRef<FlatList>(null);
+  const commentPositionsRef = useRef<{ [commentId: number]: number }>({});
+  const replyPositionsRef = useRef<{ [replyId: number]: { commentId: number; y: number } }>({});
 
   useEffect(() => {
 
@@ -335,6 +337,19 @@ export default function RepostCommentsScreen() {
 
           setHighlightedCommentId(Number(highlightCommentId));
 
+          // Scroll to comment after a short delay to ensure it's rendered
+          setTimeout(() => {
+            const commentIndex = commentsArray.findIndex((c: CommentItem) => c.comment_id === Number(highlightCommentId));
+            if (commentIndex >= 0 && flatListRef.current) {
+              // Scroll to the comment, accounting for header
+              flatListRef.current.scrollToIndex({
+                index: commentIndex,
+                animated: true,
+                viewPosition: 0.3, // Position comment at 30% from top
+              });
+            }
+          }, 300);
+
           // Remove highlight after 3 seconds
 
           setTimeout(() => {
@@ -357,6 +372,31 @@ export default function RepostCommentsScreen() {
           // Set the highlighted reply after a short delay to ensure replies are loaded
           setTimeout(() => {
             setHighlightedReplyId(Number(highlightReplyId));
+            
+            // Scroll to the comment containing the reply, then scroll to reply
+            const commentIndex = commentsArray.findIndex((c: CommentItem) => c.comment_id === Number(highlightCommentId));
+            if (commentIndex >= 0 && flatListRef.current) {
+              // First scroll to the comment
+              flatListRef.current.scrollToIndex({
+                index: commentIndex,
+                animated: true,
+                viewPosition: 0.2, // Position comment higher to show replies
+              });
+              
+              // Then scroll a bit more to show the reply (replies are rendered below comment)
+              setTimeout(() => {
+                if (flatListRef.current && replyPositionsRef.current[Number(highlightReplyId)]) {
+                  const replyPos = replyPositionsRef.current[Number(highlightReplyId)];
+                  // Try to scroll to the reply position
+                  // Since replies are nested, we'll scroll the FlatList a bit more
+                  flatListRef.current.scrollToOffset({
+                    offset: replyPos.y,
+                    animated: true,
+                  });
+                }
+              }, 400);
+            }
+            
             // Remove highlight after 3 seconds
             setTimeout(() => {
               setHighlightedReplyId(null);
@@ -401,7 +441,7 @@ export default function RepostCommentsScreen() {
 
     }
 
-  }, [repostId, highlightCommentId]);
+  }, [repostId, highlightCommentId, highlightReplyId]);
 
 
 
@@ -411,13 +451,69 @@ export default function RepostCommentsScreen() {
 
   }, [repostId, load]);
 
+  // Scroll to highlighted comment when it's set
+  useEffect(() => {
+    if (highlightedCommentId && comments.length > 0 && flatListRef.current) {
+      const commentIndex = comments.findIndex((c) => c.comment_id === highlightedCommentId);
+      if (commentIndex >= 0) {
+        setTimeout(() => {
+          try {
+            flatListRef.current?.scrollToIndex({
+              index: commentIndex,
+              animated: true,
+              viewPosition: 0.3,
+            });
+          } catch (error) {
+            // If scrollToIndex fails (item not rendered), use scrollToOffset as fallback
+            console.log('scrollToIndex failed, using fallback:', error);
+            if (commentPositionsRef.current[highlightedCommentId]) {
+              flatListRef.current?.scrollToOffset({
+                offset: commentPositionsRef.current[highlightedCommentId],
+                animated: true,
+              });
+            }
+          }
+        }, 300);
+      }
+    }
+  }, [highlightedCommentId, comments]);
+
+  // Scroll to highlighted reply when it's set
+  useEffect(() => {
+    if (highlightedReplyId && comments.length > 0 && flatListRef.current) {
+      // Find the comment containing this reply
+      const commentWithReply = comments.find((c) => {
+        const replies = commentReplies[c.comment_id] || [];
+        return replies.some((r) => r.reply_id === highlightedReplyId);
+      });
+      
+      if (commentWithReply) {
+        const commentIndex = comments.findIndex((c) => c.comment_id === commentWithReply.comment_id);
+        if (commentIndex >= 0) {
+          setTimeout(() => {
+            try {
+              flatListRef.current?.scrollToIndex({
+                index: commentIndex,
+                animated: true,
+                viewPosition: 0.2, // Position higher to show replies below
+              });
+            } catch (error) {
+              console.log('scrollToIndex failed for reply, using fallback:', error);
+            }
+          }, 600); // Longer delay to ensure replies are rendered
+        }
+      }
+    }
+  }, [highlightedReplyId, comments, commentReplies]);
+
   // Refresh when screen regains focus
+  // Only reload if we don't have highlight params (to preserve highlights when navigating from notifications)
   useFocusEffect(
     useCallback(() => {
-      if (repostId) {
+      if (repostId && !highlightCommentId && !highlightReplyId) {
         load();
       }
-    }, [repostId, load])
+    }, [repostId, load, highlightCommentId, highlightReplyId])
   );
 
 
@@ -891,6 +987,11 @@ export default function RepostCommentsScreen() {
 
         activeOpacity={1}
 
+        onLayout={(event) => {
+          const { y } = event.nativeEvent.layout;
+          commentPositionsRef.current[c.comment_id] = y;
+        }}
+
       >
 
         <View style={styles.commentRow}>
@@ -1111,7 +1212,8 @@ export default function RepostCommentsScreen() {
                       // Start replying to comment
                       setReplyingTo(c.comment_id);
                       setReplyingToReply(null);
-                      setReplyText('');
+                      const commentAuthorName = formatUserFullName(c.user);
+                      setReplyText(`@${commentAuthorName} `);
                     }
                   }}
 
@@ -1275,10 +1377,17 @@ export default function RepostCommentsScreen() {
 
                       return (
 
-                        <View key={replyIndex} style={[
-                          styles.replyItem,
-                          highlightedReplyId === reply.reply_id && styles.highlightedBubble
-                        ]}>
+                        <View 
+                          key={replyIndex} 
+                          style={[
+                            styles.replyItem,
+                            highlightedReplyId === reply.reply_id && styles.highlightedBubble
+                          ]}
+                          onLayout={(event) => {
+                            const { y } = event.nativeEvent.layout;
+                            replyPositionsRef.current[reply.reply_id] = { commentId: c.comment_id, y };
+                          }}
+                        >
 
                           <UserAvatar 
                             profilePic={reply.user?.profile_pic}
@@ -1490,19 +1599,25 @@ export default function RepostCommentsScreen() {
                             {/* Reply input - show directly under this reply when replying to it */}
                             {replyingToReply && replyingToReply.replyId === reply.reply_id && replyingToReply.commentId === c.comment_id && (
                               <View style={[styles.replyInputContainer, { marginTop: 8, marginLeft: 0 }]}>
-                                <View style={styles.replyingToContainer}>
-                                  <Text style={styles.replyingToText}>
-                                    {(() => {
-                                      const replyAuthorName = formatUserFullName(reply.user);
-                                      return `Replying to ${replyAuthorName}`;
-                                    })()}
-                                  </Text>
-                                  <TouchableOpacity onPress={() => {
+                                {/* Original reply preview */}
+                                <View style={styles.replyPreviewContainer}>
+                                  <View style={styles.replyPreviewBar} />
+                                  <View style={styles.replyPreviewContent}>
+                                    <TouchableOpacity 
+                                      onPress={() => {
                                     setReplyingToReply(null);
                                     setReplyText('');
-                                  }}>
+                                      }}
+                                      style={{ position: 'absolute', right: 0, top: 0, padding: 4, zIndex: 1 }}
+                                    >
                                     <Ionicons name="close" size={16} color="#6b7280" />
                                   </TouchableOpacity>
+                                    <View style={{ paddingRight: 24 }}>
+                                      {renderTextWithMentions(`@${formatUserFullName(reply.user)}`, [], (userId) => {
+                                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                      }, styles.replyPreviewText)}
+                                    </View>
+                                  </View>
                                 </View>
                                 <MentionInput
                                   value={replyText}
@@ -3367,6 +3482,60 @@ const styles = StyleSheet.create({
     color: '#6b7280',
 
     fontStyle: 'italic',
+
+  },
+
+  replyPreviewContainer: {
+
+    flexDirection: 'row',
+
+    marginBottom: 8,
+
+    backgroundColor: '#f3f4f6',
+
+    borderRadius: 6,
+
+    padding: 8,
+
+    borderLeftWidth: 3,
+
+    borderLeftColor: '#1e3a8a',
+
+  },
+
+  replyPreviewBar: {
+
+    width: 3,
+
+    backgroundColor: '#1e3a8a',
+
+    marginRight: 8,
+
+    borderRadius: 2,
+
+  },
+
+  replyPreviewContent: {
+
+    flex: 1,
+
+  },
+
+  replyPreviewText: {
+
+    fontSize: 12,
+
+    color: '#4b5563',
+
+    lineHeight: 16,
+
+  },
+
+  replyPreviewTextWrapper: {
+
+    maxHeight: 32,
+
+    overflow: 'hidden',
 
   },
 

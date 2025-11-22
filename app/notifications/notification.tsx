@@ -364,7 +364,7 @@ const NotificationScreen = () => {
       }
     }
 
-    // When user likes my post/repost → go to that post's detail page
+    // When user likes my post/repost → go to that post's detail page or repost comments
     if (type === 'like' || name?.includes('like') || message?.includes('like')) {
       console.log('Like notification pressed:', {
         post_id: item.post_id,
@@ -375,32 +375,50 @@ const NotificationScreen = () => {
         message: item.message
       });
       
-      // Prioritize post_id, then forum_id, then donation_id (matches web behavior)
-      if (item.post_id) {
-        console.log('Navigating to post detail with postId:', item.post_id);
+      // Check if this is a repost like notification - redirect to repost comments
+      const isRepostLike = item.repost_id || 
+                          fullMessage?.toLowerCase().includes('liked your repost') ||
+                          message?.toLowerCase().includes('liked your repost') ||
+                          fullMessage?.toLowerCase().includes('repost') && fullMessage?.toLowerCase().includes('like');
+      
+      if (isRepostLike && item.repost_id) {
+        console.log('Repost like notification - navigating to repost comments with repostId:', item.repost_id);
         router.push({
-          pathname: '/posts/detail',
-          params: { postId: item.post_id.toString() },
+          pathname: '/repost/repost-comments',
+          params: { 
+            repostId: item.repost_id.toString(),
+          },
+        });
+        return;
+      }
+      
+      // Check for donation_id first (donation post like → go to comments)
+      if (item.donation_id) {
+        console.log('Navigating to donation post comments with donationId:', item.donation_id);
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.donation_id.toString(),
+            isDonationPost: 'true',
+          },
         });
         return;
       } else if (item.forum_id) {
-        console.log('Navigating to forum post detail with forumId:', item.forum_id);
+        // Forum post like → go to comments
+        console.log('Navigating to forum post comments with forumId:', item.forum_id);
         router.push({
-          pathname: '/posts/detail',
+          pathname: '/posts/comments',
           params: { 
             postId: item.forum_id.toString(),
             isForumPost: 'true',
           },
         });
         return;
-      } else if (item.donation_id) {
-        console.log('Navigating to donation post detail with donationId:', item.donation_id);
+      } else if (item.post_id) {
+        console.log('Navigating to post detail with postId:', item.post_id);
         router.push({
           pathname: '/posts/detail',
-          params: { 
-            postId: item.donation_id.toString(),
-            isDonationPost: 'true',
-          },
+          params: { postId: item.post_id.toString() },
         });
         return;
       } else {
@@ -408,6 +426,7 @@ const NotificationScreen = () => {
           post_id: item.post_id,
           forum_id: item.forum_id,
           donation_id: item.donation_id,
+          repost_id: item.repost_id,
           fullMessage: item.fullMessage
         });
         Alert.alert(
@@ -418,40 +437,79 @@ const NotificationScreen = () => {
       }
     }
 
-    // When user replies to my comment → go to that post's comments with reply highlighted
-    if (type === 'reply' || (message?.includes('replied to your comment'))) {
-      if (item.post_id) {
+    // When user replies to my comment/reply → go to that post's comments with reply highlighted
+    if (type === 'reply' || (message?.includes('replied to your comment')) || (message?.includes('replied to your reply'))) {
+      console.log('Reply notification pressed:', {
+        post_id: item.post_id,
+        repost_id: item.repost_id,
+        forum_id: item.forum_id,
+        donation_id: item.donation_id,
+        comment_id: item.comment_id,
+        reply_id: item.reply_id,
+        fullMessage: item.fullMessage,
+        message: item.message
+      });
+      
+      // Check for repost_id first (reply on repost comment)
+      if (item.repost_id) {
+        console.log('Navigating to repost comments with repostId:', item.repost_id, 'highlightCommentId:', item.comment_id, 'highlightReplyId:', item.reply_id);
+        router.push({
+          pathname: '/repost/repost-comments',
+          params: { 
+            repostId: item.repost_id.toString(),
+            highlightCommentId: item.comment_id?.toString(),
+            highlightReplyId: item.reply_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.donation_id) {
+        // Reply on donation post comment → go to donation post comments
+        console.log('Navigating to donation post comments with donationId:', item.donation_id, 'highlightCommentId:', item.comment_id, 'highlightReplyId:', item.reply_id);
         router.push({
           pathname: '/posts/comments',
           params: { 
-            postId: item.post_id,
+            postId: item.donation_id.toString(),
+            isDonationPost: 'true',
             highlightCommentId: item.comment_id?.toString(),
             highlightReplyId: item.reply_id?.toString(),
           },
         });
         return;
       } else if (item.forum_id) {
+        // Reply on forum post comment → go to forum post comments
+        console.log('Navigating to forum post comments with forumId:', item.forum_id, 'highlightCommentId:', item.comment_id, 'highlightReplyId:', item.reply_id);
         router.push({
           pathname: '/posts/comments',
           params: { 
-            postId: item.forum_id,
+            postId: item.forum_id.toString(),
             isForumPost: 'true',
             highlightCommentId: item.comment_id?.toString(),
             highlightReplyId: item.reply_id?.toString(),
           },
         });
         return;
-      } else if (item.repost_id) {
+      } else if (item.post_id) {
+        // Reply on regular post comment → go to post comments
+        console.log('Navigating to post comments with postId:', item.post_id, 'highlightCommentId:', item.comment_id, 'highlightReplyId:', item.reply_id);
         router.push({
-          pathname: '/repost/repost-comments',
+          pathname: '/posts/comments',
           params: { 
-            repostId: item.repost_id,
+            postId: item.post_id.toString(),
             highlightCommentId: item.comment_id?.toString(),
             highlightReplyId: item.reply_id?.toString(),
           },
         });
         return;
       } else {
+        console.error('Reply notification: No post/repost/forum/donation ID found', {
+          post_id: item.post_id,
+          repost_id: item.repost_id,
+          forum_id: item.forum_id,
+          donation_id: item.donation_id,
+          comment_id: item.comment_id,
+          reply_id: item.reply_id,
+          fullMessage: item.fullMessage
+        });
         Alert.alert('Reply Notification', 'Unable to navigate to post - post ID not found.');
         return;
       }
@@ -509,21 +567,43 @@ const NotificationScreen = () => {
 
     // When user comments on my post/repost → go to that post's comments
     if (type === 'comment' || name?.includes('comment') || message?.includes('comment')) {
-      if (item.post_id) {
+      // Check for repost_id first (comment on repost)
+      if (item.repost_id) {
+        router.push({
+          pathname: '/repost/repost-comments',
+          params: { 
+            repostId: item.repost_id,
+            highlightCommentId: item.comment_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.donation_id) {
+        // Comment on donation post → go to donation post comments
         router.push({
           pathname: '/posts/comments',
           params: { 
-            postId: item.post_id,
+            postId: item.donation_id,
+            isDonationPost: 'true',
             highlightCommentId: item.comment_id?.toString(),
           },
         });
         return;
       } else if (item.forum_id) {
+        // Comment on forum post → go to forum post comments
         router.push({
           pathname: '/posts/comments',
           params: { 
             postId: item.forum_id,
             isForumPost: 'true',
+            highlightCommentId: item.comment_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.post_id,
             highlightCommentId: item.comment_id?.toString(),
           },
         });
@@ -549,11 +629,13 @@ const NotificationScreen = () => {
       }
       
       // Fallback: if no repost_id, try to navigate to original post (shouldn't happen for repost notifications)
-      if (item.post_id) {
+      // Check donation_id first, then forum_id, then post_id
+      if (item.donation_id) {
         router.push({
           pathname: '/posts/comments',
           params: { 
-            postId: item.post_id,
+            postId: item.donation_id,
+            isDonationPost: 'true',
             highlightCommentId: item.comment_id?.toString(),
           },
         });
@@ -564,6 +646,15 @@ const NotificationScreen = () => {
           params: { 
             postId: item.forum_id,
             isForumPost: 'true',
+            highlightCommentId: item.comment_id?.toString(),
+          },
+        });
+        return;
+      } else if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.post_id,
             highlightCommentId: item.comment_id?.toString(),
           },
         });
@@ -786,11 +877,46 @@ const NotificationScreen = () => {
     }
 
     // Handle specific notification types
+    // Check for repost_id first (repost interactions take priority), then donation_id, then forum_id
     if (type === 'comment' || message.toLowerCase().includes('commented')) {
+      if (item.repost_id) {
+        // Check if it's a specific type of repost by checking the full message
+        const lowerFullMessage = fullMessage.toLowerCase();
+        if (lowerFullMessage.includes('donation repost')) {
+          return `${userName} commented on your donation repost`;
+        }
+        if (lowerFullMessage.includes('forum repost')) {
+          return `${userName} commented on your forum repost`;
+        }
+        return `${userName} commented on your repost`;
+      }
+      if (item.donation_id) {
+        return `${userName} commented on your donation request`;
+      }
+      if (item.forum_id) {
+        return `${userName} commented on your forum post`;
+      }
       return `${userName} commented on your post`;
     }
 
     if (type === 'like' || message.toLowerCase().includes('liked')) {
+      if (item.repost_id) {
+        // Check if it's a specific type of repost by checking the full message
+        const lowerFullMessage = fullMessage.toLowerCase();
+        if (lowerFullMessage.includes('donation repost')) {
+          return `${userName} liked your donation repost`;
+        }
+        if (lowerFullMessage.includes('forum repost')) {
+          return `${userName} liked your forum repost`;
+        }
+        return `${userName} liked your repost`;
+      }
+      if (item.donation_id) {
+        return `${userName} liked your donation request`;
+      }
+      if (item.forum_id) {
+        return `${userName} liked your forum post`;
+      }
       return `${userName} liked your post`;
     }
 
@@ -832,10 +958,55 @@ const NotificationScreen = () => {
       return `${followUserName} started following you`;
     }
     if (type === 'repost' || message.toLowerCase().includes('repost') || message.toLowerCase().includes('shared')) {
+      if (item.donation_id) {
+        return `${userName} reposted your donation request`;
+      }
+      if (item.forum_id) {
+        return `${userName} reposted your forum post`;
+      }
       return `${userName} reposted your post`;
     }
     if (type === 'donation' || message.toLowerCase().includes('donation')) {
+      // Check if it's a specific donation interaction or just a generic donation notification
+      if (message.toLowerCase().includes('commented')) {
+        return `${userName} commented on your donation request`;
+      }
+      if (message.toLowerCase().includes('liked')) {
+        return `${userName} liked your donation request`;
+      }
+      if (message.toLowerCase().includes('reposted')) {
+        return `${userName} reposted your donation request`;
+      }
       return `${userName} interacted with your donation post`;
+    }
+
+    // Format reply notifications
+    if (type === 'reply' || message.toLowerCase().includes('replied to your comment') || message.toLowerCase().includes('replied to your reply')) {
+      // Check if it's a reply on a repost comment first
+      if (item.repost_id) {
+        // Check if it's a reply to a reply (nested reply)
+        if (message.toLowerCase().includes('replied to your reply')) {
+          return `${userName} replied to your reply on your repost`;
+        }
+        return `${userName} replied to your comment on your repost`;
+      }
+      // Check if it's a reply to a comment on a donation post, forum post, or regular post
+      if (item.donation_id) {
+        if (message.toLowerCase().includes('replied to your reply')) {
+          return `${userName} replied to your reply`;
+        }
+        return `${userName} replied to your comment`;
+      }
+      if (item.forum_id) {
+        if (message.toLowerCase().includes('replied to your reply')) {
+          return `${userName} replied to your reply`;
+        }
+        return `${userName} replied to your comment`;
+      }
+      if (message.toLowerCase().includes('replied to your reply')) {
+        return `${userName} replied to your reply`;
+      }
+      return `${userName} replied to your comment`;
     }
 
     // Format mention notifications

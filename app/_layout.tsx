@@ -29,51 +29,88 @@ function NavigationGuard() {
     // Don't redirect while checking auth status
     if (loading) return;
 
-    const currentPath = '/' + segments.join('/');
+    const checkAuthAndRedirect = async () => {
+      // 🔒 SECURITY: Also verify actual token exists, not just context state
+      // This prevents redirect loops when tokens are cleared but context hasn't updated yet
+      const { getAccessToken } = await import('../services/api');
+      const token = await getAccessToken();
+      const hasToken = !!token;
 
-    // Define public routes (accessible without authentication)
-    const publicRoutes = [
-      '',
-      'login',
-      'login/index',
-      'login/login',
-      'forgot-password/forgot-password',
-      'temporary-password/temporary-password',
-      'logout',
-    ];
+      const currentPath = '/' + segments.join('/');
 
-    const isPublicRoute = publicRoutes.includes(segments.join('/'));
+      // Define public routes (accessible without authentication)
+      const publicRoutes = [
+        '',
+        'login',
+        'login/index',
+        'login/login',
+        'forgot-password/forgot-password',
+        'temporary-password/temporary-password',
+        'logout',
+      ];
 
-    console.log('[NavigationGuard]', {
-      currentPath,
-      isAuthenticated,
-      isPublicRoute,
-      segments,
-      timestamp: new Date().toISOString()
-    });
+      const isPublicRoute = publicRoutes.includes(segments.join('/'));
 
-    // 🔒 SECURITY: Redirect unauthenticated users to login
-    if (!isAuthenticated && !isPublicRoute) {
-      console.log('[NavigationGuard] 🔒 Redirecting to login - user not authenticated');
-      router.replace('/login/login');
-      return;
-    }
+      // Use token check as source of truth - if no token, user is not authenticated
+      const actuallyAuthenticated = isAuthenticated && hasToken;
 
-    // 🔒 SECURITY: Redirect authenticated users away from login page
-    // This prevents the issue where logged-in users can manually navigate to /login
-    if (isAuthenticated && segments.join('/') === 'login/login') {
-      console.log('[NavigationGuard] 🔒 Redirecting to home - already authenticated');
-      router.replace('/homepage/home');
-      return;
-    }
+      console.log('[NavigationGuard]', {
+        currentPath,
+        isAuthenticated,
+        hasToken,
+        actuallyAuthenticated,
+        isPublicRoute,
+        segments,
+        timestamp: new Date().toISOString()
+      });
 
-    // 🔒 SECURITY: Also check for other auth pages
-    const authPages = ['login/index', 'forgot-password/forgot-password', 'temporary-password/temporary-password'];
-    if (isAuthenticated && authPages.includes(segments.join('/'))) {
-      console.log('[NavigationGuard] 🔒 Redirecting to home - authenticated user on auth page');
-      router.replace('/homepage/home');
-      return;
-    }
+      // 🔒 SECURITY: Redirect unauthenticated users to login
+      // Check both context state AND actual token
+      if (!actuallyAuthenticated && !isPublicRoute) {
+        console.log('[NavigationGuard] 🔒 Redirecting to login - user not authenticated (no token)');
+        router.replace('/login/login');
+        return;
+      }
+
+      // 🔒 SECURITY: Allow authenticated users to access temporary-password page
+      // This is needed for first-time login password changes
+      const isTemporaryPasswordPage = segments.join('/') === 'temporary-password/temporary-password';
+      if (actuallyAuthenticated && isTemporaryPasswordPage) {
+        // Allow access - user needs to change password on first login
+        console.log('[NavigationGuard] ✅ Allowing authenticated user to access password change page');
+        return;
+      }
+
+      // 🔒 SECURITY: Redirect authenticated users away from login page
+      // Only if they actually have a token
+      if (actuallyAuthenticated && segments.join('/') === 'login/login') {
+        // Check if user needs to change password on first login
+        const { Storage } = await import('../services/api');
+        const mustChangePassword = await Storage.getItem('must_change_password');
+        
+        if (mustChangePassword === 'true') {
+          console.log('[NavigationGuard] 🎯 Redirecting to password change (first-time login)');
+          router.replace({ pathname: '/temporary-password/temporary-password', params: { first: '1' } as any });
+          return;
+        }
+        
+        console.log('[NavigationGuard] 🔒 Redirecting to home - already authenticated (has token)');
+        router.replace('/homepage/home');
+        return;
+      }
+
+      // 🔒 SECURITY: Also check for other auth pages
+      // NOTE: temporary-password/temporary-password is excluded because authenticated users
+      // need to access it during first-time login to change their password
+      const authPages = ['login/index', 'forgot-password/forgot-password'];
+      if (actuallyAuthenticated && authPages.includes(segments.join('/'))) {
+        console.log('[NavigationGuard] 🔒 Redirecting to home - authenticated user on auth page');
+        router.replace('/homepage/home');
+        return;
+      }
+    };
+
+    checkAuthAndRedirect();
   }, [isAuthenticated, loading, segments, router]);
 
   // 🔒 SECURITY FIX: Periodic validation every 3 seconds
@@ -81,14 +118,20 @@ function NavigationGuard() {
   useEffect(() => {
     if (loading) return;
 
-    const intervalId = setInterval(() => {
+    const intervalId = setInterval(async () => {
+      // Also check for actual token, not just context state
+      const { getAccessToken } = await import('../services/api');
+      const token = await getAccessToken();
+      const hasToken = !!token;
+      const actuallyAuthenticated = isAuthenticated && hasToken;
+
       const currentSegments = segments.join('/');
       const isOnLoginPage = currentSegments === 'login/login' || 
                             currentSegments === 'login/index' ||
                             currentSegments === 'forgot-password/forgot-password';
       
-      // If authenticated and on login page, redirect immediately
-      if (isAuthenticated && isOnLoginPage) {
+      // If authenticated (with token) and on login page, redirect immediately
+      if (actuallyAuthenticated && isOnLoginPage) {
         console.log('[NavigationGuard] Periodic check: Authenticated user on login page - redirecting');
         router.replace('/homepage/home');
       }

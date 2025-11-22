@@ -149,6 +149,22 @@ export default function RepostScreen() {
           }
         }
         
+        // Ensure images are properly extracted and set
+        if (detail) {
+          // Use getImagesFromContent to ensure images are properly extracted
+          const extractedImages = getImagesFromContent(detail);
+          console.log('RepostScreen - Extracted images from detail:', extractedImages);
+          
+          // Ensure post_images is set if we have extracted images
+          if (extractedImages.length > 0 && (!detail.post_images || detail.post_images.length === 0)) {
+            detail.post_images = extractedImages.map(img => ({
+              image_id: img.image_id,
+              image_url: img.image_url,
+              order: img.order
+            }));
+          }
+        }
+        
         setOriginal(detail);
         // Don't check if user already reposted - allow multiple reposts
         // Users can repost the same post multiple times, each creating a new repost
@@ -165,7 +181,13 @@ export default function RepostScreen() {
   }, [postId, isForumPost]);
 
   // Use the utility function to extract all images from the original post
-  const allImages = getImagesFromContent(original);
+  // Memoize to avoid recalculating on every render
+  const allImages = React.useMemo(() => {
+    if (!original) return [];
+    const images = getImagesFromContent(original);
+    console.log('RepostScreen - allImages computed:', images.length, 'images from original:', original);
+    return images;
+  }, [original]);
 
   const loadComments = async () => {
     if (!original?.post_id) return;
@@ -1021,6 +1043,8 @@ const styles = StyleSheet.create({
   origGridImage: {
     borderRadius: 8,
     overflow: 'hidden',
+    width: '48%', // Default 2x2 grid for 4 images
+    aspectRatio: 1,
   },
   origGridImageContent: {
     width: '100%',

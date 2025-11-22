@@ -21,7 +21,7 @@ export default function LoginScreen() {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { login: contextLogin, refreshUser } = useUser();
+  const { login: contextLogin, refreshUser, setUserAndAuth } = useUser();
 
   const handleLogin = async () => {
     if (!ctuId.trim() || !password.trim()) {
@@ -39,19 +39,43 @@ export default function LoginScreen() {
       // UNIFIED: Call the same API endpoint as web frontend
       const data = await loginUser(ctuId.trim(), password.trim());
       
+      console.log('[Login] Login response data:', {
+        success: data.success,
+        hasUser: !!data.user,
+        hasAccountType: !!data.user?.account_type,
+        mustChangePassword: data.must_change_password,
+        userId: data.user?.id
+      });
+      
       if (data.success && data.user && data.user.account_type) {
-        // 🔒 CRITICAL FIX: Refresh UserContext to update authentication state
-        // This ensures NavigationGuard sees isAuthenticated = true
-        console.log('[Login] 🔄 Refreshing user context after successful login...');
-        await refreshUser();
-        console.log('[Login] ✅ User context refreshed - authentication state updated');
+        // 🔒 CRITICAL FIX: Invalidate AuthService session cache and update UserContext
+        // This ensures the session is properly initialized after tokens are saved
+        console.log('[Login] 🔄 Invalidating session cache and updating user context...');
+        const AuthService = (await import('../../services/authService')).default;
+        // Small delay to ensure storage writes are fully complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await AuthService.getInstance().invalidateSessionCache();
         
+        // Check if this is first-time login BEFORE setting auth state
+        // This ensures NavigationGuard can see the flag immediately
         if (data.must_change_password) {
-          // Navigate to first-time change password screen
+          console.log('[Login] 🎯 First-time login detected - navigating directly to password change');
+          // Set auth state first
+          setUserAndAuth(data.user, true);
+          // Small delay to ensure state propagation
+          await new Promise(resolve => setTimeout(resolve, 50));
+          // Navigate immediately to password change screen
           router.replace({ pathname: '/temporary-password/temporary-password', params: { first: '1' } as any });
-          // The mobile change form lives in temporary-password route; we will handle there
           return;
         }
+        
+        // Directly set user and auth state to avoid race conditions
+        // This ensures NavigationGuard sees the updated state immediately
+        setUserAndAuth(data.user, true);
+        console.log('[Login] ✅ User and auth state set directly');
+        
+        // Also refresh to ensure everything is in sync
+        await refreshUser();
         // Check account type (SAME LOGIC AS WEB)
         if (data.user.account_type.user) {
           // Alumni user - check tracker status then redirect

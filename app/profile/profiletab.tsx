@@ -11,13 +11,12 @@ import UserAvatar from '../../components/UserAvatar';
 const profilePic = require('../../assets/images/sample_pic.jpg');
 const cciLogo = require('../../assets/images/ccict_logo.jpg');
 const pesoLogo = require('../../assets/images/peso_logo.jpg');
-const forumLogo = require('../../assets/images/wny_logo.jpg');
 
 const allMenuItems = [
   { label: 'Rewards', icon: <FontAwesome name="gift" size={24} color="#222" /> },
   { label: 'CCICT', icon: cciLogo },
   { label: 'Peso', icon: pesoLogo },
-  { label: 'CCICT Forum', icon: forumLogo },
+  { label: 'CCICT Forum', icon: <FontAwesome name="users" size={24} color="#222" /> },
   { label: 'Donation', icon: <FontAwesome name="heart" size={24} color="#222" /> },
   { label: 'Settings', icon: <FontAwesome name="cog" size={24} color="#222" /> },
   { label: 'Log out', icon: <MaterialIcons name="logout" size={24} color="#222" /> },

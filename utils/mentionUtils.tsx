@@ -92,10 +92,12 @@ export const renderTextWithMentions = (
     // Process mentions in this part
     let lastIndex = 0;
     let match;
-    // Match @ followed by name with or without spaces (e.g., @Harlene Ortega, @JohnDoe)
-    // Match up to 2 words (first name and last name) and stop at the next space or end
+    // Match @ followed by name with or without spaces (e.g., @Harlene Ortega, @JohnDoe, @Angel Khyla Marie Aboloc)
+    // Match multiple words (first, middle, last name) and stop at the next space, punctuation, or end
     // This ensures we only match the mention, not the rest of the text
-    const mentionRegexLocal = /@([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)(?=\s|$)/g;
+    // Updated to match 3+ words for full names (first, middle, last)
+    // The pattern matches @ followed by word(s), stopping at whitespace, punctuation, or end of string
+    const mentionRegexLocal = /@([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)(?=\s|$|[,.;:!?\-])/g;
     
     while ((match = mentionRegexLocal.exec(urlPart)) !== null) {
       // Add text before the mention
@@ -159,7 +161,7 @@ export const renderTextWithMentions = (
           }}
         >
           <Text style={styles.mentionText}>
-            {displayName}
+            @{displayName}
           </Text>
         </TouchableOpacity>
       );

@@ -8,7 +8,8 @@ import {
   RefreshControl, 
   Alert,
   ActivityIndicator,
-  Modal
+  Modal,
+  Linking
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
@@ -25,7 +26,9 @@ import {
   getUserPosts,
   fetchFollowers,
   fetchFollowing,
-  getAdminPesoUsers
+  getAdminPesoUsers,
+  getPostLikes,
+  getPostReposts
 } from '../../services/api';
 import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
@@ -509,17 +512,55 @@ export default function OtherUserPage() {
             <Text style={styles.detailsTitle}>Details</Text>
             
             {user.socialMedia && (
-              <View style={styles.detailRow}>
+              <TouchableOpacity 
+                style={styles.detailRow}
+                onPress={async () => {
+                  try {
+                    let url = user.socialMedia || '';
+                    // Add protocol if missing
+                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                      url = 'https://' + url;
+                    }
+                    const canOpen = await Linking.canOpenURL(url);
+                    if (canOpen) {
+                      await Linking.openURL(url);
+                    } else {
+                      Alert.alert('Error', 'Cannot open this URL');
+                    }
+                  } catch (error) {
+                    console.error('Error opening social media URL:', error);
+                    Alert.alert('Error', 'Failed to open link');
+                  }
+                }}
+                activeOpacity={0.7}
+              >
                 <FontAwesome name="globe" size={16} color="#666" style={styles.detailIcon} />
-                <Text style={styles.detailText}>{user.socialMedia}</Text>
-              </View>
+                <Text style={[styles.detailText, styles.clickableText]}>{user.socialMedia}</Text>
+              </TouchableOpacity>
             )}
             
             {user.email && (
-              <View style={styles.detailRow}>
+              <TouchableOpacity 
+                style={styles.detailRow}
+                onPress={async () => {
+                  try {
+                    const emailUrl = `mailto:${user.email}`;
+                    const canOpen = await Linking.canOpenURL(emailUrl);
+                    if (canOpen) {
+                      await Linking.openURL(emailUrl);
+                    } else {
+                      Alert.alert('Error', 'Cannot open email client');
+                    }
+                  } catch (error) {
+                    console.error('Error opening email:', error);
+                    Alert.alert('Error', 'Failed to open email');
+                  }
+                }}
+                activeOpacity={0.7}
+              >
                 <FontAwesome name="envelope" size={16} color="#666" style={styles.detailIcon} />
-                <Text style={styles.detailText}>{user.email}</Text>
-              </View>
+                <Text style={[styles.detailText, styles.clickableText]}>{user.email}</Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
@@ -529,7 +570,18 @@ export default function OtherUserPage() {
           <Text style={styles.postsHeader}>Posts</Text>
           {posts.length === 0 ? (
             <View style={styles.noPostsContainer}>
-              <Text style={styles.noPostsText}>This user has not posted anything yet.</Text>
+              <Text style={styles.noPostsText}>
+                {(isSpecialAccount || 
+                  user?.account_type?.admin || 
+                  user?.account_type?.peso || 
+                  user?.account_type?.ccict ||
+                  userName?.toLowerCase().includes('admin') || 
+                  userName?.toLowerCase().includes('peso'))
+                  ? "This user has not posted anything yet."
+                  : (isFollowing
+                      ? "This user has not posted anything yet."
+                      : "Follow this user to view their posts")}
+              </Text>
             </View>
           ) : (
             posts.map((item) => {
@@ -588,10 +640,24 @@ export default function OtherUserPage() {
                           : p
                       ));
                     }}
-                    onOpenViewer={(post, type) => {
-                      setSelectedPostStats(post);
-                      setViewerType(type);
-                      setViewerVisible(true);
+                    onOpenViewer={async (post, type) => {
+                      try {
+                        setSelectedPostStats(post);
+                        setViewerType(type);
+                        setViewerVisible(true);
+
+                        // Fetch fresh data for the viewer
+                        if (type === 'likes') {
+                          const likesData = await getPostLikes(post.post_id);
+                          setSelectedPostStats((prev: any) => prev ? { ...prev, likes: likesData || [] } : null);
+                        } else if (type === 'reposts') {
+                          const repostsData = await getPostReposts(post.post_id);
+                          setSelectedPostStats((prev: any) => prev ? { ...prev, reposts: repostsData || [] } : null);
+                        }
+                      } catch (error) {
+                        console.error('Error fetching viewer data:', error);
+                        // Still show the viewer even if fetch fails
+                      }
                     }}
                     onEdited={(postId, newContent) => {
                       setPosts(prev => prev.map(p => 
@@ -626,15 +692,42 @@ export default function OtherUserPage() {
       {/* Viewer (likes/reposts) */}
       <Modal visible={viewerVisible} transparent animationType="slide" onRequestClose={() => setViewerVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.viewerModal}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.modalTitle}>{viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}</Text>
-              <TouchableOpacity onPress={() => setViewerVisible(false)}>
-                <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
-              </TouchableOpacity>
-            </View>
+          {(() => {
+            // Calculate the number of items to determine modal height
+            let itemCount = 0;
+            if (viewerType === 'likes') {
+              itemCount = selectedPostStats?.likes?.length || 0;
+            } else if (viewerType === 'reposts') {
+              itemCount = selectedPostStats?.reposts?.length || 0;
+            } else if (viewerType === 'comments') {
+              itemCount = selectedPostStats?.comments?.length || 0;
+            }
+            
+            // Calculate dynamic height: header (60px) + items (70px each) + padding (32px)
+            const headerHeight = 60;
+            const itemHeight = 70;
+            const padding = 32;
+            const calculatedHeight = headerHeight + (itemCount * itemHeight) + padding;
+            const maxHeight = 600; // Cap at 600px
+            const minHeight = headerHeight + padding + 20; // Minimum for header
+            const modalHeight = Math.max(minHeight, Math.min(maxHeight, calculatedHeight));
+            const shouldScroll = itemCount > 8;
+            
+            return (
+              <View style={[styles.viewerModal, { maxHeight: modalHeight }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={styles.modalTitle}>{viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}</Text>
+                  <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                    <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+                  </TouchableOpacity>
+                </View>
 
-            <ScrollView style={{ maxHeight: 320 }}>
+                <ScrollView 
+                  style={{ maxHeight: shouldScroll ? 500 : undefined }}
+                  contentContainerStyle={shouldScroll ? {} : { paddingBottom: 0 }}
+                  showsVerticalScrollIndicator={shouldScroll}
+                  nestedScrollEnabled={true}
+                >
               {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
                 <View key={idx} style={styles.listItemRow}>
                   <UserAvatar 
@@ -663,8 +756,10 @@ export default function OtherUserPage() {
                   </View>
                 </View>
               ))}
-            </ScrollView>
-          </View>
+                </ScrollView>
+              </View>
+            );
+          })()}
         </View>
       </Modal>
 
@@ -813,6 +908,10 @@ const styles = StyleSheet.create({
     color: '#666',
     flex: 1,
   },
+  clickableText: {
+    color: '#174f84',
+    textDecorationLine: 'underline',
+  },
   actionButtons: {
     flexDirection: 'row',
     marginBottom: 20,
@@ -927,7 +1026,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     width: '92%',
-    maxHeight: '80%',
+    alignSelf: 'center',
   },
   modalTitle: {
     fontSize: 18,

@@ -1,12 +1,13 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { ActivityIndicator, Alert, Animated, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TrackerReminderModal from '../../components/TrackerReminderModal';
 import NavBar from '../(tabs)/navbar';
-import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, logoutUser, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getFeed, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus } from '../../services/api';
+import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getPostReposts, getFeed, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus } from '../../services/api';
+import { useUser } from '../../contexts/UserContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
@@ -105,6 +106,7 @@ interface UserInfo {
 
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
+  const { logout: logoutFromContext } = useUser();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [posts, setPosts] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,13 +133,47 @@ const HomeScreen = () => {
   const params = useLocalSearchParams();
   const [nowTick, setNowTick] = useState(0);
   const [showTrackerReminder, setShowTrackerReminder] = useState<boolean>(false);
+  const isMountedRef = React.useRef(true);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const navbarTranslateY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    loadUserInfo();
-    loadPosts();
+    // Check for token before loading anything
+    const checkAuthAndLoad = async () => {
+      try {
+        const { getAccessToken } = await import('../../services/api');
+        const token = await getAccessToken();
+        if (!token) {
+          console.log('🔍 HOME DEBUG: No token on mount, redirecting to login');
+          router.replace('/login/login');
+          return;
+        }
+        // Only load if we have a token
+        await loadUserInfo();
+        await loadPosts();
+      } catch (err) {
+        console.error('🔍 HOME DEBUG: Error checking auth on mount:', err);
+        router.replace('/login/login');
+      }
+    };
+    
+    checkAuthAndLoad();
+    
     // Tick every minute to update relative timestamps
-    const t = setInterval(() => setNowTick((x) => x + 1), 60000);
-    return () => clearInterval(t);
+    const t = setInterval(() => {
+      if (isMountedRef.current) {
+        setNowTick((x) => x + 1);
+      }
+    }, 60000);
+    
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(t);
+    };
   }, []);
 
   // Setup WebSocket for real-time points updates
@@ -146,12 +182,16 @@ const HomeScreen = () => {
 
     const setupWebSocket = async () => {
       try {
+        const { getAccessToken } = await import('../../services/api');
+        const token = await getAccessToken();
+        if (!token) {
+          console.log('🔍 HOME DEBUG: No access token for WebSocket, skipping setup');
+          return;
+        }
+        
         const user = await getUserInfo();
         const userId = user?.user_id || user?.id;
         if (!userId) return;
-
-        const { getAccessToken } = await import('../../services/api');
-        const token = await getAccessToken();
 
         notificationWs = new NotificationWebSocket(userId, API_BASE_URL, token);
 
@@ -235,18 +275,38 @@ const HomeScreen = () => {
   // Refetch posts and check tracker status whenever this screen gains focus
   useFocusEffect(
     React.useCallback(() => {
-      loadPosts();
-      // Check tracker status every time homepage is focused
-      const checkAndShowTracker = async () => {
+      // Don't run if component is unmounted
+      if (!isMountedRef.current) return;
+      
+      // Check if we have a token before loading data
+      const checkAndLoad = async () => {
+        if (!isMountedRef.current) return;
+        
         try {
+          const { getAccessToken } = await import('../../services/api');
+          const token = await getAccessToken();
+          if (!token) {
+            console.log('🔍 HOME DEBUG: No access token on focus, NavigationGuard will handle redirect');
+            // Don't redirect here - let NavigationGuard handle it
+            return;
+          }
+          
+          if (!isMountedRef.current) return;
+          await loadPosts();
+          
+          if (!isMountedRef.current) return;
+          
+          // Check tracker status every time homepage is focused
           // Get current user info if not already loaded
           let currentUser = user;
           if (!currentUser) {
             currentUser = await getUserInfo();
-            if (currentUser) {
+            if (currentUser && isMountedRef.current) {
               setUser(currentUser);
             }
           }
+          
+          if (!isMountedRef.current) return;
           
           // Check tracker status if user is alumni
           const accountType = (currentUser as any)?.account_type;
@@ -255,11 +315,17 @@ const HomeScreen = () => {
             await checkTrackerStatus();
           }
         } catch (err) {
-          console.error('Homepage: Error checking tracker in focus effect:', err);
+          console.error('Homepage: Error in focus effect:', err);
+          if (!isMountedRef.current) return;
+          
+          // If there's an auth error, NavigationGuard will handle the redirect
+          if ((err as any)?.response?.status === 401 || (err as any)?.response?.status === 403) {
+            console.log('🔍 HOME DEBUG: Auth error detected, NavigationGuard will handle redirect');
+          }
         }
       };
       
-      checkAndShowTracker();
+      checkAndLoad();
     }, [user, checkTrackerStatus])
   );
 
@@ -353,10 +419,24 @@ const HomeScreen = () => {
                 return p;
               }));
             }}
-            onOpenViewer={(post, type) => {
-              setSelectedPost(post);
-              setViewerType(type);
-              setViewerVisible(true);
+            onOpenViewer={async (post, type) => {
+              try {
+                setSelectedPost(post);
+                setViewerType(type);
+                setViewerVisible(true);
+
+                // Fetch fresh data for the viewer
+                if (type === 'likes') {
+                  const likesData = await getPostLikes(post.post_id);
+                  setSelectedPost((prev: any) => prev ? { ...prev, likes: likesData || [] } : null);
+                } else if (type === 'reposts') {
+                  const repostsData = await getPostReposts(post.post_id);
+                  setSelectedPost((prev: any) => prev ? { ...prev, reposts: repostsData || [] } : null);
+                }
+              } catch (error) {
+                console.error('Error fetching viewer data:', error);
+                // Still show the viewer even if fetch fails
+              }
             }}
             onEdited={(postId, newContent) => {
               setPosts(prev => prev.map(p => {
@@ -400,10 +480,24 @@ const HomeScreen = () => {
                 return p;
               }));
             }}
-            onOpenViewer={(post, type) => {
-              setSelectedPost(post);
-              setViewerType(type);
-              setViewerVisible(true);
+            onOpenViewer={async (post, type) => {
+              try {
+                setSelectedPost(post);
+                setViewerType(type);
+                setViewerVisible(true);
+
+                // Fetch fresh data for the viewer
+                if (type === 'likes') {
+                  const likesData = await getPostLikes(post.post_id);
+                  setSelectedPost((prev: any) => prev ? { ...prev, likes: likesData || [] } : null);
+                } else if (type === 'reposts') {
+                  const repostsData = await getPostReposts(post.post_id);
+                  setSelectedPost((prev: any) => prev ? { ...prev, reposts: repostsData || [] } : null);
+                }
+              } catch (error) {
+                console.error('Error fetching viewer data:', error);
+                // Still show the viewer even if fetch fails
+              }
             }}
             onEdited={(postId, newContent) => {
               setPosts(prev => prev.map(p => {
@@ -436,10 +530,30 @@ const HomeScreen = () => {
   };
 
   const loadUserInfo = async () => {
+    // Check if component is still mounted
+    if (!isMountedRef.current) return;
+    
     try {
-      setLoading(true);
+      // Check if we have a token before trying to load user info
+      const { getAccessToken } = await import('../../services/api');
+      const token = await getAccessToken();
+      if (!token) {
+        console.log('🔍 HOME DEBUG: No access token, NavigationGuard will handle redirect');
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+        // Don't redirect here - let NavigationGuard handle it
+        return;
+      }
+      
+      if (isMountedRef.current) {
+        setLoading(true);
+      }
+      
       const userInfo = await getUserInfo();
       console.log('🔍 HOME DEBUG: User info loaded:', userInfo);
+      
+      if (!isMountedRef.current) return;
       
       if (userInfo) {
         setUser(userInfo);
@@ -450,55 +564,104 @@ const HomeScreen = () => {
           profile_pic: userInfo.profile_pic || '',
         });
       } else {
-        console.log('🔍 HOME DEBUG: No user info, checking localStorage...');
-        // Check localStorage as fallback for OJT users
-        const userStr = localStorage.getItem('user');
-        if (userStr) {
-          const localUser = JSON.parse(userStr);
-          console.log('🔍 HOME DEBUG: Found user in localStorage:', localUser);
-          setUser(localUser);
-          setEditData({
-            name: localUser.name || '',
-            course: localUser.course || '',
-            year_graduated: localUser.year_graduated ? String(localUser.year_graduated) : '',
-            profile_pic: localUser.profile_pic || '',
-          });
-        } else {
-          console.log('🔍 HOME DEBUG: No user found, redirecting to login');
-          router.replace('/login/login');
+        console.log('🔍 HOME DEBUG: No user info, checking AsyncStorage...');
+        // Check AsyncStorage as fallback for OJT users
+        try {
+          const userStr = await AsyncStorage.getItem('user');
+          if (userStr) {
+            const localUser = JSON.parse(userStr);
+            console.log('🔍 HOME DEBUG: Found user in AsyncStorage:', localUser);
+            if (isMountedRef.current) {
+              setUser(localUser);
+              setEditData({
+                name: localUser.name || '',
+                course: localUser.course || '',
+                year_graduated: localUser.year_graduated ? String(localUser.year_graduated) : '',
+                profile_pic: localUser.profile_pic || '',
+              });
+            }
+          } else {
+            console.log('🔍 HOME DEBUG: No user found, NavigationGuard will handle redirect');
+            if (isMountedRef.current) {
+              setLoading(false);
+            }
+            // Don't redirect here - let NavigationGuard handle it
+            return;
+          }
+        } catch (storageErr) {
+          console.error('🔍 HOME DEBUG: Error reading from AsyncStorage:', storageErr);
+          if (isMountedRef.current) {
+            setLoading(false);
+          }
+          // Don't redirect here - let NavigationGuard handle it
+          return;
         }
       }
     } catch (err) {
       console.error('🔍 HOME DEBUG: Error loading user info:', err);
-      // Try localStorage as fallback for OJT users
+      if (!isMountedRef.current) return;
+      
+      // Try AsyncStorage as fallback for OJT users
       try {
-        const userStr = localStorage.getItem('user');
+        const userStr = await AsyncStorage.getItem('user');
         if (userStr) {
           const localUser = JSON.parse(userStr);
-          console.log('🔍 HOME DEBUG: Using localStorage fallback:', localUser);
-          setUser(localUser);
-          setEditData({
-            name: localUser.name || '',
-            course: localUser.course || '',
-            year_graduated: localUser.year_graduated ? String(localUser.year_graduated) : '',
-            profile_pic: localUser.profile_pic || '',
-          });
+          console.log('🔍 HOME DEBUG: Using AsyncStorage fallback:', localUser);
+          if (isMountedRef.current) {
+            setUser(localUser);
+            setEditData({
+              name: localUser.name || '',
+              course: localUser.course || '',
+              year_graduated: localUser.year_graduated ? String(localUser.year_graduated) : '',
+              profile_pic: localUser.profile_pic || '',
+            });
+          }
         } else {
-          setError('Failed to load user information');
+          if (isMountedRef.current) {
+            setError('Failed to load user information');
+            setLoading(false);
+          }
           console.error('Error loading user info:', err);
+          // Don't redirect here - let NavigationGuard handle it
+          return;
         }
       } catch (localErr) {
-        setError('Failed to load user information');
+        if (isMountedRef.current) {
+          setError('Failed to load user information');
+          setLoading(false);
+        }
         console.error('Error loading user info:', err);
+        // Don't redirect here - let NavigationGuard handle it
+        return;
       }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   const loadPosts = async () => {
+    // Check if component is still mounted
+    if (!isMountedRef.current) return;
+    
     try {
-      setPostsLoading(true);
+      // Check if we have a token before trying to load posts
+      const { getAccessToken } = await import('../../services/api');
+      const token = await getAccessToken();
+      if (!token) {
+        console.log('🔍 HOME DEBUG: No access token for posts, skipping load');
+        if (isMountedRef.current) {
+          setPosts([]);
+          setPostsLoading(false);
+        }
+        return;
+      }
+      
+      if (isMountedRef.current) {
+        setPostsLoading(true);
+      }
+      
       const postsData = await getFeed();
       console.log('Homepage posts data:', postsData); // Debug log
       const me: any = await getUserInfo();
@@ -562,13 +725,22 @@ const HomeScreen = () => {
         reposts: sortedFeed.filter(item => item.item_type === 'repost').length
       }); // Debug log
       
-      setPosts(sortedFeed);
+      if (isMountedRef.current) {
+        setPosts(sortedFeed);
+      }
     } catch (error) {
       console.error('Error loading posts:', error);
-      Alert.alert('Error', 'Failed to load posts. Please try again.');
-      setPosts([]);
+      if (isMountedRef.current) {
+        // Only show alert if component is still mounted and it's not an auth error
+        if ((error as any)?.response?.status !== 401 && (error as any)?.response?.status !== 403) {
+          Alert.alert('Error', 'Failed to load posts. Please try again.');
+        }
+        setPosts([]);
+      }
     } finally {
-      setPostsLoading(false);
+      if (isMountedRef.current) {
+        setPostsLoading(false);
+      }
     }
   };
 
@@ -681,8 +853,15 @@ const HomeScreen = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await logoutUser();
-              router.replace('/login/login');
+              // Mark component as unmounting to prevent state updates
+              isMountedRef.current = false;
+              // Clear loading states immediately
+              setLoading(false);
+              setPostsLoading(false);
+              // Use UserContext logout which updates both tokens and context state
+              // This ensures NavigationGuard sees the updated auth state
+              await logoutFromContext();
+              // NavigationGuard will handle the redirect automatically
             } catch (err) {
               Alert.alert('Error', 'Failed to logout. Please try again.');
               console.error('Logout error:', err);
@@ -711,6 +890,83 @@ const HomeScreen = () => {
     Alert.alert('Profile updated (not saved to backend)');
   };
 
+  // Handle scroll events to show/hide header and navbar
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const scrollingDown = currentScrollY > lastScrollY.current;
+    const scrollingUp = currentScrollY < lastScrollY.current;
+    
+    // Only hide/show if scrolled more than 10 pixels to avoid jitter
+    if (Math.abs(currentScrollY - lastScrollY.current) > 10) {
+      if (scrollingDown && currentScrollY > 50 && headerVisible) {
+        // Hide header and navbar when scrolling down
+        setHeaderVisible(false);
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: -100,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(navbarTranslateY, {
+            toValue: 100,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      } else if (scrollingUp && !headerVisible) {
+        // Show header and navbar when scrolling up
+        setHeaderVisible(true);
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(navbarTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }
+    
+    lastScrollY.current = currentScrollY;
+    
+    // Clear existing timeout
+    if (scrollTimeout.current) {
+      clearTimeout(scrollTimeout.current);
+    }
+    
+    // Show header/navbar after scrolling stops
+    scrollTimeout.current = setTimeout(() => {
+      if (!headerVisible) {
+        setHeaderVisible(true);
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(navbarTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }, 500); // Show after 500ms of no scrolling
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeout.current) {
+        clearTimeout(scrollTimeout.current);
+      }
+    };
+  }, []);
+
   // nowTick triggers re-render for live relative time; no direct usage
 
   if (loading) {
@@ -735,16 +991,38 @@ const HomeScreen = () => {
 
   return (
     <View style={styles.container}>
-      <NavBar />
-      {/* Header with logout button */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <Animated.View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          transform: [{ translateY: navbarTranslateY }],
+        }}
+      >
+        <NavBar />
+      </Animated.View>
+      {/* Header with logout button - Fixed at top */}
+      <Animated.View
+        style={[
+          styles.header,
+          styles.stickyHeader,
+          { paddingTop: insets.top + 12 },
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
         <Text style={styles.headerTitle}>Home</Text>
-      </View>
+      </Animated.View>
 
 
       <ScrollView 
         style={styles.scroll} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 60 + insets.top }]}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -871,17 +1149,45 @@ const HomeScreen = () => {
           onRequestClose={() => setViewerVisible(false)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.viewerModal}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.modalTitle}>
-                  {viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}
-                </Text>
-                <TouchableOpacity onPress={() => setViewerVisible(false)}>
-                  <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
-                </TouchableOpacity>
-              </View>
+            {(() => {
+              // Calculate the number of items to determine modal height
+              let itemCount = 0;
+              if (viewerType === 'likes' && selectedPost && isPost(selectedPost)) {
+                itemCount = selectedPost.likes?.length || 0;
+              } else if (viewerType === 'reposts' && selectedPost && isPost(selectedPost)) {
+                itemCount = selectedPost.reposts?.length || 0;
+              } else if (viewerType === 'comments' && selectedPost && isPost(selectedPost)) {
+                itemCount = selectedPost.comments?.length || 0;
+              }
+              
+              // Calculate dynamic height: header (60px) + items (70px each) + padding (32px)
+              // Minimum height for header only, maximum height of 600px
+              const headerHeight = 60;
+              const itemHeight = 70;
+              const padding = 32;
+              const calculatedHeight = headerHeight + (itemCount * itemHeight) + padding;
+              const maxHeight = 600; // Cap at 600px
+              const minHeight = headerHeight + padding + 20; // Minimum for header
+              const modalHeight = Math.max(minHeight, Math.min(maxHeight, calculatedHeight));
+              const shouldScroll = itemCount > 8;
+              
+              return (
+                <View style={[styles.viewerModal, { maxHeight: modalHeight }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={styles.modalTitle}>
+                      {viewerType === 'likes' ? 'Likes' : viewerType === 'comments' ? 'Comments' : 'Reposts'}
+                    </Text>
+                    <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                      <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
+                    </TouchableOpacity>
+                  </View>
 
-              <ScrollView style={{ maxHeight: 320 }}>
+                  <ScrollView 
+                    style={{ maxHeight: shouldScroll ? 500 : undefined }}
+                    contentContainerStyle={shouldScroll ? {} : { paddingBottom: 0 }}
+                    showsVerticalScrollIndicator={shouldScroll}
+                    nestedScrollEnabled={true}
+                  >
                 {viewerType === 'likes' && selectedPost && isPost(selectedPost) && selectedPost.likes?.map((u: any, idx: number) => (
                   <View key={idx} style={styles.listItemRow}>
                     <UserAvatar 
@@ -933,38 +1239,40 @@ const HomeScreen = () => {
                     </View>
                   </View>
                 ))}
-              </ScrollView>
+                  </ScrollView>
 
-              {viewerType === 'comments' && selectedPost ? (
-                <View style={styles.commentInputRow}>
-                  <TextInput
-                    style={styles.commentInput}
-                    placeholder="Write a comment..."
-                    value={commentText}
-                    onChangeText={setCommentText}
-                  />
-                  <TouchableOpacity
-                    style={styles.sendBtn}
-                    onPress={async () => {
-                      const message = (commentText || '').trim();
-                      if (!message) return;
-                      try {
-                        if (selectedPost && isPost(selectedPost)) {
-                          await commentOnPost(selectedPost.post_id, message);
-                          setCommentText('');
-                          setViewerVisible(false);
-                          await loadPosts(); // Refresh posts
-                        }
-                      } catch (e) {
-                        Alert.alert('Error', 'Failed to add comment');
-                      }
-                    }}
-                  >
-                    <Text style={{ color: 'white', fontWeight: 'bold' }}>Send</Text>
-                  </TouchableOpacity>
+                  {viewerType === 'comments' && selectedPost ? (
+                    <View style={styles.commentInputRow}>
+                      <TextInput
+                        style={styles.commentInput}
+                        placeholder="Write a comment..."
+                        value={commentText}
+                        onChangeText={setCommentText}
+                      />
+                      <TouchableOpacity
+                        style={styles.sendBtn}
+                        onPress={async () => {
+                          const message = (commentText || '').trim();
+                          if (!message) return;
+                          try {
+                            if (selectedPost && isPost(selectedPost)) {
+                              await commentOnPost(selectedPost.post_id, message);
+                              setCommentText('');
+                              setViewerVisible(false);
+                              await loadPosts(); // Refresh posts
+                            }
+                          } catch (e) {
+                            Alert.alert('Error', 'Failed to add comment');
+                          }
+                        }}
+                      >
+                        <Text style={{ color: 'white', fontWeight: 'bold' }}>Send</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
-            </View>
+              );
+            })()}
           </View>
         </Modal>
       </ScrollView>
@@ -1151,6 +1459,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+  },
+  stickyHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   headerTitle: {
     fontSize: 27,
@@ -1374,7 +1694,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     width: '92%',
-    maxHeight: '80%',
+    alignSelf: 'center',
   },
   // Unified Action Sheet styles
   sheet: {

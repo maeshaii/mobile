@@ -1,7 +1,7 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
@@ -49,6 +49,11 @@ interface UserProfile {
   following_count?: number;
   f_name?: string;
   l_name?: string;
+  account_type?: {
+    admin?: boolean;
+    peso?: boolean;
+    ccict?: boolean;
+  };
 }
 
 interface Post {
@@ -282,6 +287,7 @@ export default function ProfilePage() {
             profile_pic: a.profile_pic ? { uri: String(a.profile_pic).startsWith('http') ? a.profile_pic : `${API_BASE_URL}${a.profile_pic}` } : null,
             f_name: a.first_name || '',
             l_name: a.last_name || '',
+            account_type: a.account_type,
           };
           setUser(profile);
           const [postsData, followersRes, followingRes, statusRes] = await Promise.allSettled([
@@ -581,10 +587,31 @@ export default function ProfilePage() {
           <Text style={styles.detailsTitle}>Details</Text>
           
           {user.socialMedia && user.socialMedia.trim() ? (
-            <View style={styles.detailRow}>
+            <TouchableOpacity 
+              style={styles.detailRow}
+              onPress={async () => {
+                try {
+                  let url = user.socialMedia || '';
+                  // Add protocol if missing
+                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    url = 'https://' + url;
+                  }
+                  const canOpen = await Linking.canOpenURL(url);
+                  if (canOpen) {
+                    await Linking.openURL(url);
+                  } else {
+                    Alert.alert('Error', 'Cannot open this URL');
+                  }
+                } catch (error) {
+                  console.error('Error opening social media URL:', error);
+                  Alert.alert('Error', 'Failed to open link');
+                }
+              }}
+              activeOpacity={0.7}
+            >
               <FontAwesome name="globe" size={16} color="#666" style={styles.detailIcon} />
-              <Text style={styles.detailText}>{user.socialMedia}</Text>
-            </View>
+              <Text style={[styles.detailText, styles.clickableText]}>{user.socialMedia}</Text>
+            </TouchableOpacity>
           ) : !isOwnProfile ? (
             <View style={styles.detailRow}>
               <FontAwesome name="globe" size={16} color="#666" style={styles.detailIcon} />
@@ -593,10 +620,27 @@ export default function ProfilePage() {
           ) : null}
           
           {user.email && user.email.trim() ? (
-            <View style={styles.detailRow}>
+            <TouchableOpacity 
+              style={styles.detailRow}
+              onPress={async () => {
+                try {
+                  const emailUrl = `mailto:${user.email}`;
+                  const canOpen = await Linking.canOpenURL(emailUrl);
+                  if (canOpen) {
+                    await Linking.openURL(emailUrl);
+                  } else {
+                    Alert.alert('Error', 'Cannot open email client');
+                  }
+                } catch (error) {
+                  console.error('Error opening email:', error);
+                  Alert.alert('Error', 'Failed to open email');
+                }
+              }}
+              activeOpacity={0.7}
+            >
               <FontAwesome name="envelope" size={16} color="#666" style={styles.detailIcon} />
-              <Text style={styles.detailText}>{user.email}</Text>
-            </View>
+              <Text style={[styles.detailText, styles.clickableText]}>{user.email}</Text>
+            </TouchableOpacity>
           ) : !isOwnProfile ? (
             <View style={styles.detailRow}>
               <FontAwesome name="envelope" size={16} color="#666" style={styles.detailIcon} />
@@ -636,7 +680,17 @@ export default function ProfilePage() {
         {posts.length === 0 ? (
           <View style={styles.noPostsContainer}>
             <Text style={styles.noPostsText}>
-              {!isOwnProfile ? "This user has not posted anything yet." : "No posts yet."}
+              {!isOwnProfile 
+                ? ((user?.account_type?.admin || 
+                    user?.account_type?.peso || 
+                    user?.account_type?.ccict ||
+                    user?.name?.toLowerCase().includes('admin') || 
+                    user?.name?.toLowerCase().includes('peso'))
+                    ? "This user has not posted anything yet."
+                    : (isFollowing
+                        ? "This user has not posted anything yet."
+                        : "Follow this user to view their posts"))
+                : "No posts yet."}
             </Text>
           </View>
         ) : (
@@ -1265,6 +1319,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     flex: 1,
+  },
+  clickableText: {
+    color: '#174f84',
+    textDecorationLine: 'underline',
   },
   editDetailsBtn: {
     backgroundColor: '#174f84',

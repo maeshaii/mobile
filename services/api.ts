@@ -31,7 +31,7 @@ const compressImage = async (imageUri: string, quality: number = 0.8): Promise<s
   }
 };
 
-const Storage = {
+export const Storage = {
   setItem: async (key: string, value: string) => {
     if (isWeb) {
       localStorage.setItem(key, value);
@@ -87,7 +87,7 @@ const devDefault = Platform.select({
 const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
 // Use explicit config from Expo extra or env, otherwise fall back to default
-export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
+export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || defaultUrl);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -582,17 +582,19 @@ export const searchOJT = async (query: string) => {
 /** Recent Searches */
 export const listRecentSearches = async (limit: number = 10) => {
   try {
-    const url = `/api/search/recent/?limit=${limit}`;
+    const url = `/api/recent-searches/?limit=${limit}`;
     const { data } = await api.get(url);
-    console.log('listRecentSearches GET', API_BASE_URL + url, '->', Array.isArray(data?.recent) ? data.recent.length : 0);
-    return (data?.recent ?? []) as Array<{ user_id: number; f_name?: string; l_name?: string; profile_pic?: string; created_at?: string }>;
+    // Handle both web format (recent_searches) and legacy format (recent)
+    const recentList = data?.recent_searches ?? data?.recent ?? [];
+    console.log('listRecentSearches GET', API_BASE_URL + url, '->', Array.isArray(recentList) ? recentList.length : 0);
+    return data; // Return full response to match web format
   } catch (e: any) {
     console.warn('listRecentSearches error:', e?.response?.status, e?.response?.data || e?.message);
     throw e;
   }
 };
 export const addRecentSearch = async (searchedUserId: number) => {
-  const url = '/api/search/recent/';
+  const url = '/api/recent-searches/';
   try {
     const { data } = await api.post(url, { searched_user_id: searchedUserId });
     console.log('addRecentSearch POST', API_BASE_URL + url, 'payload:', { searched_user_id: searchedUserId }, '->', data);
@@ -602,8 +604,19 @@ export const addRecentSearch = async (searchedUserId: number) => {
     throw e;
   }
 };
+export const deleteRecentSearch = async (searchId: number) => {
+  const url = `/api/recent-searches/${searchId}/`;
+  try {
+    const { data } = await api.delete(url);
+    console.log('deleteRecentSearch DELETE', API_BASE_URL + url, '->', data);
+    return data;
+  } catch (e: any) {
+    console.warn('deleteRecentSearch error:', e?.response?.status, e?.response?.data || e?.message);
+    throw e;
+  }
+};
 export const clearRecentSearches = async () => {
-  const { data } = await api.delete('/api/search/recent/');
+  const { data } = await api.delete('/api/recent-searches/');
   return data;
 };
 
@@ -791,6 +804,13 @@ const sortFeedWithPriority = (items: any[]) => {
 // Get combined feed of posts and reposts (including donation reposts)
 export const getFeed = async () => {
   try {
+    // Check if we have a valid token before making the request
+    const token = await getAccessToken();
+    if (!token) {
+      console.error('Mobile getFeed: No access token available');
+      throw new Error('No access token available');
+    }
+    
     // Get posts (which includes regular reposts)
     const postsResponse = await api.get('/api/posts/');
     const posts = postsResponse.data?.posts || [];
@@ -985,12 +1005,24 @@ export const getPostLikes = async (postId: number) => {
 
 // Mobile -> Backend: GET /api/posts/{post_id}/detail/ (includes reposts)
 export const getPostReposts = async (postId: number) => {
+  // Validate postId before making request
+  if (!postId || typeof postId !== 'number' || postId <= 0) {
+    console.warn('getPostReposts: Invalid postId provided:', postId);
+    return [];
+  }
+
   try {
     const { data } = await api.get(`/api/posts/${postId}/detail/`);
     // Extract reposts from post detail response
     return Array.isArray(data?.reposts) ? data.reposts : [];
-  } catch (error) {
-    console.error('Error fetching post reposts:', error);
+  } catch (error: any) {
+    // Handle 404 errors gracefully (post might not exist)
+    if (error?.response?.status === 404) {
+      console.log(`getPostReposts: Post ${postId} not found`);
+      return [];
+    }
+    // Only log unexpected errors
+    console.error('Error fetching post reposts:', error?.response?.status || error?.message || error);
     return [];
   }
 };
@@ -2097,6 +2129,17 @@ export const getEngagementPointsSettings = async () => {
     return data;
   } catch (error) {
     console.error('Mobile getEngagementPointsSettings API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: GET /api/engagement/points-tasks/
+export const getPointsTasks = async () => {
+  try {
+    const { data } = await api.get('/api/engagement/points-tasks/');
+    return data;
+  } catch (error) {
+    console.error('Mobile getPointsTasks API Error:', error);
     throw error;
   }
 };

@@ -9,6 +9,7 @@ interface UserContextType {
   login: (ctuId: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  setUserAndAuth: (user: any, authenticated: boolean) => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -144,6 +145,13 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
     await checkAuthStatus();
   };
 
+  const setUserAndAuth = (userData: any, authenticated: boolean) => {
+    console.log('[UserContext] 🔄 Directly setting user and auth state:', { userId: userData?.id, authenticated });
+    setUser(userData);
+    setIsAuthenticated(authenticated);
+    setLoading(false);
+  };
+
   const value: UserContextType = {
     user,
     isAuthenticated,
@@ -151,6 +159,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
     login,
     logout,
     refreshUser,
+    setUserAndAuth,
   };
 
   return (

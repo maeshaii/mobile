@@ -188,6 +188,16 @@ class AuthService {
     return userStr ? JSON.parse(userStr) : null;
   }
 
+  /**
+   * Invalidate the current session cache and force rebuild from storage
+   * This is useful after login when tokens are saved directly to storage
+   */
+  async invalidateSessionCache(): Promise<void> {
+    this.currentSession = null;
+    // Force rebuild from storage
+    await this.getCurrentSession();
+  }
+
   private getErrorMessage(error: any): string {
     if (error.response?.status === 401) {
       return 'Invalid credentials';

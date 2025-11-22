@@ -5,7 +5,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost, getRepostLikes, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment } from '../../services/api';
+import { API_BASE_URL, likeRepost, unlikeRepost, repostPost, deleteRepost, updateRepost, getRepostLikes, getRepostComments, commentOnRepost, updateRepostComment, deleteRepostComment, getPostReposts, getPostDetail, getForumDetail, getDonationDetail, getDonationReposts } from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
@@ -84,7 +84,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   // Local state for repost actions
   const [isLiked, setIsLiked] = useState(repost.is_liked || false);
   const [likeCount, setLikeCount] = useState(repost.likes_count || 0);
-  const [repostCount, setRepostCount] = useState(repost.reposts_count || 0);
+  const [repostCount, setRepostCount] = useState(repost.original_post?.reposts_count || 0);
   const [showActions, setShowActions] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editCaption, setEditCaption] = useState(repost.repost_caption || '');
@@ -127,8 +127,9 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     }
     setIsLiked(Boolean(liked));
     setLikeCount(repost.likes_count || 0);
-    setRepostCount(repost.reposts_count || 0);
-  }, [repost.is_liked, repost.likes_count, repost.reposts_count, repost.likes, currentUserId]);
+    // Use original post's repost count, not the repost's own repost count
+    setRepostCount(repost.original_post?.reposts_count || 0);
+  }, [repost.is_liked, repost.likes_count, repost.original_post?.reposts_count, repost.likes, currentUserId]);
   const repostTimeFromNow = (() => {
     const t = (repost as any)?.created_at || (repost as any)?.repost_date;
     return t ? dayjs(t).fromNow() : '';
@@ -605,7 +606,83 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
         <TouchableOpacity onPress={openCommentModal}>
           <Text style={styles.countText}>{repost.comments_count || 0} comments</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onOpenViewer?.(repost, 'reposts')}>
+        <TouchableOpacity onPress={async () => {
+          // When viewing reposts, show the original post's reposts, not the repost's own reposts
+          if (onOpenViewer && repost.original_post) {
+            const original = repost.original_post;
+            const originalPostId = original.post_id || original.forum_id || original.donation_id;
+            
+            if (!originalPostId) {
+              Alert.alert('Error', 'Unable to load reposts');
+              return;
+            }
+
+            try {
+              // First, pass the original post with existing reposts (if any) to show immediately
+              const originalPostWithReposts = {
+                ...original,
+                reposts: original.reposts || []
+              };
+              onOpenViewer(originalPostWithReposts as any, 'reposts');
+
+              // Then fetch fresh reposts data asynchronously
+              let repostsArray: any[] = [];
+              
+              // Check the post type
+              const isForum = original.type === 'forum' || !!original.forum_id || origin === 'forum';
+              const isDonation = original.type === 'donation' || !!original.donation_id || origin === 'donation';
+              
+              if (isForum) {
+                // For forum posts, get reposts from forum detail
+                try {
+                  const forumDetail = await getForumDetail(originalPostId);
+                  repostsArray = Array.isArray(forumDetail?.reposts) ? forumDetail.reposts : [];
+                } catch (error) {
+                  console.error('Error fetching forum reposts:', error);
+                  repostsArray = [];
+                }
+              } else if (isDonation) {
+                // For donation posts, get reposts from donation detail
+                try {
+                  const donationDetail = await getDonationDetail(originalPostId);
+                  repostsArray = Array.isArray(donationDetail?.reposts) ? donationDetail.reposts : [];
+                } catch (error) {
+                  console.error('Error fetching donation reposts:', error);
+                  repostsArray = [];
+                }
+              } else {
+                // For regular posts, use getPostReposts
+                try {
+                  repostsArray = await getPostReposts(originalPostId);
+                } catch (error) {
+                  // Fallback: try to get from post detail
+                  try {
+                    const postDetail = await getPostDetail(originalPostId);
+                    repostsArray = Array.isArray(postDetail?.reposts) ? postDetail.reposts : [];
+                  } catch (e) {
+                    console.error('Error fetching post reposts:', e);
+                    repostsArray = [];
+                  }
+                }
+              }
+
+              // Update the viewer with fresh reposts data
+              const updatedPost = {
+                ...original,
+                reposts: repostsArray
+              };
+              onOpenViewer(updatedPost as any, 'reposts');
+            } catch (error) {
+              console.error('Error loading reposts:', error);
+              // Still show the viewer with empty reposts
+              const originalPostWithReposts = {
+                ...original,
+                reposts: []
+              };
+              onOpenViewer(originalPostWithReposts as any, 'reposts');
+            }
+          }
+        }}>
           <Text style={styles.countText}>{repostCount} reposts</Text>
         </TouchableOpacity>
       </View>
