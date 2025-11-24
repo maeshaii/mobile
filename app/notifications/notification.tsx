@@ -19,6 +19,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
 import TrackerNotificationModal from '../../components/TrackerNotificationModal';
 import NotificationModal from '../../components/NotificationModal';
+import RewardNotificationModal from '../../components/RewardNotificationModal';
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
 import { formatNotificationDate } from '../../utils/dateUtils';
 import { formatFullName, formatUserFullName } from '../../utils/nameUtils';
@@ -71,6 +72,7 @@ const NotificationScreen = () => {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [trackerNotification, setTrackerNotification] = useState<NotificationItem | null>(null);
   const [generalNotification, setGeneralNotification] = useState<NotificationItem | null>(null);
+  const [rewardNotification, setRewardNotification] = useState<NotificationItem | null>(null);
   const router = useRouter();
 
   // Transform real-time notifications to match component's expected format
@@ -338,14 +340,23 @@ const NotificationScreen = () => {
     
     if (isTrackerNotification) {
       // Check if this is a "Thank You" notification (already completed)
+      // Be more specific - only match if it's explicitly about completion, not just "thank you" in closing
+      const subjectLower = item.subject?.toLowerCase() || '';
+      const fullMessageLower = fullMessage?.toLowerCase() || '';
+      const messageLower = message?.toLowerCase() || '';
       const isThankYouNotification = 
-        (item.subject && item.subject.toLowerCase().includes('thank you')) ||
-        (fullMessage && fullMessage.toLowerCase().includes('thank you')) ||
-        (message && message.toLowerCase().includes('thank you'));
+        subjectLower.includes('thank you for completing') ||
+        subjectLower === 'thank you for completing the tracker form' ||
+        fullMessageLower.includes('thank you for completing the tracker form') ||
+        fullMessageLower.includes('already completed the tracker form') ||
+        fullMessageLower.includes('your response has been recorded successfully') ||
+        messageLower.includes('thank you for completing the tracker form') ||
+        messageLower.includes('already completed the tracker form') ||
+        messageLower.includes('your response has been recorded successfully');
       
       if (isThankYouNotification) {
-        // Show "Thank You" notification in modal
-        setGeneralNotification(item);
+        // Show "Thank You" notification in TrackerNotificationModal
+        setTrackerNotification(item);
         return;
       }
       
@@ -353,7 +364,7 @@ const NotificationScreen = () => {
       try {
         const trackerStatus = await checkUserTrackerStatus();
         if (trackerStatus?.has_submitted) {
-          // User has already submitted - show "Thank You" message
+          // User has already submitted - show "Thank You" message in TrackerNotificationModal
           // Get user info to include their name in the message
           try {
             const user = await getUserInfo();
@@ -368,7 +379,7 @@ const NotificationScreen = () => {
               fullMessage: `Thank you ${userName} for completing the alumni tracker form. Your response has been recorded successfully.`,
               message: `Thank you ${userName} for completing the alumni tracker form. Your response has been recorded successfully.`,
             };
-            setGeneralNotification(thankYouNotification);
+            setTrackerNotification(thankYouNotification);
             return;
           } catch (userError) {
             console.error('Error getting user info:', userError);
@@ -379,7 +390,7 @@ const NotificationScreen = () => {
               fullMessage: 'Thank you for completing the alumni tracker form. Your response has been recorded successfully.',
               message: 'Thank you for completing the alumni tracker form. Your response has been recorded successfully.',
             };
-            setGeneralNotification(thankYouNotification);
+            setTrackerNotification(thankYouNotification);
             return;
           }
         } else {
@@ -395,10 +406,22 @@ const NotificationScreen = () => {
       }
     }
 
-    // Special case: reward notifications - show modal first with content/images
-    const isRewardNotification = type === 'reward';
-    if (isRewardNotification) {
-      setGeneralNotification(item);
+    // Special case: reward notifications - show RewardNotificationModal
+    // Check for reward type or reward request type with "removed from inventory" content
+    const isRewardNotification = 
+      type === 'reward' || 
+      type === 'reward_request' ||
+      (type && type.toLowerCase().includes('reward'));
+    
+    // Check if it's a "removed from inventory" notification
+    const isRemovedFromInventory = 
+      fullMessage.toLowerCase().includes('removed from inventory') ||
+      fullMessage.toLowerCase().includes('removed from the inventory') ||
+      (item.subject && item.subject.toLowerCase().includes('removed from inventory')) ||
+      (item.subject && item.subject.toLowerCase().includes('removed from the inventory'));
+    
+    if (isRewardNotification || isRemovedFromInventory) {
+      setRewardNotification(item);
       return;
     }
 
@@ -924,7 +947,17 @@ const NotificationScreen = () => {
       message.toLowerCase().includes('tracker');
 
     if (isTrackerNotification) {
-      return 'Tracker Notification from CCICT';
+      // Use the actual subject from the notification (matches web behavior)
+      // Fallback to a default if subject is not available
+      if (subject && subject.trim()) {
+        return subject;
+      }
+      // If no subject, use a shortened version of the message content (like web does)
+      const cleanMessage = fullMessage.replace(/<!--[^>]+-->/g, '').trim();
+      if (cleanMessage) {
+        return cleanMessage.length > 80 ? cleanMessage.substring(0, 80) + '...' : cleanMessage;
+      }
+      return 'Tracker Form Reminder';
     }
 
     // Handle specific notification types
@@ -1284,6 +1317,19 @@ const NotificationScreen = () => {
           content: trackerNotification.fullMessage || trackerNotification.message, // Use full message if available
           date: trackerNotification.date,
           type: trackerNotification.notif_type,
+        } : null}
+      />
+
+      {/* Reward Notification Modal */}
+      <RewardNotificationModal
+        isVisible={!!rewardNotification}
+        onClose={() => setRewardNotification(null)}
+        notification={rewardNotification ? {
+          subject: rewardNotification.subject,
+          content: rewardNotification.fullMessage || rewardNotification.message,
+          fullMessage: rewardNotification.fullMessage || rewardNotification.message,
+          date: rewardNotification.date,
+          type: rewardNotification.notif_type,
         } : null}
       />
 

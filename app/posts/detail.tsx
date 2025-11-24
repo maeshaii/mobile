@@ -805,7 +805,7 @@ export default function PostDetailScreen() {
                 setViewerVisible(true);
               }
             }}>
-              <Text style={styles.countText}>{post.reposts_count || 0} reposts</Text>
+              <Text style={styles.countText}>{post.reposts_count || 0} {(post.reposts_count || 0) === 1 ? 'repost' : 'reposts'}</Text>
             </TouchableOpacity>
           )}
         </View>

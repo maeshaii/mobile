@@ -11,6 +11,7 @@ import {
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { API_BASE_URL } from '../services/api';
+import UserAvatar from './UserAvatar';
 
 interface NotificationModalProps {
   isVisible: boolean;
@@ -27,6 +28,9 @@ interface NotificationModalProps {
     donation_id?: number;
     comment_id?: number;
     user_id?: number;
+    profile_pic?: string;
+    first_name?: string;
+    last_name?: string;
   } | null;
   onNavigate?: () => void;
 }
@@ -165,25 +169,13 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
       <View style={styles.overlay}>
         <View style={styles.modalContainer}>
           <View style={styles.header}>
-            {isThankYouTrackerNotification && (
-              <Image
-                source={require('../assets/images/ccict_logo.jpg')}
+            {(isThankYouTrackerNotification || isCCICTNotification || isPESONotification) && (
+              <UserAvatar
+                profilePic={notification.profile_pic}
+                firstName={notification.first_name}
+                lastName={notification.last_name}
+                size={44}
                 style={styles.logo}
-                resizeMode="cover"
-              />
-            )}
-            {!isThankYouTrackerNotification && isCCICTNotification && (
-              <Image
-                source={require('../assets/images/ccict_logo.jpg')}
-                style={styles.logo}
-                resizeMode="cover"
-              />
-            )}
-            {!isThankYouTrackerNotification && isPESONotification && (
-              <Image
-                source={require('../assets/images/peso_logo.jpg')}
-                style={styles.logo}
-                resizeMode="cover"
               />
             )}
             {!isThankYouTrackerNotification && !isCCICTNotification && !isPESONotification && isRewardNotification && (
@@ -320,6 +312,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     marginRight: 12,
+    overflow: 'hidden',
   },
   headerIcon: {
     marginRight: 8,

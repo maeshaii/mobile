@@ -848,7 +848,7 @@ export default function DashboardScreen() {
                     <>
                       <Text style={styles.postStats}> • </Text>
                       <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-                        <Text style={styles.postStats}>{post.comments_count || 0} comments</Text>
+                        <Text style={styles.postStats}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
                       </TouchableOpacity>
                     </>
                   )}

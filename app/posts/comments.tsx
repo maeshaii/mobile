@@ -566,6 +566,7 @@ export default function PostCommentsScreen() {
                     }
                   }}
                   disabled={!c.user?.user_id || c.user.user_id === meId}
+                  style={highlightedCommentId === c.comment_id ? styles.highlightedNameContainer : null}
                 >
                   <Text style={[
                     styles.cName,
@@ -606,10 +607,7 @@ export default function PostCommentsScreen() {
                 </View>
               </View>
             ) : (
-              <View style={[
-                styles.bubble,
-                highlightedCommentId === c.comment_id && styles.highlightedBubble
-              ]}>
+              <View style={styles.bubble}>
                 {renderTextWithMentions(c.comment_content, [], (userId) => {
                   router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                 })}
@@ -786,10 +784,7 @@ export default function PostCommentsScreen() {
                       return (
                         <View 
                           key={replyIndex} 
-                          style={[
-                            styles.replyItem,
-                            highlightedReplyId === reply.reply_id && styles.highlightedBubble
-                          ]}
+                          style={styles.replyItem}
                           onLayout={(event) => {
                             const { y } = event.nativeEvent.layout;
                             replyPositionsRef.current[reply.reply_id] = { commentId: c.comment_id, y };
@@ -814,6 +809,7 @@ export default function PostCommentsScreen() {
                                     }
                                   }}
                                   disabled={!reply.user?.user_id || reply.user.user_id === meId}
+                                  style={highlightedReplyId === reply.reply_id ? styles.highlightedNameContainer : null}
                                 >
                                   <Text style={[
                                     styles.replyName,
@@ -1560,15 +1556,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 14,
   },
-  highlightedBubble: {
+  highlightedNameContainer: {
     backgroundColor: '#fef3c7',
-    borderWidth: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
     borderColor: '#f59e0b',
-    shadowColor: '#f59e0b',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    alignSelf: 'flex-start',
   },
   cBody: { color: '#111827' },
   editBox: { marginTop: 6 },

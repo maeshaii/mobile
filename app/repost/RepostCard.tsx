@@ -623,7 +623,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
         )}
         {(repost.comments_count || 0) > 0 && (
           <TouchableOpacity onPress={openCommentModal}>
-            <Text style={styles.countText}>{repost.comments_count || 0} comments</Text>
+            <Text style={styles.countText}>{repost.comments_count || 0} {(repost.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
           </TouchableOpacity>
         )}
         {repostCount > 0 && (
@@ -704,7 +704,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
             }
           }
         }}>
-          <Text style={styles.countText}>{repostCount} reposts</Text>
+          <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
         </TouchableOpacity>
         )}
       </View>

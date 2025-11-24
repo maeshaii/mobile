@@ -649,6 +649,17 @@ export const getTrackerAcceptingStatus = async (trackerFormId: number) => {
   }
   return (await api.get(`/api/tracker/accepting/${trackerFormId}/`)).data;
 };
+// Mobile -> Backend: POST /api/tracker/save-draft/
+export const saveTrackerDraft = async (userId: string, answers: Record<string, any>) => {
+  return (await api.post('/api/tracker/save-draft/', {
+    user_id: userId,
+    answers,
+  })).data;
+};
+// Mobile -> Backend: GET /api/tracker/load-draft/
+export const loadTrackerDraft = async (userId: string) => {
+  return (await api.get(`/api/tracker/load-draft/?user_id=${userId}`)).data;
+};
 
 /** Alumni */
 // Mobile -> Backend: GET /api/alumni/statistics/
@@ -2118,6 +2129,17 @@ export const claimRewardRequest = async (requestId: number) => {
     return data;
   } catch (error) {
     console.error('Mobile claimRewardRequest API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/rewards/requests/{request_id}/cancel/
+export const cancelRewardRequest = async (requestId: number) => {
+  try {
+    const { data } = await api.post(`/api/rewards/requests/${requestId}/cancel/`);
+    return data;
+  } catch (error) {
+    console.error('Mobile cancelRewardRequest API Error:', error);
     throw error;
   }
 };

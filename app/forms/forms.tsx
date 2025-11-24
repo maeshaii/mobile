@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, ScrollView, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
@@ -7,9 +7,9 @@ import type { RadioButtonProps } from 'react-native-radio-buttons-group';
 // @ts-ignore
 import type {} from 'expo-document-picker';
 import type {} from 'react-native-radio-buttons-group';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
-import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus } from '../../services/api';
+import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, saveTrackerDraft, loadTrackerDraft } from '../../services/api';
 import TermsAndConditionsModal from './termsandcondi';
 
 type FileAsset = {
@@ -76,6 +76,13 @@ export default function TrackerForm() {
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
+  // Auto-save states
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | null>(null);
+  const [draftCheckComplete, setDraftCheckComplete] = useState(false);
+  const [hasDraftData, setHasDraftData] = useState(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userIdRef = useRef<string | null>(null);
+
   // Dropdown states (fallback UI)
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
   const [showEmploymentStatusDropdown, setShowEmploymentStatusDropdown] = useState(false);
@@ -84,6 +91,33 @@ export default function TrackerForm() {
   const [showSalaryRangeDropdown, setShowSalaryRangeDropdown] = useState(false);
 
   const navigation = useNavigation();
+  
+  // Function to check tracker status (reusable for focus effect and after submission)
+  const checkTrackerStatus = React.useCallback(async () => {
+    try {
+      const active = await getActiveTrackerForm();
+      const status = await checkUserTrackerStatus();
+      let acceptingStatus = null;
+      
+      try {
+        acceptingStatus = await getTrackerAcceptingStatus(active?.tracker_form_id);
+      } catch (e) {
+        console.warn('Could not get accepting status:', e);
+        acceptingStatus = { accepting_responses: true };
+      }
+      
+      const accepting = Boolean(acceptingStatus?.accepting_responses);
+      const hasSubmitted = Boolean(status?.has_submitted);
+      
+      setAccepting(accepting);
+      setHasSubmitted(hasSubmitted);
+      
+      return { accepting, hasSubmitted };
+    } catch (e) {
+      console.warn('Tracker status check failed:', e);
+      return null;
+    }
+  }, []);
   
   const [genderOptions, setGenderOptions] = useState<RadioButtonProps[]>([
     { id: '1', label: 'Male', value: 'Male', selected: true },
@@ -114,26 +148,18 @@ export default function TrackerForm() {
         const user = await getUserInfo();
 
         // 1) Gating: active form + status
-        try {
-          const active = await getActiveTrackerForm();
-          // Some backends return { tracker_form_id }
-          const status = await checkUserTrackerStatus(); // expect { accepting_responses, has_submitted }
-          setAccepting(Boolean(status?.accepting_responses ?? status?.accepting));
-          setHasSubmitted(Boolean(status?.has_submitted));
-
-          if (status?.has_submitted) {
+        const statusResult = await checkTrackerStatus();
+        if (statusResult) {
+          if (statusResult.hasSubmitted) {
             Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
             navigation.goBack();
             return;
           }
-          if (status && (status.accepting_responses === false || status.accepting === false)) {
+          if (!statusResult.accepting) {
             Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
             navigation.goBack();
             return;
           }
-        } catch (e) {
-          // Non-fatal: continue to allow form load, but log
-          console.warn('Tracker gating check failed:', e);
         }
 
         // 2) Fetch dynamic questions
@@ -149,9 +175,48 @@ export default function TrackerForm() {
           setCategories(sortedCategories);
         }
 
-        // 3) Prefill like web does
-        try {
-          if (user?.id) {
+        // 2.5) Load saved draft if available (before prefill)
+        let draftLoaded = false;
+        if (user?.id && Array.isArray(cats) && cats.length > 0) {
+          const userId = String(user.user_id || user.id);
+          userIdRef.current = userId;
+          try {
+            console.log('🔄 Checking for saved draft for user:', userId);
+            const draftResponse = await loadTrackerDraft(userId);
+            
+            if (draftResponse?.success && draftResponse?.has_draft && Object.keys(draftResponse.answers || {}).length > 0) {
+              console.log('✅ Draft found with', Object.keys(draftResponse.answers).length, 'answers - loading...');
+              
+              // Sanitize draft data (remove empty objects, null values, etc.)
+              const sanitizedAnswers: Record<string, any> = {};
+              for (const [key, value] of Object.entries(draftResponse.answers)) {
+                if (value === null || value === undefined) continue;
+                if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) continue;
+                if (typeof value === 'string' && value.trim() === '') continue;
+                sanitizedAnswers[key] = value;
+              }
+              
+              setResponses(sanitizedAnswers);
+              setSaveStatus('saved');
+              setHasDraftData(true);
+              draftLoaded = true;
+            } else {
+              console.log('ℹ️ No saved draft found');
+              setHasDraftData(false);
+            }
+          } catch (error) {
+            console.error('❌ Error loading draft:', error);
+            setHasDraftData(false);
+          }
+        } else if (user?.id) {
+          userIdRef.current = String(user.user_id || user.id);
+        }
+        setDraftCheckComplete(true);
+
+        // 3) Prefill like web does (only if no draft was loaded)
+        if (!draftLoaded) {
+          try {
+            if (user?.id) {
             const details = await getAlumniDetails(user.id);
             const alumni = details?.alumni || {};
             setUserDetails(alumni);
@@ -224,7 +289,8 @@ export default function TrackerForm() {
               setResponses(prev => ({ ...prev, ...initialResponses }));
             }
           }
-        } catch {}
+          } catch {}
+        }
 
         setError(null);
         
@@ -239,7 +305,94 @@ export default function TrackerForm() {
     };
     // @ts-ignore
     init();
-  }, [navigation]);
+  }, [navigation, checkTrackerStatus]);
+
+  // Refresh tracker status when page is focused (to sync with web/mobile submissions)
+  useFocusEffect(
+    React.useCallback(() => {
+      const refreshStatus = async () => {
+        const statusResult = await checkTrackerStatus();
+        if (statusResult) {
+          // If already submitted, show alert and go back
+          if (statusResult.hasSubmitted) {
+            Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+            navigation.goBack();
+            return;
+          }
+          // If form is closed, show alert and go back
+          if (!statusResult.accepting) {
+            Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
+            navigation.goBack();
+            return;
+          }
+        }
+      };
+      refreshStatus();
+    }, [checkTrackerStatus, navigation])
+  );
+
+  // Auto-save formResponses (debounced - saves 3 seconds after last change)
+  useEffect(() => {
+    if (!draftCheckComplete || !userIdRef.current) {
+      return; // Don't auto-save before draft check is complete or if no user ID
+    }
+
+    // Clear existing timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Don't auto-save if there are no responses
+    if (Object.keys(responses).length === 0) {
+      return;
+    }
+
+    // Set status to unsaved
+    setSaveStatus('unsaved');
+
+    // Debounce: save 3 seconds after last change
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        setSaveStatus('saving');
+        console.log('💾 Auto-saving draft...');
+        
+        // Filter out file responses (files can't be saved in drafts, only during submission)
+        const draftResponses: Record<string, any> = {};
+        for (const [key, value] of Object.entries(responses)) {
+          // Skip file responses (they have type: 'file' or are arrays of file objects)
+          if (value && typeof value === 'object') {
+            if (value.type === 'file') {
+              continue; // Skip single file responses
+            }
+            if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && 'uri' in value[0]) {
+              continue; // Skip multiple file responses
+            }
+          }
+          draftResponses[key] = value;
+        }
+        
+        await saveTrackerDraft(userIdRef.current!, draftResponses);
+        
+        setSaveStatus('saved');
+        console.log('✅ Draft auto-saved successfully');
+        
+        // Reset to null after 2 seconds
+        setTimeout(() => {
+          setSaveStatus(null);
+        }, 2000);
+      } catch (error) {
+        console.error('❌ Auto-save failed:', error);
+        setSaveStatus('unsaved');
+      }
+    }, 3000); // 3 second debounce
+
+    // Cleanup
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [responses, draftCheckComplete]);
 
   const handleChange = (key: keyof typeof form, value: any) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -430,6 +583,10 @@ export default function TrackerForm() {
 
       console.log('Submitting tracker (multipart)');
       await submitTrackerResponse(fd);
+      
+      // Refresh status after successful submission to ensure sync
+      await checkTrackerStatus();
+      
       Alert.alert('Success', 'Form submitted successfully!');
       navigation.goBack();
     } catch (error: any) {
@@ -819,6 +976,25 @@ export default function TrackerForm() {
         </TouchableOpacity>
         <Text style={styles.topBarTitle}>CTU MAIN ALUMNI TRACKER</Text>
       </View>
+      
+      {/* Auto-save status indicator */}
+      {saveStatus && (
+        <View style={{
+          backgroundColor: saveStatus === 'saved' ? '#4CAF50' : saveStatus === 'saving' ? '#FF9800' : '#F44336',
+          paddingVertical: 6,
+          paddingHorizontal: 12,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          {saveStatus === 'saving' && <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />}
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
+            {saveStatus === 'saved' && '✓ Draft saved'}
+            {saveStatus === 'saving' && 'Saving draft...'}
+            {saveStatus === 'unsaved' && '● Unsaved changes'}
+          </Text>
+        </View>
+      )}
       
       {loading ? (
         <View style={styles.loadingContainer}>
