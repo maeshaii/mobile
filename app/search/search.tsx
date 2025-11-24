@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
-import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, deleteRecentSearch, clearRecentSearches, searchAlumni, searchOJT, getAccessToken } from '../../services/api';
+import { API_BASE_URL, getAlumniList, listRecentSearches, addRecentSearch, deleteRecentSearch, clearRecentSearches, searchAlumni, searchOJT, getAccessToken, getUserInfo } from '../../services/api';
 import { RecentSearchWebSocket } from '../../services/recentSearchWebSocket';
 import * as SecureStore from 'expo-secure-store';
 import UserAvatar from '../../components/UserAvatar';
@@ -350,17 +350,32 @@ export default function SearchPage() {
     const userId = item.userId ?? item.searched_user?.user_id ?? item.id;
     if (!userId || Number.isNaN(Number(userId))) return;
     
-    // Update backend recent searches and immediately sync from server
+    // Check if this is the current user
     try {
-      await addRecentSearch(Number(userId));
-      // Reload recent searches to sync with server
-      await loadRecentSearches();
+      const currentUser = await getUserInfo();
+      const currentUserId = currentUser?.user_id || currentUser?.id;
+      const isCurrentUser = currentUserId && Number(userId) === Number(currentUserId);
+      
+      // Update backend recent searches and immediately sync from server
+      try {
+        await addRecentSearch(Number(userId));
+        // Reload recent searches to sync with server
+        await loadRecentSearches();
+      } catch (error) {
+        console.error('Error saving recent search:', error);
+        // Don't prevent navigation if saving fails
+      }
+      
+      if (isCurrentUser) {
+        router.push('/profile/profilepage');
+      } else {
+        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: String(userId) } });
+      }
     } catch (error) {
-      console.error('Error saving recent search:', error);
-      // Don't prevent navigation if saving fails
+      console.error('Error getting user info:', error);
+      // Fallback to otheruser if we can't check
+      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: String(userId) } });
     }
-    
-    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: String(userId) } });
   };
 
   const clearRecent = async () => {

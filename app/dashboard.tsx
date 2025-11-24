@@ -844,10 +844,14 @@ export default function DashboardScreen() {
                   <TouchableOpacity onPress={() => { setSelectedPost(post); setViewerType('likes'); setViewerVisible(true); }}>
                     <Text style={styles.postStats}>{post.likes_count || 0} likes</Text>
                   </TouchableOpacity>
-                  <Text style={styles.postStats}> • </Text>
-                  <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-                    <Text style={styles.postStats}>{post.comments_count || 0} comments</Text>
-                  </TouchableOpacity>
+                  {(post.comments_count || 0) > 0 && (
+                    <>
+                      <Text style={styles.postStats}> • </Text>
+                      <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
+                        <Text style={styles.postStats}>{post.comments_count || 0} comments</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </View>
               </View>
 
@@ -1031,34 +1035,69 @@ export default function DashboardScreen() {
             </View>
 
             <ScrollView style={{ maxHeight: 320 }}>
-              {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => (
-                <View key={idx} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={u.profile_pic}
-                    firstName={u.f_name}
-                    lastName={u.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
-                </View>
-              ))}
+              {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => {
+                const userId = u.user_id || u.id;
+                const currentUserId = user?.user_id || user?.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={u.profile_pic}
+                      firstName={u.f_name}
+                      lastName={u.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(u)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
 
-              {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => (
-                <View key={r.repost_id} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={r.user?.profile_pic}
-                    firstName={r.user?.f_name}
-                    lastName={r.user?.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <View>
-                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
-                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
-                  </View>
-                </View>
-              ))}
+              {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => {
+                const userId = r.user?.user_id || r.user?.id;
+                const currentUserId = user?.user_id || user?.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={r.repost_id}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={r.user?.profile_pic}
+                      firstName={r.user?.f_name}
+                      lastName={r.user?.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(r.user)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
 
               {viewerType === 'comments' && selectedPost?.comments?.map((c: any) => (
                 <View key={c.comment_id} style={styles.commentRow}>
@@ -1066,7 +1105,23 @@ export default function DashboardScreen() {
                   <View style={{ flex: 1 }}>
                     <View style={styles.commentHeaderRow}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.commentName}>{formatUserFullName(c.user)}</Text>
+                        <TouchableOpacity 
+                          onPress={() => {
+                            const commentUserId = c.user?.user_id || c.user?.id;
+                            const currentUserId = user?.user_id || (user as any)?.id;
+                            if (commentUserId && commentUserId !== currentUserId) {
+                              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: commentUserId } });
+                            }
+                          }}
+                          disabled={!c.user?.user_id && !c.user?.id}
+                        >
+                          <Text style={[
+                            styles.commentName,
+                            (c.user?.user_id || c.user?.id) && (c.user?.user_id || c.user?.id) !== (user?.user_id || (user as any)?.id) ? { color: '#1e3a8a' } : null
+                          ]}>
+                            {formatUserFullName(c.user)}
+                          </Text>
+                        </TouchableOpacity>
                         <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
                       </View>
                     </View>

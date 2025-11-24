@@ -230,7 +230,11 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
           onPress={() => {
             const uid = post.user?.user_id;
             if (uid) {
-              router.push(`/profile/profilepage?viewUserId=${uid}`);
+              if (uid === currentUserId) {
+                router.push('/profile/profilepage');
+              } else {
+                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+              }
             }
           }}
           disabled={!post.user?.user_id}
@@ -356,12 +360,16 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
             </Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-          <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
-          <Text style={styles.countText}>{repostCount} reposts</Text>
-        </TouchableOpacity>
+        {(post.comments_count || 0) > 0 && (
+          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
+            <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
+          </TouchableOpacity>
+        )}
+        {repostCount > 0 && (
+          <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
+            <Text style={styles.countText}>{repostCount} reposts</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Actions */}

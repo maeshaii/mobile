@@ -1121,8 +1121,25 @@ export default function OJTProfilePage() {
             <ScrollView style={{ maxHeight: 320, paddingHorizontal: 16 }}>
               {viewerType === 'likes' && selectedPostStats?.likes?.length > 0 && selectedPostStats?.likes?.map((u: any, idx: number) => {
                 console.log('Profile: Rendering like user:', u);
+                const userId = u.user_id || u.id;
+                const currentUserId = user?.user_id || user?.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
                 return (
-                  <View key={idx} style={styles.listItemRow}>
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
                     <UserAvatar 
                       profilePic={u.profile_pic}
                       firstName={u.f_name}
@@ -1130,8 +1147,8 @@ export default function OJTProfilePage() {
                       size={36}
                       style={styles.listAvatar}
                     />
-                    <Text style={styles.listText}>{formatUserFullName(u)}</Text>
-                  </View>
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(u)}</Text>
+                  </TouchableOpacity>
                 );
               })}
               
@@ -1141,21 +1158,37 @@ export default function OJTProfilePage() {
                 </View>
               )}
 
-              {viewerType === 'reposts' && selectedPostStats?.reposts?.length > 0 && selectedPostStats?.reposts?.map((r: any) => (
-                <View key={r.repost_id} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={r.user?.profile_pic}
-                    firstName={r.user?.f_name}
-                    lastName={r.user?.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <View>
-                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
-                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
-                  </View>
-                </View>
-              ))}
+              {viewerType === 'reposts' && selectedPostStats?.reposts?.length > 0 && selectedPostStats?.reposts?.map((r: any) => {
+                const userId = r.user?.user_id || r.user?.id;
+                const currentUserId = user?.user_id || user?.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={r.repost_id}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={r.user?.profile_pic}
+                      firstName={r.user?.f_name}
+                      lastName={r.user?.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(r.user)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
 
               {viewerType === 'reposts' && (!selectedPostStats?.reposts || selectedPostStats?.reposts?.length === 0) && (
                 <View style={{ padding: 20, alignItems: 'center' }}>

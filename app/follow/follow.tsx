@@ -1,14 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
+import { View, Text, Modal, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, RefreshControl,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -191,7 +182,12 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                         style={styles.userCardContent}
                         onPress={() => {
                           onClose();
-                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
+                          const isCurrentUser = currentUserId && user.user_id === currentUserId;
+                          if (isCurrentUser) {
+                            router.push('/profile/profilepage');
+                          } else {
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: user.user_id } });
+                          }
                         }}
                         activeOpacity={0.7}
                       >

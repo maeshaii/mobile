@@ -186,9 +186,22 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
             {comments.slice(0, 2).map((comment) => (
               <View key={comment.id} style={styles.commentItem}>
                 <View style={styles.commentHeaderRow}>
-                  <Text style={styles.commentAuthor}>
-                    {formatUserFullName(comment.user)}
-                  </Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      const commentUserId = comment.user?.id || comment.user?.user_id;
+                      if (commentUserId) {
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: commentUserId } });
+                      }
+                    }}
+                    disabled={!comment.user?.id && !comment.user?.user_id}
+                  >
+                    <Text style={[
+                      styles.commentAuthor,
+                      (comment.user?.id || comment.user?.user_id) ? { color: '#1e3a8a' } : null
+                    ]}>
+                      {formatUserFullName(comment.user)}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.commentBubble}>
                   {renderTextWithMentions(comment.comment_content, [], (userId) => {
@@ -230,9 +243,22 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
                   <View style={styles.modalCommentAvatar} />
                   <View style={styles.modalCommentContent}>
                     <View style={styles.modalCommentHeaderRow}>
-                      <Text style={styles.modalCommentAuthor}>
-                        {formatUserFullName(comment.user)}
-                      </Text>
+                      <TouchableOpacity 
+                        onPress={() => {
+                          const commentUserId = comment.user?.id || comment.user?.user_id;
+                          if (commentUserId) {
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: commentUserId } });
+                          }
+                        }}
+                        disabled={!comment.user?.id && !comment.user?.user_id}
+                      >
+                        <Text style={[
+                          styles.modalCommentAuthor,
+                          (comment.user?.id || comment.user?.user_id) ? { color: '#1e3a8a' } : null
+                        ]}>
+                          {formatUserFullName(comment.user)}
+                        </Text>
+                      </TouchableOpacity>
                       <Text style={styles.modalCommentDate}>
                         {formatDate(comment.created_at)}
                       </Text>

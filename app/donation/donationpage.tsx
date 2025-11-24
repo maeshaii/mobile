@@ -696,34 +696,67 @@ export default function DonationPage() {
             </View>
 
             <ScrollView style={{ maxHeight: 320 }}>
-              {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => (
-                <View key={idx} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={u.profile_pic}
-                    firstName={u.f_name}
-                    lastName={u.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
-                </View>
-              ))}
+              {viewerType === 'likes' && selectedPostStats?.likes?.map((u: any, idx: number) => {
+                const userId = u.user_id || u.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={u.profile_pic}
+                      firstName={u.f_name}
+                      lastName={u.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(u)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
 
-              {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => (
-                <View key={r.repost_id} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={r.user?.profile_pic}
-                    firstName={r.user?.f_name}
-                    lastName={r.user?.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <View>
-                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
-                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
-                  </View>
-                </View>
-              ))}
+              {viewerType === 'reposts' && selectedPostStats?.reposts?.map((r: any) => {
+                const userId = r.user?.user_id || r.user?.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={r.repost_id}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={r.user?.profile_pic}
+                      firstName={r.user?.f_name}
+                      lastName={r.user?.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(r.user)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -977,7 +1010,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
   },
-  // Full Screen Modal Styles - matching post creation interface
   fullScreenModal: {
     flex: 1,
     backgroundColor: '#fff',

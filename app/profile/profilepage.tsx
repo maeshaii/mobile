@@ -35,6 +35,7 @@ import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
 import RepostCard from '../repost/RepostCard';
 import { formatUserFullName } from '../../utils/nameUtils';
+import PhotoGalleryModal from '../../components/PhotoGalleryModal';
 
 const profilePic = require('../../assets/images/sample_pic.jpg');
 
@@ -85,6 +86,7 @@ interface OriginalPost {
   post_title?: string;
   post_content: string;
   post_image?: string | null;
+  post_images?: any[];
   donation_id?: number;
   type?: string | null;
   post_type?: string | null;
@@ -166,6 +168,10 @@ export default function ProfilePage() {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'likes' | 'comments' | 'reposts' | null>(null);
   const [selectedPostStats, setSelectedPostStats] = useState<any | null>(null);
+
+  // photo gallery
+  const [showAllPhotosModal, setShowAllPhotosModal] = useState(false);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
   const loadUser = useCallback(async () => {
     setLoading(true);
@@ -444,6 +450,58 @@ export default function ProfilePage() {
     }
   };
 
+  // Extract all images from posts
+  const getAllPostImages = (): string[] => {
+    const allImages: string[] = [];
+    
+    posts.forEach((item) => {
+      if (isPost(item)) {
+        // Handle multiple images
+        if (item.post_images && item.post_images.length > 0) {
+          const sortedImages = [...item.post_images].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+          sortedImages.forEach((img: any) => {
+            if (img.image_url && !allImages.includes(img.image_url)) {
+              allImages.push(img.image_url);
+            }
+          });
+        }
+        // Handle single image (backward compatibility)
+        else if (item.post_image && !allImages.includes(item.post_image)) {
+          allImages.push(item.post_image);
+        }
+      } else if (isRepost(item)) {
+        // Handle repost original post images
+        const originalPost = item.original_post;
+        if (originalPost.post_images && originalPost.post_images.length > 0) {
+          const sortedImages = [...originalPost.post_images].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+          sortedImages.forEach((img: any) => {
+            if (img.image_url && !allImages.includes(img.image_url)) {
+              allImages.push(img.image_url);
+            }
+          });
+        } else if (originalPost.post_image && !allImages.includes(originalPost.post_image)) {
+          allImages.push(originalPost.post_image);
+        }
+      }
+    });
+    
+    return allImages;
+  };
+
+  const allPostImages = getAllPostImages();
+  const displayPhotos = allPostImages.slice(0, 9); // Show first 9 photos
+
+  const getImageUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    if (url.startsWith('/media/')) {
+      return `${API_BASE_URL}${url}`;
+    }
+    return `${API_BASE_URL}${url}`;
+  };
+
   return (
     <ScrollView
       style={styles.scrollContainer}
@@ -665,6 +723,56 @@ export default function ProfilePage() {
             </TouchableOpacity>
           )}
         </View>
+
+      {/* Photos Section */}
+      {allPostImages.length > 0 && (
+        <View style={styles.photosCard}>
+          <View style={styles.photosHeader}>
+            <Text style={styles.photosTitle}>Photos ({allPostImages.length})</Text>
+            {allPostImages.length > 9 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setCurrentPhotoIndex(0);
+                  setShowAllPhotosModal(true);
+                }}
+              >
+                <Text style={styles.seeAllText}>See all</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={styles.photosGrid}>
+            {displayPhotos.map((imageUrl, index) => {
+              const isLastPhoto = index === displayPhotos.length - 1;
+              const hasMorePhotos = allPostImages.length > 9;
+              const remainingPhotos = allPostImages.length - 9;
+              
+              return (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.photoItem}
+                  onPress={() => {
+                    const clickedIndex = allPostImages.indexOf(imageUrl);
+                    setCurrentPhotoIndex(clickedIndex);
+                    setShowAllPhotosModal(true);
+                  }}
+                  activeOpacity={0.9}
+                >
+                  <Image
+                    source={{ uri: getImageUrl(imageUrl) }}
+                    style={styles.photoImage}
+                    resizeMode="cover"
+                  />
+                  {isLastPhoto && hasMorePhotos && (
+                    <View style={styles.photoOverlay}>
+                      <Text style={styles.photoOverlayText}>+{remainingPhotos} photos</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {/* Start a Post (own profile only) */}
       {isOwnProfile && (
@@ -1029,8 +1137,25 @@ export default function ProfilePage() {
             <ScrollView style={{ maxHeight: 320, paddingHorizontal: 16 }}>
               {viewerType === 'likes' && selectedPostStats?.likes?.length > 0 && selectedPostStats?.likes?.map((u: any, idx: number) => {
                 console.log('Profile: Rendering like user:', u);
+                const userId = u.user_id || u.id;
+                const currentUserId = (user as any)?.user_id || (user as any)?.id || viewUserId;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
                 return (
-                  <View key={idx} style={styles.listItemRow}>
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
                     <UserAvatar 
                       profilePic={u.profile_pic}
                       firstName={u.f_name}
@@ -1038,8 +1163,8 @@ export default function ProfilePage() {
                       size={36}
                       style={styles.listAvatar}
                     />
-                    <Text style={styles.listText}>{formatUserFullName(u)}</Text>
-                  </View>
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(u)}</Text>
+                  </TouchableOpacity>
                 );
               })}
               
@@ -1049,21 +1174,37 @@ export default function ProfilePage() {
                 </View>
               )}
 
-              {viewerType === 'reposts' && selectedPostStats?.reposts?.length > 0 && selectedPostStats?.reposts?.map((r: any) => (
-                <View key={r.repost_id} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={r.user?.profile_pic}
-                    firstName={r.user?.f_name}
-                    lastName={r.user?.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <View>
-                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
-                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
-                  </View>
-                </View>
-              ))}
+              {viewerType === 'reposts' && selectedPostStats?.reposts?.length > 0 && selectedPostStats?.reposts?.map((r: any) => {
+                const userId = r.user?.user_id || r.user?.id;
+                const currentUserId = (user as any)?.user_id || (user as any)?.id || viewUserId;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={r.repost_id}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={r.user?.profile_pic}
+                      firstName={r.user?.f_name}
+                      lastName={r.user?.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(r.user)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
 
               {viewerType === 'reposts' && (!selectedPostStats?.reposts || selectedPostStats?.reposts?.length === 0) && (
                 <View style={{ padding: 20, alignItems: 'center' }}>
@@ -1092,6 +1233,23 @@ export default function ProfilePage() {
           onClose={() => setShowFollowing(false)}
           type="following"
           userId={profileUserId}
+        />
+      )}
+
+      {/* Photo Gallery Modal */}
+      {showAllPhotosModal && allPostImages.length > 0 && (
+        <PhotoGalleryModal
+          isOpen={showAllPhotosModal}
+          onClose={() => setShowAllPhotosModal(false)}
+          images={allPostImages.map(url => getImageUrl(url))}
+          currentIndex={currentPhotoIndex}
+          onPrevious={() => {
+            setCurrentPhotoIndex(prev => (prev > 0 ? prev - 1 : allPostImages.length - 1));
+          }}
+          onNext={() => {
+            setCurrentPhotoIndex(prev => (prev < allPostImages.length - 1 ? prev + 1 : 0));
+          }}
+          onImageClick={(index) => setCurrentPhotoIndex(index)}
         />
       )}
 
@@ -1761,5 +1919,66 @@ const styles = StyleSheet.create({
   },
   cancelPhotoOptionText: {
     color: '#666',
+  },
+  photosCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    width: '100%',
+  },
+  photosHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  photosTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  seeAllText: {
+    fontSize: 14,
+    color: '#174f84',
+    fontWeight: '500',
+  },
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  photoItem: {
+    width: '32%',
+    aspectRatio: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#e0e0e0',
+    position: 'relative',
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoOverlayText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

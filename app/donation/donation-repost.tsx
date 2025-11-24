@@ -229,7 +229,14 @@ export default function DonationRepostScreen() {
           <TouchableOpacity
             onPress={() => {
               const uid = original?.user?.user_id || original?.user?.id;
-              if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+              const currentUserId = me?.user_id || me?.id;
+              if (uid) {
+                if (uid === currentUserId) {
+                  router.push('/profile/profilepage');
+                } else {
+                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                }
+              }
             }}
             activeOpacity={0.7}
           >
@@ -245,7 +252,14 @@ export default function DonationRepostScreen() {
             <TouchableOpacity
               onPress={() => {
                 const uid = original?.user?.user_id || original?.user?.id;
-                if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+                const currentUserId = me?.user_id || me?.id;
+                if (uid) {
+                  if (uid === currentUserId) {
+                    router.push('/profile/profilepage');
+                  } else {
+                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                  }
+                }
               }}
               activeOpacity={0.7}
             >
@@ -320,7 +334,7 @@ export default function DonationRepostScreen() {
             style={styles.imageViewerClose}
             onPress={() => setImageViewerVisible(false)}
           >
-            <Ionicons name="times" size={24} color="white" />
+            <Ionicons name="close" size={24} color="white" />
           </TouchableOpacity>
           <Image 
             source={{ uri: original.post_image }} 
@@ -342,7 +356,7 @@ export default function DonationRepostScreen() {
             <View style={styles.commentHeader}>
               <Text style={styles.commentTitle}>Add Comment</Text>
               <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
-                <Ionicons name="times" size={20} color="#666" />
+                <Ionicons name="close" size={20} color="#666" />
               </TouchableOpacity>
             </View>
             
@@ -377,7 +391,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  // Top Bar Styles - matching post creation interface
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -465,7 +478,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     color: '#D9D9D9',
   },
-  // Original Post Card
   originalPostCard: {
     backgroundColor: '#f8f9fa',
     borderRadius: 12,
@@ -504,7 +516,6 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 12,
   },
-  // Image grid styles - matching dashboard layout
   imagesContainer: {
     marginTop: 10,
     borderRadius: 8,
@@ -551,7 +562,6 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.7,
   },
-  // Loading and Error States
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

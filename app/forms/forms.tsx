@@ -1,14 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  Platform,
-  Alert,
-  ActivityIndicator,
+import { View, Text, TextInput, ScrollView, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import RadioGroup from 'react-native-radio-buttons-group';

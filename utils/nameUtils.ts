@@ -59,10 +59,9 @@ export const formatUserFullName = (
 };
 
 /**
- * Format like count text to match web version
+ * Format like count text to be concise and prevent overflow
  * - 1 like: "Name liked this"
- * - 2 likes: "Name1 and Name2 liked this"
- * - 3+ likes: "Name and X others liked this"
+ * - 2+ likes: "Name and X others liked this"
  * 
  * @param likes - Array of like objects with user information
  * @param likesCount - Total number of likes (fallback if likes array is not available)
@@ -100,23 +99,8 @@ export const formatLikeCountText = (
       l_name: user.l_name,
     });
     return `${name} liked this`;
-  } else if (count === 2) {
-    const like0 = likes[0];
-    const like1 = likes[1];
-    const user0 = like0.user || like0;
-    const user1 = like1.user || like1;
-    const name0 = formatUserFullName({
-      f_name: user0.f_name,
-      m_name: user0.m_name,
-      l_name: user0.l_name,
-    });
-    const name1 = formatUserFullName({
-      f_name: user1.f_name,
-      m_name: user1.m_name,
-      l_name: user1.l_name,
-    });
-    return `${name0} and ${name1} liked this`;
   } else {
+    // For 2+ likes, always show "Name and X others liked this" format
     const like = likes[0];
     const user = like.user || like;
     const name = formatUserFullName({
@@ -124,7 +108,8 @@ export const formatLikeCountText = (
       m_name: user.m_name,
       l_name: user.l_name,
     });
-    return `${name} and ${count - 1} others liked this`;
+    const othersCount = count - 1;
+    return `${name} and ${othersCount} ${othersCount === 1 ? 'other' : 'others'} liked this`;
   }
 };
 

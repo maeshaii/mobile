@@ -453,31 +453,68 @@ export default function RepostScreen() {
                   <TouchableOpacity onPress={() => setViewerVisible(false)}><Text style={{ color: '#174f84', fontWeight: 'bold' }}>Close</Text></TouchableOpacity>
                 </View>
                 <ScrollView style={{ maxHeight: 320, marginTop: 8 }}>
-                  {viewerType === 'likes' && (original?.likes || []).map((u:any, idx:number)=> (
-                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
-                      <Image source={renderAvatar(u.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
-                      <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{formatUserFullName(u)}</Text>
-                    </View>
-                  ))}
-                  {viewerType === 'reposts' && (original?.reposts || []).map((r:any)=> (
-                    <View key={r.repost_id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
-                      <Image source={renderAvatar(r.user?.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
-                      <View>
-                        <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{formatUserFullName(r.user)}</Text>
-                        <Text style={{ color: '#888', fontSize: 12 }}>{r.repost_date ? new Date(r.repost_date).toLocaleString() : ''}</Text>
-                        {r.user?.user_id === (me?.id || me?.user_id) && (
-                          <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
-                            <TouchableOpacity onPress={async () => { try { const input = await Promise.resolve(caption); const next = input; await updateRepost(r.repost_id, next); Alert.alert('Updated'); } catch { Alert.alert('Error','Update failed'); } }}>
-                              <Text style={{ color: '#174f84' }}>Edit caption</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={async () => { try { await deleteRepost(r.repost_id); const detail = await getPostDetail(original.post_id); setOriginal(detail); } catch { Alert.alert('Error','Delete failed'); } }}>
-                              <Text style={{ color: 'red' }}>Delete</Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
+                  {viewerType === 'likes' && (original?.likes || []).map((u:any, idx:number)=> {
+                    const userId = u.user_id || u.id;
+                    const meId = me?.id || me?.user_id;
+                    const isCurrentUser = userId && meId && userId === meId;
+                    return (
+                      <TouchableOpacity
+                        key={idx}
+                        style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}
+                        onPress={() => {
+                          if (userId) {
+                            setViewerVisible(false);
+                            if (isCurrentUser) {
+                              router.push('/profile/profilepage');
+                            } else {
+                              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                            }
+                          }
+                        }}
+                        disabled={!userId}
+                      >
+                        <Image source={renderAvatar(u.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                        <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{formatUserFullName(u)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {viewerType === 'reposts' && (original?.reposts || []).map((r:any)=> {
+                    const userId = r.user?.user_id || r.user?.id;
+                    const meId = me?.id || me?.user_id;
+                    const isCurrentUser = userId && meId && userId === meId;
+                    return (
+                      <View key={r.repost_id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }}>
+                        <Image source={renderAvatar(r.user?.profile_pic)} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#e0e7ef', marginRight: 10 }} />
+                        <View style={{ flex: 1 }}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (userId) {
+                                setViewerVisible(false);
+                                if (isCurrentUser) {
+                                  router.push('/profile/profilepage');
+                                } else {
+                                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                }
+                              }
+                            }}
+                            disabled={!userId}
+                          >
+                            <Text style={{ color: '#1e3a8a', fontWeight: '600' }}>{formatUserFullName(r.user)}</Text>
+                          </TouchableOpacity>
+                          {r.user?.user_id === (me?.id || me?.user_id) && (
+                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
+                              <TouchableOpacity onPress={async () => { try { const input = await Promise.resolve(caption); const next = input; await updateRepost(r.repost_id, next); Alert.alert('Updated'); } catch { Alert.alert('Error','Update failed'); } }}>
+                                <Text style={{ color: '#174f84' }}>Edit caption</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={async () => { try { await deleteRepost(r.repost_id); const detail = await getPostDetail(original.post_id); setOriginal(detail); } catch { Alert.alert('Error','Delete failed'); } }}>
+                                <Text style={{ color: 'red' }}>Delete</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
                       </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </ScrollView>
               </View>
             </View>

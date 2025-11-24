@@ -577,7 +577,14 @@ export default function PostDetailScreen() {
               style={styles.avatarContainer}
               onPress={() => {
                 const uid = post?.user?.user_id || post?.user?.id;
-                if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+                const currentUserId = me?.user_id || me?.id;
+                if (uid) {
+                  if (uid === currentUserId) {
+                    router.push('/profile/profilepage');
+                  } else {
+                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                  }
+                }
               }}
             >
               <UserAvatar 
@@ -592,7 +599,14 @@ export default function PostDetailScreen() {
               <TouchableOpacity
                 onPress={() => {
                   const uid = post?.user?.user_id || post?.user?.id;
-                  if (uid) router.push(`/profile/profilepage?viewUserId=${uid}`);
+                  const currentUserId = me?.user_id || me?.id;
+                  if (uid) {
+                    if (uid === currentUserId) {
+                      router.push('/profile/profilepage');
+                    } else {
+                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                    }
+                  }
                 }}
                 activeOpacity={0.7}
               >
@@ -759,37 +773,41 @@ export default function PostDetailScreen() {
               </Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => {
-            // Scroll to comments section
-          }}>
-            <Text style={styles.countText}>{comments.length} comments</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={async () => {
-            try {
-              // Use reposts data from post detail if available, otherwise fetch fresh data
-              let repostsArray = Array.isArray(post?.reposts) && post.reposts.length > 0 ? post.reposts : null;
-              if (!repostsArray) {
-                // If no reposts data, try to get fresh reposts data
-                try {
-                  repostsArray = await getPostReposts(postId);
-                } catch (e) {
-                  // Fallback: refresh the post detail to get fresh data
-                  const updatedPost = await getPostDetail(postId);
-                  repostsArray = Array.isArray(updatedPost?.reposts) ? updatedPost.reposts : [];
-                  setPost(updatedPost); // Update the post state with fresh data
+          {comments.length > 0 && (
+            <TouchableOpacity onPress={() => {
+              // Scroll to comments section
+            }}>
+              <Text style={styles.countText}>{comments.length} comments</Text>
+            </TouchableOpacity>
+          )}
+          {(post.reposts_count || 0) > 0 && (
+            <TouchableOpacity onPress={async () => {
+              try {
+                // Use reposts data from post detail if available, otherwise fetch fresh data
+                let repostsArray = Array.isArray(post?.reposts) && post.reposts.length > 0 ? post.reposts : null;
+                if (!repostsArray) {
+                  // If no reposts data, try to get fresh reposts data
+                  try {
+                    repostsArray = await getPostReposts(postId);
+                  } catch (e) {
+                    // Fallback: refresh the post detail to get fresh data
+                    const updatedPost = await getPostDetail(postId);
+                    repostsArray = Array.isArray(updatedPost?.reposts) ? updatedPost.reposts : [];
+                    setPost(updatedPost); // Update the post state with fresh data
+                  }
                 }
+                setSelectedPost({ ...post, reposts: repostsArray });
+                setViewerType('reposts');
+                setViewerVisible(true);
+              } catch (e) {
+                setSelectedPost({ ...post, reposts: [] });
+                setViewerType('reposts');
+                setViewerVisible(true);
               }
-              setSelectedPost({ ...post, reposts: repostsArray });
-              setViewerType('reposts');
-              setViewerVisible(true);
-            } catch (e) {
-              setSelectedPost({ ...post, reposts: [] });
-              setViewerType('reposts');
-              setViewerVisible(true);
-            }
-          }}>
-            <Text style={styles.countText}>{post.reposts_count || 0} reposts</Text>
-          </TouchableOpacity>
+            }}>
+              <Text style={styles.countText}>{post.reposts_count || 0} reposts</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Actions */}
@@ -1079,19 +1097,27 @@ export default function PostDetailScreen() {
                         </View>
                       )}
 
-                      {/* Replies Section */}
-                      {c.replies_count > 0 && (
-                        <View style={styles.repliesSection}>
-                          <TouchableOpacity
-                            style={styles.showRepliesButton}
-                            onPress={() => toggleReplies(c.comment_id)}
-                          >
-                            <Text style={styles.showRepliesText}>
-                              {showReplies[c.comment_id] ? 'Hide' : 'View'} {c.replies_count} {c.replies_count === 1 ? 'reply' : 'replies'}
-                            </Text>
-                          </TouchableOpacity>
-                          
-                          {showReplies[c.comment_id] && commentReplies[c.comment_id] && (
+                      {/* Replies Section - only show when there are actual replies */}
+                      {(() => {
+                        const repliesCount = c.replies_count || 0;
+                        const loadedReplies = commentReplies[c.comment_id];
+                        const actualCount = loadedReplies ? loadedReplies.length : repliesCount;
+                        
+                        // Only show toggle if there are actual replies
+                        if (actualCount === 0) return null;
+                        
+                        return (
+                          <View style={styles.repliesSection}>
+                            <TouchableOpacity
+                              style={styles.showRepliesButton}
+                              onPress={() => toggleReplies(c.comment_id)}
+                            >
+                              <Text style={styles.showRepliesText}>
+                                {showReplies[c.comment_id] ? 'Hide' : 'View'} {actualCount} {actualCount === 1 ? 'reply' : 'replies'}
+                              </Text>
+                            </TouchableOpacity>
+                            
+                            {showReplies[c.comment_id] && commentReplies[c.comment_id] && (
                             <View style={styles.repliesContainer}>
                               {commentReplies[c.comment_id].map((reply, replyIndex) => {
                                 const isMyReply = reply.user?.user_id === meId;
@@ -1308,8 +1334,9 @@ export default function PostDetailScreen() {
                               })}
                             </View>
                           )}
-                        </View>
-                      )}
+                          </View>
+                        );
+                      })()}
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -1388,8 +1415,13 @@ export default function PostDetailScreen() {
                         onPress={() => {
                           setViewerVisible(false);
                           const uid = like.user_id || like.user?.user_id || like.user?.id;
+                          const meId = me?.id || me?.user_id;
                           if (uid) {
-                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                            if (meId && uid === meId) {
+                              router.push('/profile/profilepage');
+                            } else {
+                              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                            }
                           }
                         }}
                       >
@@ -1423,8 +1455,13 @@ export default function PostDetailScreen() {
                         onPress={() => {
                           setViewerVisible(false);
                           const uid = repost.user?.user_id || repost.user?.id || repost.user_id;
+                          const meId = me?.id || me?.user_id;
                           if (uid) {
-                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                            if (meId && uid === meId) {
+                              router.push('/profile/profilepage');
+                            } else {
+                              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                            }
                           }
                         }}
                       >
@@ -1435,14 +1472,9 @@ export default function PostDetailScreen() {
                           size={36}
                           style={styles.viewerAvatar}
                         />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.viewerItemText}>
-                            {formatUserFullName(repost.user)}
-                          </Text>
-                          {repost.repost_date && (
-                            <Text style={styles.viewerSubText}>{dayjs(repost.repost_date).fromNow()}</Text>
-                          )}
-                        </View>
+                        <Text style={styles.viewerItemText}>
+                          {formatUserFullName(repost.user)}
+                        </Text>
                       </TouchableOpacity>
                     ))
                   ) : (

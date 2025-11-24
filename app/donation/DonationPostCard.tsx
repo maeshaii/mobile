@@ -64,7 +64,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   console.log('Post data keys:', Object.keys(post));
   console.log('Post post_image:', post.post_image);
   console.log('Post post_images:', post.post_images);
-  console.log('Post images:', post.images);
   console.log('Extracted images:', images);
   console.log('Images count:', images.length);
   console.log('First image URL:', imageUrl);
@@ -278,12 +277,16 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
             </Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
-          <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'reposts')}>
-          <Text style={styles.countText}>{repostCount} reposts</Text>
-        </TouchableOpacity>
+        {(post.comments_count || 0) > 0 && (
+          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
+            <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
+          </TouchableOpacity>
+        )}
+        {repostCount > 0 && (
+          <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'reposts')}>
+            <Text style={styles.countText}>{repostCount} reposts</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Actions */}

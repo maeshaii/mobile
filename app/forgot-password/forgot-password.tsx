@@ -1,16 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  TextInput,
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ImageBackground,
-  ScrollView,
+import { View, TextInput, TouchableOpacity, Text, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ImageBackground, ScrollView,
 } from 'react-native';
 import { forgotPassword } from '../../services/api';
 import { useRouter } from 'expo-router';

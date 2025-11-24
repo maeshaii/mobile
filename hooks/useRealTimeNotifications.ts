@@ -57,10 +57,8 @@ export function useRealTimeNotifications(
   const isInitializedRef = useRef(false);
   const currentUserIdRef = useRef<number | null>(null);
 
-  // Get current user ID
+  // Get current user ID (deprecated - use getUserInfo directly for fresh data)
   const getCurrentUserId = useCallback(async () => {
-    if (currentUserIdRef.current) return currentUserIdRef.current;
-    
     try {
       const user = await getUserInfo();
       const userId = user?.user_id || user?.id;
@@ -82,7 +80,15 @@ export function useRealTimeNotifications(
         return;
       }
 
-      const userId = await getCurrentUserId();
+      // Get fresh user info to ensure we have the correct user ID
+      const user = await getUserInfo();
+      if (!user) {
+        console.warn('No user info available for fetching notifications');
+        return;
+      }
+
+      // Try both user_id and id fields to ensure compatibility
+      const userId = user.user_id || user.id;
       if (!userId) {
         console.warn('No user ID available for fetching notifications');
         return;
@@ -117,12 +123,18 @@ export function useRealTimeNotifications(
         // If token still exists, it might be a transient error - don't log
         return;
       }
+      // Handle 403 Forbidden errors (user ID mismatch or permission denied)
+      if (err?.response?.status === 403) {
+        console.log('Mobile: 403 Forbidden - User ID mismatch or permission denied, skipping notification fetch');
+        // Don't set error state for 403 - it's likely a permission issue that will resolve on next login
+        return;
+      }
       console.error('Mobile: Error fetching notifications:', err);
       setError('Failed to fetch notifications');
     } finally {
       setIsLoading(false);
     }
-  }, [getCurrentUserId]);
+  }, []);
 
   // Fetch notification count (lightweight)
   const fetchCountData = useCallback(async () => {
@@ -134,7 +146,12 @@ export function useRealTimeNotifications(
         return;
       }
 
-      const userId = await getCurrentUserId();
+      // Get fresh user info to ensure we have the correct user ID
+      const user = await getUserInfo();
+      if (!user) return;
+
+      // Try both user_id and id fields to ensure compatibility
+      const userId = user.user_id || user.id;
       if (!userId) return;
 
       // For now, we'll use the full fetch and just count
@@ -157,9 +174,14 @@ export function useRealTimeNotifications(
         // If token still exists, it might be a transient error - don't log
         return;
       }
+      // Handle 403 Forbidden errors (user ID mismatch or permission denied)
+      if (err?.response?.status === 403) {
+        console.log('Mobile: 403 Forbidden - User ID mismatch or permission denied, skipping notification count fetch');
+        return;
+      }
       console.error('Mobile: Error fetching notification count:', err);
     }
-  }, [getCurrentUserId]);
+  }, []);
 
   // Mark notification as read
   const markAsRead = useCallback(async (notificationId: number) => {
@@ -201,13 +223,19 @@ export function useRealTimeNotifications(
       
       // Call API to mark all as read
       try {
-        const userId = await getCurrentUserId();
+        const user = await getUserInfo();
+        const userId = user?.user_id || user?.id;
         if (userId) {
           const { markAllNotificationsAsRead } = await import('../services/api');
           await markAllNotificationsAsRead(userId);
           console.log('✅ Mobile: Successfully marked all notifications as read on backend');
         }
-      } catch (apiError) {
+      } catch (apiError: any) {
+        // Handle 403 errors gracefully
+        if (apiError?.response?.status === 403) {
+          console.log('Mobile: 403 Forbidden - Permission denied for marking all as read');
+          return;
+        }
         console.error('Mobile: API error marking all notifications as read:', apiError);
         // Don't revert local state - better to show as read even if API fails
       }
@@ -215,7 +243,7 @@ export function useRealTimeNotifications(
     } catch (err) {
       console.error('Mobile: Error marking all notifications as read:', err);
     }
-  }, [getCurrentUserId]);
+  }, []);
 
   // Refresh notifications
   const refreshNotifications = useCallback(async () => {
@@ -230,7 +258,14 @@ export function useRealTimeNotifications(
   // Setup WebSocket connection
   const setupWebSocket = useCallback(async () => {
     try {
-      const userId = await getCurrentUserId();
+      // Get fresh user info to ensure we have the correct user ID
+      const user = await getUserInfo();
+      if (!user) {
+        console.warn('⚠️ Mobile: No user info for WebSocket connection');
+        return;
+      }
+
+      const userId = user.user_id || user.id;
       const token = await getAccessToken();
       
       if (!userId) {
@@ -352,7 +387,7 @@ export function useRealTimeNotifications(
       console.log('ℹ️ Mobile: WebSocket unavailable, using polling fallback');
       setIsConnected(false);
     }
-  }, [getCurrentUserId]);
+  }, []);
 
   // Setup polling fallback
   const setupPolling = useCallback(() => {

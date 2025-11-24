@@ -19,7 +19,6 @@ import UserAvatar from '../../components/UserAvatar';
 import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import { formatUserFullName } from '../../utils/nameUtils';
-
 interface Post {
   post_id: number;
   post_title?: string;
@@ -43,7 +42,6 @@ interface Post {
     profile_pic?: string | null 
   };
 }
-
 interface OriginalPost {
   post_id: number;
   post_title?: string;
@@ -64,7 +62,6 @@ interface OriginalPost {
   created_at: string;
   is_liked?: boolean;
 }
-
 interface FeedRepost {
   repost_id: number;
   caption?: string;
@@ -82,18 +79,14 @@ interface FeedRepost {
   is_liked?: boolean;
   item_type: 'repost';
 }
-
 type FeedItem = Post | FeedRepost;
-
 // Type guards
 const isRepost = (item: FeedItem): item is FeedRepost => {
   return item.item_type === 'repost';
 };
-
 const isPost = (item: FeedItem): item is Post => {
   return item.item_type === 'post' || !('repost_id' in item);
 };
-
 interface UserInfo {
   user_id?: number;
   name?: string;
@@ -103,7 +96,6 @@ interface UserInfo {
   course?: string;
   year_graduated?: number;
 }
-
 const HomeScreen = () => {
   const insets = useSafeAreaInsets();
   const { logout: logoutFromContext } = useUser();
@@ -140,7 +132,6 @@ const HomeScreen = () => {
   const [headerVisible, setHeaderVisible] = useState(true);
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const navbarTranslateY = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     // Check for token before loading anything
     const checkAuthAndLoad = async () => {
@@ -160,26 +151,21 @@ const HomeScreen = () => {
         router.replace('/login/login');
       }
     };
-    
     checkAuthAndLoad();
-    
     // Tick every minute to update relative timestamps
     const t = setInterval(() => {
       if (isMountedRef.current) {
         setNowTick((x) => x + 1);
       }
     }, 60000);
-    
     return () => {
       isMountedRef.current = false;
       clearInterval(t);
     };
   }, []);
-
   // Setup WebSocket for real-time points updates
   useEffect(() => {
     let notificationWs: NotificationWebSocket | null = null;
-
     const setupWebSocket = async () => {
       try {
         const { getAccessToken } = await import('../../services/api');
@@ -188,13 +174,10 @@ const HomeScreen = () => {
           console.log('🔍 HOME DEBUG: No access token for WebSocket, skipping setup');
           return;
         }
-        
         const user = await getUserInfo();
         const userId = user?.user_id || user?.id;
         if (!userId) return;
-
         notificationWs = new NotificationWebSocket(userId, API_BASE_URL, token);
-
         notificationWs.onNotification((event) => {
           console.log('HomePage NotificationWebSocket: Received event:', event.type, event);
           if (event.type === 'points_update' && event.points) {
@@ -204,32 +187,26 @@ const HomeScreen = () => {
             // The rewards screen will receive it directly via its own WebSocket connection
           }
         });
-
         notificationWs.onStatus((status) => {
           console.log('HomePage Notification WebSocket status:', status);
         });
-
         await notificationWs.connect();
       } catch (error) {
         console.error('HomePage: Failed to setup notification WebSocket:', error);
       }
     };
-
     setupWebSocket();
-
     return () => {
       if (notificationWs) {
         notificationWs.disconnect();
       }
     };
   }, []);
-
   useEffect(() => {
     if ((params as any)?.trackerReminder === '1') {
       setShowTrackerReminder(true);
     }
   }, [(params as any)?.trackerReminder]);
-
   // Check tracker status function
   const checkTrackerStatus = React.useCallback(async () => {
     try {
@@ -238,9 +215,7 @@ const HomeScreen = () => {
         getActiveTrackerForm(),
         checkUserTrackerStatus()
       ]);
-
       console.log('📊 Homepage: Tracker API responses:', { activeForm, status });
-
       // Get accepting status from the active form
       let acceptingStatus = null;
       try {
@@ -251,14 +226,11 @@ const HomeScreen = () => {
         // Default to true if we can't get the status (assume form is accepting)
         acceptingStatus = { accepting_responses: true };
       }
-
       const trackerData = {
         accepting: Boolean(acceptingStatus?.accepting_responses),
         hasSubmitted: Boolean(status?.has_submitted)
       };
-
       console.log('📋 Homepage: Processed tracker data:', trackerData);
-
       // Show modal if form is accepting and user hasn't submitted
       if (trackerData.accepting && !trackerData.hasSubmitted) {
         console.log('🚀 Homepage: Showing tracker modal - form accepting and user not submitted');
@@ -271,17 +243,14 @@ const HomeScreen = () => {
       // Don't show modal if there's an error checking status
     }
   }, []);
-
   // Refetch posts and check tracker status whenever this screen gains focus
   useFocusEffect(
     React.useCallback(() => {
       // Don't run if component is unmounted
       if (!isMountedRef.current) return;
-      
       // Check if we have a token before loading data
       const checkAndLoad = async () => {
         if (!isMountedRef.current) return;
-        
         try {
           const { getAccessToken } = await import('../../services/api');
           const token = await getAccessToken();
@@ -290,12 +259,9 @@ const HomeScreen = () => {
             // Don't redirect here - let NavigationGuard handle it
             return;
           }
-          
           if (!isMountedRef.current) return;
           await loadPosts();
-          
           if (!isMountedRef.current) return;
-          
           // Check tracker status every time homepage is focused
           // Get current user info if not already loaded
           let currentUser = user;
@@ -305,9 +271,7 @@ const HomeScreen = () => {
               setUser(currentUser);
             }
           }
-          
           if (!isMountedRef.current) return;
-          
           // Check tracker status if user is alumni
           const accountType = (currentUser as any)?.account_type;
           if (currentUser && (accountType?.user || accountType === 'alumni')) {
@@ -317,18 +281,15 @@ const HomeScreen = () => {
         } catch (err) {
           console.error('Homepage: Error in focus effect:', err);
           if (!isMountedRef.current) return;
-          
           // If there's an auth error, NavigationGuard will handle the redirect
           if ((err as any)?.response?.status === 401 || (err as any)?.response?.status === 403) {
             console.log('🔍 HOME DEBUG: Auth error detected, NavigationGuard will handle redirect');
           }
         }
       };
-      
       checkAndLoad();
     }, [user, checkTrackerStatus])
   );
-
   // Add refresh functionality
   const onRefresh = async () => {
     setRefreshing(true);
@@ -338,14 +299,11 @@ const HomeScreen = () => {
       setRefreshing(false);
     }
   };
-
   // Helper function to render posts with People You May Know section
   const renderPostsWithSuggestions = () => {
     const elements: React.ReactNode[] = [];
-    
     // For users with fewer than 2 posts, show People You May Know immediately
     const shouldShowImmediately = posts.length < 2;
-    
     if (shouldShowImmediately) {
       elements.push(
         <View key="people-you-may-know">
@@ -353,7 +311,6 @@ const HomeScreen = () => {
         </View>
       );
     }
-    
     posts.forEach((item, index) => {
       // Add People You May Know after the first 2 posts (only if not shown immediately)
       if (index === 2 && !shouldShowImmediately) {
@@ -363,7 +320,6 @@ const HomeScreen = () => {
           </View>
         );
       }
-      
       // Add the actual post
       if (item.item_type === 'repost') {
         elements.push(
@@ -435,7 +391,6 @@ const HomeScreen = () => {
                 setSelectedPost(post);
                 setViewerType(type);
                 setViewerVisible(true);
-
                 // Fetch fresh data for the viewer
                 if (type === 'likes') {
                   const likesData = await getPostLikes(post.post_id);
@@ -496,7 +451,6 @@ const HomeScreen = () => {
                 setSelectedPost(post);
                 setViewerType(type);
                 setViewerVisible(true);
-
                 // Fetch fresh data for the viewer
                 if (type === 'likes') {
                   const likesData = await getPostLikes(post.post_id);
@@ -536,14 +490,11 @@ const HomeScreen = () => {
         );
       }
     });
-    
     return elements;
   };
-
   const loadUserInfo = async () => {
     // Check if component is still mounted
     if (!isMountedRef.current) return;
-    
     try {
       // Check if we have a token before trying to load user info
       const { getAccessToken } = await import('../../services/api');
@@ -556,16 +507,12 @@ const HomeScreen = () => {
         // Don't redirect here - let NavigationGuard handle it
         return;
       }
-      
       if (isMountedRef.current) {
         setLoading(true);
       }
-      
       const userInfo = await getUserInfo();
       console.log('🔍 HOME DEBUG: User info loaded:', userInfo);
-      
       if (!isMountedRef.current) return;
-      
       if (userInfo) {
         setUser(userInfo);
         setEditData({
@@ -611,7 +558,6 @@ const HomeScreen = () => {
     } catch (err) {
       console.error('🔍 HOME DEBUG: Error loading user info:', err);
       if (!isMountedRef.current) return;
-      
       // Try AsyncStorage as fallback for OJT users
       try {
         const userStr = await AsyncStorage.getItem('user');
@@ -651,11 +597,9 @@ const HomeScreen = () => {
       }
     }
   };
-
   const loadPosts = async () => {
     // Check if component is still mounted
     if (!isMountedRef.current) return;
-    
     try {
       // Check if we have a token before trying to load posts
       const { getAccessToken } = await import('../../services/api');
@@ -668,11 +612,9 @@ const HomeScreen = () => {
         }
         return;
       }
-      
       if (isMountedRef.current) {
         setPostsLoading(true);
       }
-      
       const postsData = await getFeed();
       console.log('Homepage posts data:', postsData); // Debug log
       const me: any = await getUserInfo();
@@ -682,7 +624,6 @@ const HomeScreen = () => {
         const raw = await AsyncStorage.getItem('likedReposts');
         likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
       } catch {}
-      
       // Get list of users the current user is following
       let followingUserIds = new Set<number>();
       try {
@@ -694,29 +635,24 @@ const HomeScreen = () => {
       } catch (error) {
         console.error('Error fetching following list:', error);
       }
-      
       // The backend returns a flat array of feed items (posts and reposts)
       const feedItems: any[] = [];
-      
       (Array.isArray(postsData) ? postsData : [])
         .filter((item: any) => {
           // Exclude forum posts from home feed
           if (item.type === 'forum') return false;
-          
           // Filter donation posts: only show if user is following the creator
           if (item.type === 'donation' || item.item_type === 'donation_post') {
             const creatorId = item.user?.user_id || item.user?.id;
             // Show if it's the user's own post or if they're following the creator
             return !creatorId || creatorId === meId || followingUserIds.has(creatorId);
           }
-          
           // Filter donation reposts: only show if user is following the reposter
           if (item.item_type === 'repost' && item.original_post?.type === 'donation') {
             const reposterId = item.user?.user_id || item.user?.id;
             // Show if it's the user's own repost or if they're following the reposter
             return !reposterId || reposterId === meId || followingUserIds.has(reposterId);
           }
-          
           return true;
         })
         .forEach((item: any) => {
@@ -732,7 +668,6 @@ const HomeScreen = () => {
             if (!repostLikedByMe) {
               repostLikedByMe = likedRepostsSet.has(item.repost_id);
             }
-            
             feedItems.push({
               ...item,
               is_liked: !!repostLikedByMe,
@@ -746,7 +681,6 @@ const HomeScreen = () => {
               const likesArr = Array.isArray(item?.likes) ? item.likes : [];
               likedByMe = likesArr.some((l: any) => l?.user_id === meId || l?.user?.user_id === meId);
             }
-            
             feedItems.push({
               ...item,
               is_liked: !!likedByMe,
@@ -754,19 +688,16 @@ const HomeScreen = () => {
             });
           }
         });
-      
       // Sort feed items by date
       const sortedFeed = feedItems.sort((a, b) => 
         new Date(b.created_at || b.repost_date).getTime() - 
         new Date(a.created_at || a.repost_date).getTime()
       );
-      
       console.log('Combined feed items:', sortedFeed.length); // Debug log
       console.log('Feed breakdown:', {
         posts: sortedFeed.filter(item => item.item_type === 'post').length,
         reposts: sortedFeed.filter(item => item.item_type === 'repost').length
       }); // Debug log
-      
       if (isMountedRef.current) {
         setPosts(sortedFeed);
       }
@@ -785,7 +716,6 @@ const HomeScreen = () => {
       }
     }
   };
-
   const handleLikePost = async (postId: number, isLiked: boolean) => {
     if (actionLoadingPostId === postId) return; // prevent duplicate taps
     setActionLoadingPostId(postId);
@@ -798,13 +728,11 @@ const HomeScreen = () => {
         const nextCount = Math.max(0, (p.likes_count || 0) + (nextLiked ? 1 : -1));
         return { ...p, is_liked: nextLiked, likes_count: nextCount } as Post;
       }));
-
       if (isLiked) {
         await unlikePost(postId);
       } else {
         await likePost(postId);
       }
-
       // Re-fetch single post detail to ensure counts and lists are accurate
       try {
         const detail = await getPostDetail(postId);
@@ -846,7 +774,6 @@ const HomeScreen = () => {
       setActionLoadingPostId(null);
     }
   };
-
   const handleRepost = async (postId: number) => {
     try {
       await repostPost(postId);
@@ -858,18 +785,15 @@ const HomeScreen = () => {
       Alert.alert('Error', 'Failed to repost. You may have already reposted this.');
     }
   };
-
   const handleComment = async (postId: number) => {
     setSelectedPostId(postId);
     setCommentModalVisible(true);
   };
-
   const submitComment = async () => {
     if (!selectedPostId || !commentText.trim()) {
       Alert.alert('Error', 'Please enter a comment');
       return;
     }
-
     try {
       await commentOnPost(selectedPostId, commentText.trim());
       setCommentText('');
@@ -883,7 +807,6 @@ const HomeScreen = () => {
       Alert.alert('Error', 'Failed to add comment');
     }
   };
-
   const handleLogout = () => {
     Alert.alert(
       'Logout',
@@ -913,11 +836,9 @@ const HomeScreen = () => {
       ]
     );
   };
-
   const handleEditProfile = () => {
     setEditModalVisible(true);
   };
-
   const handleSaveProfile = () => {
     if (user) {
       setUser({ 
@@ -931,13 +852,11 @@ const HomeScreen = () => {
     setEditModalVisible(false);
     Alert.alert('Profile updated (not saved to backend)');
   };
-
   // Handle scroll events to show/hide header and navbar
   const handleScroll = (event: any) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const scrollingDown = currentScrollY > lastScrollY.current;
     const scrollingUp = currentScrollY < lastScrollY.current;
-    
     // Only hide/show if scrolled more than 10 pixels to avoid jitter
     if (Math.abs(currentScrollY - lastScrollY.current) > 10) {
       if (scrollingDown && currentScrollY > 50 && headerVisible) {
@@ -972,14 +891,11 @@ const HomeScreen = () => {
         ]).start();
       }
     }
-    
     lastScrollY.current = currentScrollY;
-    
     // Clear existing timeout
     if (scrollTimeout.current) {
       clearTimeout(scrollTimeout.current);
     }
-    
     // Show header/navbar after scrolling stops
     scrollTimeout.current = setTimeout(() => {
       if (!headerVisible) {
@@ -999,7 +915,6 @@ const HomeScreen = () => {
       }
     }, 500); // Show after 500ms of no scrolling
   };
-
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -1008,9 +923,7 @@ const HomeScreen = () => {
       }
     };
   }, []);
-
   // nowTick triggers re-render for live relative time; no direct usage
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1019,7 +932,6 @@ const HomeScreen = () => {
       </View>
     );
   }
-
   if (error) {
     return (
       <View style={styles.errorContainer}>
@@ -1030,7 +942,6 @@ const HomeScreen = () => {
       </View>
     );
   }
-
   return (
     <View style={styles.container}>
       <Animated.View
@@ -1058,8 +969,6 @@ const HomeScreen = () => {
       >
         <Text style={styles.headerTitle}>Home</Text>
       </Animated.View>
-
-
       <ScrollView 
         style={styles.scroll} 
         contentContainerStyle={[styles.scrollContent, { paddingTop: 60 + insets.top }]}
@@ -1093,7 +1002,6 @@ const HomeScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
-
         {/* Posts Feed */}
         {postsLoading ? (
           <View style={styles.postsLoadingContainer}>
@@ -1110,7 +1018,6 @@ const HomeScreen = () => {
             {renderPostsWithSuggestions()}
           </>
         )}
-
         {/* Comment Modal */}
         <Modal visible={commentModalVisible} transparent animationType="fade">
           <View style={styles.modalOverlay}>
@@ -1145,7 +1052,6 @@ const HomeScreen = () => {
             </View>
           </View>
         </Modal>
-
         {/* Edit Post Modal - stylized header and body */}
         <Modal visible={editingPostId != null} transparent animationType="slide" onRequestClose={() => setEditingPostId(null)}>
           <View style={styles.modalOverlay}>
@@ -1171,7 +1077,6 @@ const HomeScreen = () => {
                   <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>SAVE</Text>
                 </TouchableOpacity>
               </View>
-
               <TextInput
                 style={[styles.modalInput, { minHeight: 160 }]}
                 value={editPostContent}
@@ -1182,7 +1087,6 @@ const HomeScreen = () => {
             </View>
           </View>
         </Modal>
-
         {/* Viewer Modal */}
         <Modal
           visible={viewerVisible}
@@ -1201,7 +1105,6 @@ const HomeScreen = () => {
               } else if (viewerType === 'comments' && selectedPost && isPost(selectedPost)) {
                 itemCount = selectedPost.comments?.length || 0;
               }
-              
               // Calculate dynamic height: header (60px) + items (70px each) + padding (32px)
               // Minimum height for header only, maximum height of 600px
               const headerHeight = 60;
@@ -1212,7 +1115,6 @@ const HomeScreen = () => {
               const minHeight = headerHeight + padding + 20; // Minimum for header
               const modalHeight = Math.max(minHeight, Math.min(maxHeight, calculatedHeight));
               const shouldScroll = itemCount > 8;
-              
               return (
                 <View style={[styles.viewerModal, { maxHeight: modalHeight }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -1223,42 +1125,74 @@ const HomeScreen = () => {
                       <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>Close</Text>
                     </TouchableOpacity>
                   </View>
-
                   <ScrollView 
                     style={{ maxHeight: shouldScroll ? 500 : undefined }}
                     contentContainerStyle={shouldScroll ? {} : { paddingBottom: 0 }}
                     showsVerticalScrollIndicator={shouldScroll}
                     nestedScrollEnabled={true}
                   >
-                {viewerType === 'likes' && selectedPost && isPost(selectedPost) && selectedPost.likes?.map((u: any, idx: number) => (
-                  <View key={idx} style={styles.listItemRow}>
-                    <UserAvatar 
-                      profilePic={u.profile_pic}
-                      firstName={u.f_name}
-                      lastName={u.l_name}
-                      size={32}
-                      style={styles.listAvatar}
-                    />
-                    <Text style={styles.listText}>{formatUserFullName(u)}</Text>
-                  </View>
-                ))}
-
-                {viewerType === 'reposts' && selectedPost && isPost(selectedPost) && selectedPost.reposts?.map((r: any) => (
-                  <View key={r.repost_id} style={styles.listItemRow}>
-                    <UserAvatar 
-                      profilePic={r.user?.profile_pic}
-                      firstName={r.user?.f_name}
-                      lastName={r.user?.l_name}
-                      size={32}
-                      style={styles.listAvatar}
-                    />
-                    <View>
-                      <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
-                      <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
-                    </View>
-                  </View>
-                ))}
-
+                {viewerType === 'likes' && selectedPost && isPost(selectedPost) && selectedPost.likes?.map((u: any, idx: number) => {
+                  const userId = u.user_id || u.id;
+                  const currentUserId = user?.user_id || (user as any)?.id;
+                  const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                  return (
+                    <TouchableOpacity
+                      key={idx}
+                      style={styles.listItemRow}
+                      onPress={() => {
+                        if (userId) {
+                          setViewerVisible(false);
+                          if (isCurrentUser) {
+                            router.push('/profile/profilepage');
+                          } else {
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                          }
+                        }
+                      }}
+                      disabled={!userId}
+                    >
+                      <UserAvatar 
+                        profilePic={u.profile_pic}
+                        firstName={u.f_name}
+                        lastName={u.l_name}
+                        size={32}
+                        style={styles.listAvatar}
+                      />
+                      <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(u)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {viewerType === 'reposts' && selectedPost && isPost(selectedPost) && selectedPost.reposts?.map((r: any) => {
+                  const userId = r.user?.user_id || r.user?.id;
+                  const currentUserId = user?.user_id || (user as any)?.id;
+                  const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                  return (
+                    <TouchableOpacity
+                      key={r.repost_id}
+                      style={styles.listItemRow}
+                      onPress={() => {
+                        if (userId) {
+                          setViewerVisible(false);
+                          if (isCurrentUser) {
+                            router.push('/profile/profilepage');
+                          } else {
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                          }
+                        }
+                      }}
+                      disabled={!userId}
+                    >
+                      <UserAvatar 
+                        profilePic={r.user?.profile_pic}
+                        firstName={r.user?.f_name}
+                        lastName={r.user?.l_name}
+                        size={32}
+                        style={styles.listAvatar}
+                      />
+                      <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(r.user)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
                 {viewerType === 'comments' && selectedPost && isPost(selectedPost) && selectedPost.comments?.map((c: any) => (
                   <View key={c.comment_id} style={styles.commentRow}>
                     <UserAvatar 
@@ -1271,7 +1205,23 @@ const HomeScreen = () => {
                     <View style={{ flex: 1 }}>
                       <View style={styles.commentHeaderRow}>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.commentName}>{formatUserFullName(c.user)}</Text>
+                          <TouchableOpacity 
+                            onPress={() => {
+                              const commentUserId = c.user?.user_id || c.user?.id;
+                              const currentUserId = user?.user_id || (user as any)?.id;
+                              if (commentUserId && commentUserId !== currentUserId) {
+                                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: commentUserId } });
+                              }
+                            }}
+                            disabled={!c.user?.user_id && !c.user?.id}
+                          >
+                            <Text style={[
+                              styles.commentName,
+                              (c.user?.user_id || c.user?.id) && (c.user?.user_id || c.user?.id) !== (user?.user_id || (user as any)?.id) ? { color: '#1e3a8a' } : null
+                            ]}>
+                              {formatUserFullName(c.user)}
+                            </Text>
+                          </TouchableOpacity>
                           <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
                         </View>
                       </View>
@@ -1282,7 +1232,6 @@ const HomeScreen = () => {
                   </View>
                 ))}
                   </ScrollView>
-
                   {viewerType === 'comments' && selectedPost ? (
                     <View style={styles.commentInputRow}>
                       <TextInput
@@ -1379,13 +1328,10 @@ const HomeScreen = () => {
           </TouchableOpacity>
         </View>
       </Modal>
-
     </View>
   );
 };
-
 export default HomeScreen;
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
