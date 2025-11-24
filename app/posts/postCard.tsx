@@ -9,7 +9,7 @@ import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { screenWidth, screenHeight, wp, hp, getResponsiveFontSize, getResponsivePadding, getPercentageWidth } from '../../utils/responsive';
-import { formatUserFullName } from '../../utils/nameUtils';
+import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 
 interface Post {
   post_id: number;
@@ -349,9 +349,13 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
 
       {/* Stats */}
       <View style={styles.actionsCountsRow}>
-        <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
-          <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
-        </TouchableOpacity>
+        {likeCount > 0 && (
+          <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
+            <Text style={styles.countText}>
+              {formatLikeCountText((post as any).likes, likeCount)}
+            </Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
           <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
         </TouchableOpacity>

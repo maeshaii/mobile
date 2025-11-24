@@ -15,7 +15,7 @@ import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 
 import { renderTextWithMentions } from '../../utils/mentionUtils';
-import { formatUserFullName } from '../../utils/nameUtils';
+import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 
 
 
@@ -630,11 +630,15 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
         <View style={styles.actionsCountsRow}>
 
-          <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
+          {likeCount > 0 && (
+            <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
 
-            <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
+              <Text style={styles.countText}>
+                {formatLikeCountText((post as any).likes, likeCount)}
+              </Text>
 
-          </TouchableOpacity>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity onPress={() => onOpenViewer?.(post, 'comments')}>
 

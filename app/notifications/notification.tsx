@@ -14,7 +14,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { deleteNotifications } from '../../services/api';
+import { deleteNotifications, checkUserTrackerStatus, getUserInfo } from '../../services/api';
 import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
 import TrackerNotificationModal from '../../components/TrackerNotificationModal';
@@ -328,7 +328,7 @@ const NotificationScreen = () => {
     const message = item.message?.toLowerCase();
     const fullMessage = item.fullMessage || item.message || '';
 
-    // Special case: tracker notifications - redirect directly to tracker form
+    // Special case: tracker notifications
     const isTrackerNotification = 
       type === 'tracker_submission' ||
       (type && type.includes('tracker')) || 
@@ -337,9 +337,62 @@ const NotificationScreen = () => {
       (message && (message.toLowerCase().includes('tracker form') || message.toLowerCase().includes('tracker')));
     
     if (isTrackerNotification) {
-      // Redirect directly to tracker form instead of showing modal
-      router.push('/forms/forms');
-      return;
+      // Check if this is a "Thank You" notification (already completed)
+      const isThankYouNotification = 
+        (item.subject && item.subject.toLowerCase().includes('thank you')) ||
+        (fullMessage && fullMessage.toLowerCase().includes('thank you')) ||
+        (message && message.toLowerCase().includes('thank you'));
+      
+      if (isThankYouNotification) {
+        // Show "Thank You" notification in modal
+        setGeneralNotification(item);
+        return;
+      }
+      
+      // For regular tracker notifications, check if user has already submitted
+      try {
+        const trackerStatus = await checkUserTrackerStatus();
+        if (trackerStatus?.has_submitted) {
+          // User has already submitted - show "Thank You" message
+          // Get user info to include their name in the message
+          try {
+            const user = await getUserInfo();
+            const userName = user?.f_name && user?.l_name 
+              ? `${user.f_name} ${user.l_name}`.trim()
+              : user?.f_name || user?.l_name || 'User';
+            
+            // Create a thank you notification object to display
+            const thankYouNotification: NotificationItem = {
+              ...item,
+              subject: 'Thank You for Completing the Tracker Form',
+              fullMessage: `Thank you ${userName} for completing the alumni tracker form. Your response has been recorded successfully.`,
+              message: `Thank you ${userName} for completing the alumni tracker form. Your response has been recorded successfully.`,
+            };
+            setGeneralNotification(thankYouNotification);
+            return;
+          } catch (userError) {
+            console.error('Error getting user info:', userError);
+            // Fallback without name
+            const thankYouNotification: NotificationItem = {
+              ...item,
+              subject: 'Thank You for Completing the Tracker Form',
+              fullMessage: 'Thank you for completing the alumni tracker form. Your response has been recorded successfully.',
+              message: 'Thank you for completing the alumni tracker form. Your response has been recorded successfully.',
+            };
+            setGeneralNotification(thankYouNotification);
+            return;
+          }
+        } else {
+          // User hasn't submitted yet - show tracker reminder modal
+          setTrackerNotification(item);
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking tracker status:', error);
+        // On error, default to redirecting to form
+        router.push('/forms/forms');
+        return;
+      }
     }
 
     // Special case: reward notifications - show modal first with content/images
@@ -671,32 +724,30 @@ const NotificationScreen = () => {
       return;
     }
 
-    // Handle CCICT/admin post notifications
-    if (
-      (type === 'ccict' || name?.toLowerCase().includes('admin') || name?.toLowerCase().includes('ccict')) &&
-      (message?.toLowerCase().includes('post') || message?.toLowerCase().includes('announcement'))
-    ) {
-      if (item.post_id) {
-        router.push({
-          pathname: '/posts/detail',
-          params: { postId: item.post_id.toString() },
-        });
-        return;
-      }
+    // Handle CCICT/admin notifications - show modal first (like web)
+    const isCCICTNotification = 
+      type === 'ccict' || 
+      name?.toLowerCase().includes('admin') || 
+      name?.toLowerCase().includes('ccict') ||
+      item.isAdminNotification;
+    
+    if (isCCICTNotification) {
+      // Show modal for all CCICT notifications
+      setGeneralNotification(item);
+      return;
     }
 
-    // Handle PESO post notifications (including admin_peso_post type)
-    if (
-      (type === 'peso' || type === 'admin_peso_post' || name?.toLowerCase().includes('peso')) &&
-      (message?.toLowerCase().includes('post') || message?.toLowerCase().includes('job') || message?.toLowerCase().includes('employment'))
-    ) {
-      if (item.post_id) {
-        router.push({
-          pathname: '/posts/detail',
-          params: { postId: item.post_id.toString() },
-        });
-        return;
-      }
+    // Handle PESO notifications - show modal first (like web)
+    const isPESONotification = 
+      type === 'peso' || 
+      type === 'admin_peso_post' || 
+      name?.toLowerCase().includes('peso') ||
+      item.isPesoNotification;
+    
+    if (isPESONotification) {
+      // Show modal for all PESO notifications
+      setGeneralNotification(item);
+      return;
     }
 
     // Fallback: Show debug info and alert
@@ -921,11 +972,30 @@ const NotificationScreen = () => {
     }
 
     if (type === 'admin_peso_post' || name.toLowerCase() === 'admin_peso_post') {
+      // Show the actual notification subject/content
+      if (subject) {
+        return subject;
+      }
+      // Extract first line from content if no subject
+      const firstLine = fullMessage.split('\n')[0].replace(/<!--[^>]+-->/g, '').trim();
+      if (firstLine && firstLine.length > 0) {
+        return firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+      }
       return `New post from ${name}`;
     }
 
-    // Format admin/CCICT notifications
+    // Format admin/CCICT notifications - show actual subject/content
     if (isAdminNotification) {
+      // Use subject if available
+      if (subject) {
+        return subject;
+      }
+      // Extract first line from content if no subject
+      const firstLine = fullMessage.split('\n')[0].replace(/<!--[^>]+-->/g, '').trim();
+      if (firstLine && firstLine.length > 0) {
+        return firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+      }
+      // Fallback to generic message
       if (message.toLowerCase().includes('announcement')) {
         return 'New announcement from CCICT';
       }
@@ -935,8 +1005,18 @@ const NotificationScreen = () => {
       return 'New notification from CCICT';
     }
 
-    // Format PESO notifications
+    // Format PESO notifications - show actual subject/content
     if (isPesoNotification) {
+      // Use subject if available
+      if (subject) {
+        return subject;
+      }
+      // Extract first line from content if no subject
+      const firstLine = fullMessage.split('\n')[0].replace(/<!--[^>]+-->/g, '').trim();
+      if (firstLine && firstLine.length > 0) {
+        return firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+      }
+      // Fallback to generic message
       if (message.toLowerCase().includes('job')) {
         return 'New job opportunity from PESO';
       }

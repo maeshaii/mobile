@@ -58,3 +58,73 @@ export const formatUserFullName = (
   return formatFullName(firstName, middleName, lastName, fallback);
 };
 
+/**
+ * Format like count text to match web version
+ * - 1 like: "Name liked this"
+ * - 2 likes: "Name1 and Name2 liked this"
+ * - 3+ likes: "Name and X others liked this"
+ * 
+ * @param likes - Array of like objects with user information
+ * @param likesCount - Total number of likes (fallback if likes array is not available)
+ * @returns Formatted like count text
+ */
+export const formatLikeCountText = (
+  likes?: Array<{
+    user?: {
+      f_name?: string | null;
+      m_name?: string | null;
+      l_name?: string | null;
+    };
+    f_name?: string | null;
+    m_name?: string | null;
+    l_name?: string | null;
+  }> | null,
+  likesCount?: number
+): string => {
+  // If no likes array, fall back to count
+  if (!likes || likes.length === 0) {
+    const count = likesCount || 0;
+    if (count === 0) return '';
+    if (count === 1) return '1 like';
+    return `${count} likes`;
+  }
+
+  const count = likes.length;
+
+  if (count === 1) {
+    const like = likes[0];
+    const user = like.user || like;
+    const name = formatUserFullName({
+      f_name: user.f_name,
+      m_name: user.m_name,
+      l_name: user.l_name,
+    });
+    return `${name} liked this`;
+  } else if (count === 2) {
+    const like0 = likes[0];
+    const like1 = likes[1];
+    const user0 = like0.user || like0;
+    const user1 = like1.user || like1;
+    const name0 = formatUserFullName({
+      f_name: user0.f_name,
+      m_name: user0.m_name,
+      l_name: user0.l_name,
+    });
+    const name1 = formatUserFullName({
+      f_name: user1.f_name,
+      m_name: user1.m_name,
+      l_name: user1.l_name,
+    });
+    return `${name0} and ${name1} liked this`;
+  } else {
+    const like = likes[0];
+    const user = like.user || like;
+    const name = formatUserFullName({
+      f_name: user.f_name,
+      m_name: user.m_name,
+      l_name: user.l_name,
+    });
+    return `${name} and ${count - 1} others liked this`;
+  }
+};
+

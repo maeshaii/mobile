@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TrackerReminderModal from '../../components/TrackerReminderModal';
 import NavBar from '../(tabs)/navbar';
-import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getPostReposts, getFeed, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus } from '../../services/api';
+import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getPostReposts, getFeed, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, fetchFollowing } from '../../services/api';
 import { useUser } from '../../contexts/UserContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -343,9 +343,20 @@ const HomeScreen = () => {
   const renderPostsWithSuggestions = () => {
     const elements: React.ReactNode[] = [];
     
+    // For users with fewer than 2 posts, show People You May Know immediately
+    const shouldShowImmediately = posts.length < 2;
+    
+    if (shouldShowImmediately) {
+      elements.push(
+        <View key="people-you-may-know">
+          <PeopleYouMayKnowCard />
+        </View>
+      );
+    }
+    
     posts.forEach((item, index) => {
-      // Add People You May Know after the first 2 posts
-      if (index === 2) {
+      // Add People You May Know after the first 2 posts (only if not shown immediately)
+      if (index === 2 && !shouldShowImmediately) {
         elements.push(
           <View key="people-you-may-know">
             <PeopleYouMayKnowCard />
@@ -672,11 +683,42 @@ const HomeScreen = () => {
         likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
       } catch {}
       
+      // Get list of users the current user is following
+      let followingUserIds = new Set<number>();
+      try {
+        if (meId) {
+          const followingData = await fetchFollowing(meId);
+          const followingList = followingData?.following || [];
+          followingUserIds = new Set(followingList.map((u: any) => u.user_id || u.id));
+        }
+      } catch (error) {
+        console.error('Error fetching following list:', error);
+      }
+      
       // The backend returns a flat array of feed items (posts and reposts)
       const feedItems: any[] = [];
       
       (Array.isArray(postsData) ? postsData : [])
-        .filter((item: any) => item.type !== 'forum') // Exclude forum posts from home feed
+        .filter((item: any) => {
+          // Exclude forum posts from home feed
+          if (item.type === 'forum') return false;
+          
+          // Filter donation posts: only show if user is following the creator
+          if (item.type === 'donation' || item.item_type === 'donation_post') {
+            const creatorId = item.user?.user_id || item.user?.id;
+            // Show if it's the user's own post or if they're following the creator
+            return !creatorId || creatorId === meId || followingUserIds.has(creatorId);
+          }
+          
+          // Filter donation reposts: only show if user is following the reposter
+          if (item.item_type === 'repost' && item.original_post?.type === 'donation') {
+            const reposterId = item.user?.user_id || item.user?.id;
+            // Show if it's the user's own repost or if they're following the reposter
+            return !reposterId || reposterId === meId || followingUserIds.has(reposterId);
+          }
+          
+          return true;
+        })
         .forEach((item: any) => {
           if (item.item_type === 'repost') {
             // Handle reposts - prioritize backend is_liked field

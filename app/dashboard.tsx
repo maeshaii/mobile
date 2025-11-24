@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CachedImage from '../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { getUserInfo, logoutUser, getFeed, API_BASE_URL, likeRepost, unlikeRepost } from '../services/api';
+import { getUserInfo, logoutUser, getFeed, API_BASE_URL, likeRepost, unlikeRepost, fetchFollowing } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
@@ -243,6 +243,19 @@ export default function DashboardScreen() {
       } catch {}
       const me: any = await getUserInfo().catch(() => null);
       const meId = me?.user_id || me?.id;
+      
+      // Get list of users the current user is following
+      let followingUserIds = new Set<number>();
+      try {
+        if (meId) {
+          const followingData = await fetchFollowing(meId);
+          const followingList = followingData?.following || [];
+          followingUserIds = new Set(followingList.map((u: any) => u.user_id || u.id));
+        }
+      } catch (error) {
+        console.error('Error fetching following list:', error);
+      }
+      
       // Load persisted donation post likes (same key format as donation page)
       let likedDonationPostsSet = new Set<number>();
       try {
@@ -253,7 +266,27 @@ export default function DashboardScreen() {
           likedDonationPostsSet = new Set(arr.map(Number));
         }
       } catch {}
-      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+      
+      // Filter donation posts to only show those from followed users
+      const filteredPosts = Array.isArray(postsData) ? postsData.filter((item: any) => {
+        // Filter donation posts: only show if user is following the creator
+        if (item.type === 'donation' || item.item_type === 'donation_post') {
+          const creatorId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own post or if they're following the creator
+          return !creatorId || creatorId === meId || followingUserIds.has(creatorId);
+        }
+        
+        // Filter donation reposts: only show if user is following the reposter
+        if (item.item_type === 'repost' && item.original_post?.type === 'donation') {
+          const reposterId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own repost or if they're following the reposter
+          return !reposterId || reposterId === meId || followingUserIds.has(reposterId);
+        }
+        
+        return true;
+      }) : [];
+      
+      const normalized = filteredPosts.map((it: any) => {
         if (it?.item_type === 'repost') {
           // Prioritize backend is_liked field for reposts
           let repostLikedByMe = it.is_liked !== undefined ? it.is_liked : false;
@@ -299,7 +332,7 @@ export default function DashboardScreen() {
           }
           return { ...it, is_liked: !!likedByMe };
         }
-      }) : [];
+      });
       setPosts(normalized || []);
       console.log('Posts loaded successfully:', postsData?.length || 0);
     } catch (err: any) {
@@ -348,6 +381,19 @@ export default function DashboardScreen() {
         likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
       } catch {}
       const meId = userInfo?.user_id || userInfo?.id;
+      
+      // Get list of users the current user is following
+      let followingUserIds = new Set<number>();
+      try {
+        if (meId) {
+          const followingData = await fetchFollowing(meId);
+          const followingList = followingData?.following || [];
+          followingUserIds = new Set(followingList.map((u: any) => u.user_id || u.id));
+        }
+      } catch (error) {
+        console.error('Error fetching following list:', error);
+      }
+      
       // Load persisted donation post likes (same key format as donation page)
       let likedDonationPostsSet = new Set<number>();
       try {
@@ -358,7 +404,27 @@ export default function DashboardScreen() {
           likedDonationPostsSet = new Set(arr.map(Number));
         }
       } catch {}
-      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+      
+      // Filter donation posts to only show those from followed users
+      const filteredPosts = Array.isArray(postsData) ? postsData.filter((item: any) => {
+        // Filter donation posts: only show if user is following the creator
+        if (item.type === 'donation' || item.item_type === 'donation_post') {
+          const creatorId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own post or if they're following the creator
+          return !creatorId || creatorId === meId || followingUserIds.has(creatorId);
+        }
+        
+        // Filter donation reposts: only show if user is following the reposter
+        if (item.item_type === 'repost' && item.original_post?.type === 'donation') {
+          const reposterId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own repost or if they're following the reposter
+          return !reposterId || reposterId === meId || followingUserIds.has(reposterId);
+        }
+        
+        return true;
+      }) : [];
+      
+      const normalized = filteredPosts.map((it: any) => {
         if (it?.item_type === 'repost') {
           // Prioritize backend is_liked field for reposts
           let repostLikedByMe = it.is_liked !== undefined ? it.is_liked : false;
@@ -404,7 +470,7 @@ export default function DashboardScreen() {
           }
           return { ...it, is_liked: !!likedByMe };
         }
-      }) : [];
+      });
       setPosts(normalized || []);
     } catch (err: any) {
       console.error('Error loading user info:', err);

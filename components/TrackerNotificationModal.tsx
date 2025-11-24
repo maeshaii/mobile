@@ -129,28 +129,23 @@ const TrackerNotificationModal: React.FC<TrackerNotificationModalProps> = ({
     >
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
-          {/* Light Blue Header */}
+          {/* Header */}
           <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              {/* CCICT Logo/Icon */}
-              <View style={styles.logoContainer}>
-                <Image
-                  source={require('../assets/images/ccict_logo.jpg')}
-                  style={styles.logo}
-                  resizeMode="contain"
-                />
-              </View>
-              <View style={styles.headerText}>
-                <Text style={styles.headerTitle}>
-                  {notification.subject || 'Please Fill Out the Tracker Form'}
-                </Text>
-                <Text style={styles.headerDate}>
-                  {formatDate(notification.date)}
-                </Text>
-              </View>
+            <Image
+              source={require('../assets/images/ccict_logo.jpg')}
+              style={styles.logo}
+              resizeMode="cover"
+            />
+            <View style={styles.headerText}>
+              <Text style={styles.headerTitle}>
+                {notification.subject || 'Please Fill Out the Tracker Form'}
+              </Text>
+              <Text style={styles.headerDate}>
+                {formatDate(notification.date)}
+              </Text>
             </View>
             <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <FontAwesome name="times" size={18} color="#6b7280" />
+              <FontAwesome name="times" size={18} color="#4b5563" />
             </TouchableOpacity>
           </View>
 
@@ -166,18 +161,16 @@ const TrackerNotificationModal: React.FC<TrackerNotificationModalProps> = ({
                 </View>
               )}
 
-              {/* IMPORTANT Section */}
-              {hasImportantSection && (
-                <View style={styles.importantSection}>
-                  <View style={styles.importantHeader}>
-                    <Text style={styles.importantIcon}>⚠️</Text>
-                    <Text style={styles.importantTitle}>IMPORTANT</Text>
-                  </View>
-                  <Text style={styles.importantText}>
-                    Before proceeding to answer the form, kindly prepare the necessary supporting documents to ensure a smooth process and avoid delays in completing it.
-                  </Text>
+              {/* IMPORTANT Section - always show for tracker reminders */}
+              <View style={styles.importantSection}>
+                <View style={styles.importantHeader}>
+                  <Text style={styles.importantIcon}>⚠️</Text>
+                  <Text style={styles.importantTitle}>IMPORTANT</Text>
                 </View>
-              )}
+                <Text style={styles.importantText}>
+                  Before proceeding to answer the form, kindly prepare the necessary supporting documents to ensure a smooth process and avoid delays in completing it.
+                </Text>
+              </View>
 
               {/* Tracker Form Button */}
               <TouchableOpacity
@@ -185,7 +178,9 @@ const TrackerNotificationModal: React.FC<TrackerNotificationModalProps> = ({
                 onPress={handleOpenTrackerForm}
                 activeOpacity={0.8}
               >
-                <Text style={styles.trackerButtonIcon}>📒</Text>
+                <View style={styles.trackerButtonIconContainer}>
+                  <View style={styles.trackerButtonIconSquare} />
+                </View>
                 <Text style={styles.trackerButtonText}>Tracker Form</Text>
               </TouchableOpacity>
 
@@ -239,56 +234,39 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   header: {
-    backgroundColor: '#e0f2fe', // Light blue
+    backgroundColor: '#fff',
     paddingHorizontal: 20,
     paddingVertical: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     borderBottomWidth: 1,
-    borderBottomColor: '#bae6fd',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  logoContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: '#dc2626',
-    backgroundColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    overflow: 'hidden',
+    borderBottomColor: '#e5e7eb',
+    minHeight: 80,
   },
   logo: {
-    width: 45,
-    height: 45,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
   },
   headerText: {
     flex: 1,
+    marginRight: 8,
   },
   headerTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1f2937',
+    color: '#1e3a8a',
     marginBottom: 4,
   },
   headerDate: {
     fontSize: 12,
-    color: '#6b7280',
+    color: '#9ca3af',
+    marginTop: 2,
   },
   closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 4,
+    marginTop: 0,
   },
   body: {
     flex: 1,
@@ -308,7 +286,8 @@ const styles = StyleSheet.create({
     borderLeftColor: '#f59e0b',
     padding: 16,
     borderRadius: 8,
-    marginVertical: 16,
+    marginTop: 16,
+    marginBottom: 16,
   },
   importantHeader: {
     flexDirection: 'row',
@@ -330,23 +309,28 @@ const styles = StyleSheet.create({
     color: '#78350f',
   },
   trackerButton: {
-    backgroundColor: '#0066cc',
+    backgroundColor: '#1e3a8a',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 8,
     marginVertical: 16,
-    shadowColor: '#0066cc',
+    shadowColor: '#1e3a8a',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3,
   },
-  trackerButtonIcon: {
-    fontSize: 18,
+  trackerButtonIconContainer: {
     marginRight: 8,
+  },
+  trackerButtonIconSquare: {
+    width: 12,
+    height: 12,
+    backgroundColor: '#fbbf24',
+    borderRadius: 2,
   },
   trackerButtonText: {
     color: 'white',

@@ -84,7 +84,7 @@ const devDefault = Platform.select({
   default: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
 });
 // Production fallback (override with expo.extra.API_BASE_URL for real deployments)
-const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev';
+const ngrokUrl = 'https://carlos-unripening-henley.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
 // Use explicit config from Expo extra or env, otherwise fall back to default
 export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || defaultUrl);

@@ -1685,7 +1685,11 @@ export default function PostCommentsScreen() {
 
                 {!!post.post_content && (
 
-                  <Text style={styles.postContent}>{post.post_content}</Text>
+                  <View style={styles.postContent}>
+                    {renderTextWithMentions(post.post_content, [], (userId) => {
+                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                    }, styles.postContent)}
+                  </View>
 
                 )}
 

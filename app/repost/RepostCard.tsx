@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
-import { formatUserFullName } from '../../utils/nameUtils';
+import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 
 dayjs.extend(relativeTime);
 
@@ -598,11 +598,13 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
       {/* Repost Stats */}
       <View style={styles.actionsCountsRow}>
-        <TouchableOpacity onPress={openLikes}>
-          <Text style={styles.countText}>
-            {likeCount} {likeCount === 1 ? 'like' : 'likes'}
-          </Text>
-        </TouchableOpacity>
+        {likeCount > 0 && (
+          <TouchableOpacity onPress={openLikes}>
+            <Text style={styles.countText}>
+              {formatLikeCountText(repost.likes, likeCount)}
+            </Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={openCommentModal}>
           <Text style={styles.countText}>{repost.comments_count || 0} comments</Text>
         </TouchableOpacity>

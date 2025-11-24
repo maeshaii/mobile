@@ -8,6 +8,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import UserAvatar from '../../components/UserAvatar';
 import { formatUserFullName } from '../../utils/nameUtils';
+import { renderTextWithMentions } from '../../utils/mentionUtils';
 
 dayjs.extend(relativeTime);
 
@@ -256,7 +257,11 @@ export default function DonationRepostScreen() {
           </View>
         </View>
 
-        <Text style={styles.originalPostContent}>{original.post_content}</Text>
+        <View style={styles.originalPostContent}>
+          {renderTextWithMentions(original.post_content, [], (userId) => {
+            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+          }, styles.originalPostContent)}
+        </View>
         
         {/* Images - Facebook-style grid layout like dashboard */}
         {(() => {

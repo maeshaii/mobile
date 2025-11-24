@@ -37,6 +37,12 @@ interface InventoryItem {
   value: string;
   created_at?: string;
   updated_at?: string;
+  availability?: {
+    status: 'in_stock' | 'low_stock' | 'out_of_stock';
+    label: string;
+    units_available: number;
+    is_available: boolean;
+  };
 }
 
 interface RewardRequest {
@@ -88,6 +94,21 @@ export default function RewardsScreen() {
   });
   const [showEarnPointsModal, setShowEarnPointsModal] = useState(false);
   const [trackerFormEnabled, setTrackerFormEnabled] = useState(false);
+
+  // Derive reward availability - matches web logic
+  const deriveRewardAvailability = (item: InventoryItem) => {
+    if (item?.availability) {
+      return item.availability;
+    }
+    const units = Math.max(item?.quantity || 0, 0);
+    if (units <= 0) {
+      return { status: 'out_of_stock' as const, label: 'Out of Stock', units_available: 0, is_available: false };
+    }
+    if (units <= 5) {
+      return { status: 'low_stock' as const, label: `Low Stock (${units} left)`, units_available: units, is_available: true };
+    }
+    return { status: 'in_stock' as const, label: 'In Stock', units_available: units, is_available: true };
+  };
 
   const fetchUserPoints = async () => {
     try {
@@ -290,14 +311,26 @@ export default function RewardsScreen() {
   };
 
   const handleRequestReward = async (rewardId: number) => {
-    if (claimingReward !== null) return;
+    console.log('Mobile: handleRequestReward called with rewardId:', rewardId);
+    if (claimingReward !== null) {
+      console.log('Mobile: Already claiming a reward, returning');
+      return;
+    }
 
     const reward = inventoryItems.find(item => item.id === rewardId);
-    if (!reward) return;
+    if (!reward) {
+      console.log('Mobile: Reward not found');
+      return;
+    }
+    
+    const availability = deriveRewardAvailability(reward);
+    const hasStock = availability.is_available;
+    console.log('Mobile: Reward availability:', availability);
 
     const pointsMatch = reward.value?.match(/(\d+)/);
     const requiredPoints = pointsMatch ? parseInt(pointsMatch[1]) : 0;
     const canAfford = (userPoints?.total_points || 0) >= requiredPoints;
+    console.log('Mobile: Can afford:', canAfford, 'Required:', requiredPoints, 'Has:', userPoints?.total_points);
 
     if (!canAfford) {
       Alert.alert(
@@ -307,7 +340,7 @@ export default function RewardsScreen() {
       return;
     }
 
-    if (reward.quantity <= 0) {
+    if (!hasStock) {
       Alert.alert('Out of Stock', 'This reward is out of stock.');
       return;
     }
@@ -326,6 +359,7 @@ export default function RewardsScreen() {
     }
 
     // Show confirmation modal instead of Alert
+    console.log('Mobile: Setting pending reward request and showing confirmation modal');
     setPendingRewardRequest({
       id: rewardId,
       name: reward.name,
@@ -333,6 +367,7 @@ export default function RewardsScreen() {
       type: reward.type
     });
     setShowConfirmRequestModal(true);
+    console.log('Mobile: Confirmation modal state set to true');
   };
 
   const confirmRequestReward = async () => {
@@ -343,12 +378,21 @@ export default function RewardsScreen() {
     
     try {
       setClaimingReward(rewardId);
+      console.log('Mobile: Requesting reward with ID:', rewardId);
       const response = await requestReward(rewardId);
+      console.log('Mobile: Request reward response:', response);
       
       if (response.success) {
-        await fetchUserPoints();
-        await fetchInventoryItems();
+        // Refresh requests
         await fetchUserRewardRequests();
+        
+        // Refresh inventory
+        await fetchInventoryItems();
+        
+        // Refresh user points (mobile-specific, helps with UI updates)
+        await fetchUserPoints();
+        
+        // Close modal
         setPendingRewardRequest(null);
       } else {
         Alert.alert('Error', response.message || 'Failed to request reward');
@@ -457,11 +501,18 @@ export default function RewardsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header with Back Button */}
+      {/* Header with Back Button and Title */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <FontAwesome name="arrow-left" size={24} color="#000" />
-        </TouchableOpacity>
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <FontAwesome name="arrow-left" size={24} color="#000" />
+          </TouchableOpacity>
+          <View style={styles.titleContainer}>
+            <FontAwesome name="trophy" size={24} color="#f59e0b" />
+            <Text style={styles.titleText}>Engagement Points</Text>
+          </View>
+          <View style={styles.headerSpacer} />
+        </View>
       </View>
       
       <ScrollView
@@ -469,11 +520,6 @@ export default function RewardsScreen() {
         contentContainerStyle={{ paddingTop: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* Engagement Points Title */}
-        <View style={styles.titleContainer}>
-          <FontAwesome name="trophy" size={24} color="#f59e0b" />
-          <Text style={styles.titleText}>Engagement Points</Text>
-        </View>
 
         {/* Main Points Card with Gradient */}
         <LinearGradient
@@ -551,32 +597,33 @@ export default function RewardsScreen() {
           transparent={true}
           onRequestClose={() => setShowRewardsModal(false)}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+          <View style={styles.rewardsModalOverlay}>
+            <View style={styles.rewardsModalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Available Rewards</Text>
                 <TouchableOpacity onPress={() => setShowRewardsModal(false)}>
                   <FontAwesome name="times" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
-              <ScrollView style={styles.modalScrollView}>
+              <ScrollView 
+                style={styles.modalScrollView}
+                nestedScrollEnabled={true}
+                keyboardShouldPersistTaps="handled"
+                scrollEnabled={true}
+                bounces={true}
+              >
                 {rewardsLoading ? (
                   <ActivityIndicator size="large" color="#1e3a8a" />
                 ) : (
                   <>
                     {(() => {
-                      // Filter to only show rewards user can afford and are in stock
-                      const affordableRewards = inventoryItems.filter((item) => {
-                        const pointsMatch = item.value?.match(/(\d+)/);
-                        const requiredPoints = pointsMatch ? parseInt(pointsMatch[1]) : 0;
-                        const canAfford = (userPoints?.total_points || 0) >= requiredPoints;
-                        return canAfford && item.quantity > 0;
-                      });
-
-                      if (affordableRewards.length === 0) {
+                      // Show ALL rewards from DB (do not filter by affordability)
+                      const rewards = Array.isArray(inventoryItems) ? inventoryItems : [];
+                      
+                      if (rewards.length === 0) {
                         return (
                           <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyText}>No rewards available that you can afford at the moment</Text>
+                            <Text style={styles.emptyText}>No rewards available</Text>
                             <Text style={styles.emptySubtext}>
                               You currently have {userPoints?.total_points || 0} points
                             </Text>
@@ -584,10 +631,15 @@ export default function RewardsScreen() {
                         );
                       }
 
-                      return affordableRewards.map((item) => {
+                      return rewards.map((item) => {
                         const pointsMatch = item.value?.match(/(\d+)/);
                         const requiredPoints = pointsMatch ? parseInt(pointsMatch[1]) : 0;
+                        const canAfford = (userPoints?.total_points || 0) >= requiredPoints;
+                        const availability = deriveRewardAvailability(item);
+                        const hasStock = availability.is_available;
+                        const canRequest = canAfford && hasStock;
                         const isClaiming = claimingReward === item.id;
+                        const pointsShort = Math.max(0, requiredPoints - (userPoints?.total_points || 0));
 
                         return (
                           <View key={item.id} style={styles.rewardCard}>
@@ -599,20 +651,46 @@ export default function RewardsScreen() {
                             </View>
                             <Text style={styles.rewardValue}>{item.value}</Text>
                             <Text style={styles.rewardStock}>
-                              Stock: {item.quantity} available
+                              Stock: {availability.units_available} available
                             </Text>
                             <TouchableOpacity
                               style={[
                                 styles.requestButton,
-                                isClaiming && styles.requestButtonDisabled,
+                                (!canRequest || isClaiming) && styles.requestButtonDisabled,
                               ]}
-                              onPress={() => handleRequestReward(item.id)}
-                              disabled={isClaiming}
+                              onPressIn={() => {
+                                console.log('Mobile: Button onPressIn - reward:', item.id, 'canRequest:', canRequest);
+                              }}
+                              onPress={() => {
+                                console.log('Mobile: Button onPress - reward:', item.id, 'canRequest:', canRequest, 'isClaiming:', isClaiming, 'hasStock:', hasStock, 'canAfford:', canAfford);
+                                if (canRequest && !isClaiming) {
+                                  console.log('Mobile: Calling handleRequestReward for reward:', item.id);
+                                  handleRequestReward(item.id);
+                                } else {
+                                  console.log('Mobile: Button press ignored - canRequest:', canRequest, 'isClaiming:', isClaiming);
+                                  if (!canRequest) {
+                                    Alert.alert('Cannot Request', `canAfford: ${canAfford}, hasStock: ${hasStock}`);
+                                  }
+                                }
+                              }}
+                              disabled={!canRequest || isClaiming}
+                              activeOpacity={canRequest && !isClaiming ? 0.7 : 1}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              delayPressIn={0}
                             >
                               {isClaiming ? (
                                 <ActivityIndicator size="small" color="#fff" />
                               ) : (
-                                <Text style={styles.requestButtonText}>Request Reward</Text>
+                                <Text style={[
+                                  styles.requestButtonText,
+                                  !canRequest && styles.requestButtonTextDisabled
+                                ]}>
+                                  {canRequest
+                                    ? 'Request to Claim Reward'
+                                    : !hasStock
+                                    ? 'Out of Stock'
+                                    : `Need ${pointsShort} more point${pointsShort === 1 ? '' : 's'}`}
+                                </Text>
                               )}
                             </TouchableOpacity>
                           </View>
@@ -638,8 +716,8 @@ export default function RewardsScreen() {
             setShowRewardFilterDropdown(false);
           }}
         >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, styles.requestsModalContent]}>
+          <View style={styles.rewardsModalOverlay}>
+            <View style={styles.rewardsModalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>My Reward Requests</Text>
                 <TouchableOpacity
@@ -714,7 +792,7 @@ export default function RewardsScreen() {
               >
                 {filteredRequests.length === 0 ? (
                   <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No reward requests</Text>
+                    <Text style={styles.emptyText}>No reward requests yet</Text>
                   </View>
                 ) : (
                   filteredRequests.map((request: any) => {
@@ -997,31 +1075,45 @@ export default function RewardsScreen() {
             setShowConfirmRequestModal(false);
             setPendingRewardRequest(null);
           }}
+          onShow={() => {
+            console.log('Mobile: Confirm request modal is now visible');
+          }}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <View style={styles.modalTitleRow}>
-                  <FontAwesome name="gift" size={20} color="#1e3a5f" />
-                  <Text style={styles.modalTitle}>Request Reward</Text>
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => {
+              setShowConfirmRequestModal(false);
+              setPendingRewardRequest(null);
+            }}
+          >
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.confirmModalContent} onStartShouldSetResponder={() => true}>
+                {/* Header */}
+                <View style={styles.confirmModalHeader}>
+                  <View style={styles.modalTitleRow}>
+                    <FontAwesome name="gift" size={20} color="#1e3a5f" />
+                    <Text style={styles.confirmModalTitle}>Request Reward</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowConfirmRequestModal(false);
+                      setPendingRewardRequest(null);
+                    }}
+                    style={styles.closeButtonTouchable}
+                  >
+                    <Text style={styles.closeButtonText}>×</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    setShowConfirmRequestModal(false);
-                    setPendingRewardRequest(null);
-                  }}
-                >
-                  <FontAwesome name="times" size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={styles.modalScrollView}>
+
+                {/* Content */}
                 {pendingRewardRequest && (() => {
                   const pointsMatch = pendingRewardRequest.value?.match(/(\d+)/);
                   const pointsValue = pointsMatch ? parseInt(pointsMatch[1]) : 0;
                   const pointsText = pointsValue === 1 ? 'point' : 'points';
                   
                   return (
-                    <View style={styles.modalBody}>
+                    <View style={styles.confirmModalBody}>
                       <Text style={styles.confirmMessage}>
                         You are about to redeem <Text style={styles.highlightText}>{pendingRewardRequest.name}</Text> as your reward for accumulating <Text style={styles.highlightText}>{pointsValue} {pointsText}</Text>.
                       </Text>
@@ -1045,6 +1137,7 @@ export default function RewardsScreen() {
                         </Text>
                       </View>
 
+                      {/* Buttons */}
                       <View style={styles.modalButtonRow}>
                         <TouchableOpacity
                           style={[styles.modalButton, styles.modalButtonCancel]}
@@ -1073,9 +1166,9 @@ export default function RewardsScreen() {
                     </View>
                   );
                 })()}
-              </ScrollView>
-            </View>
-          </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </TouchableOpacity>
         </Modal>
       </ScrollView>
     </View>
@@ -1094,9 +1187,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   backButton: {
     padding: 8,
     marginLeft: -8,
+  },
+  headerSpacer: {
+    width: 40, // Same width as back button to center the title
   },
   scrollView: {
     flex: 1,
@@ -1115,10 +1216,9 @@ const styles = StyleSheet.create({
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
     gap: 8,
+    flex: 1,
+    justifyContent: 'center',
   },
   titleText: {
     fontSize: 20,
@@ -1217,6 +1317,13 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  rewardsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -1226,8 +1333,13 @@ const styles = StyleSheet.create({
     maxHeight: '90%',
     paddingBottom: 20,
   },
-  requestsModalContent: {
-    minHeight: 400,
+  rewardsModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+    width: '100%',
+    paddingBottom: 20,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1310,17 +1422,26 @@ const styles = StyleSheet.create({
   },
   requestButton: {
     backgroundColor: '#1e3a8a',
-    padding: 12,
-    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   requestButtonDisabled: {
-    backgroundColor: '#9ca3af',
+    backgroundColor: '#e5e7eb',
   },
   requestButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  requestButtonTextDisabled: {
+    color: '#9ca3af',
   },
   filterDropdownContainer: {
     paddingHorizontal: 16,
@@ -1482,10 +1603,10 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   confirmMessage: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#374151',
-    lineHeight: 24,
-    marginBottom: 20,
+    lineHeight: 22,
+    marginBottom: 16,
   },
   highlightText: {
     color: '#1e3a5f',
@@ -1496,22 +1617,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#fcd34d',
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    gap: 10,
   },
   warningIcon: {
-    fontSize: 18,
+    fontSize: 16,
     flexShrink: 0,
     marginTop: 2,
   },
   warningText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     color: '#92400e',
-    lineHeight: 20,
+    lineHeight: 18,
   },
   infoBox: {
     backgroundColor: '#eff6ff',
@@ -1519,35 +1640,36 @@ const styles = StyleSheet.create({
     borderColor: '#bfdbfe',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 24,
+    marginBottom: 20,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
   },
   infoIcon: {
-    fontSize: 16,
+    fontSize: 14,
     flexShrink: 0,
     marginTop: 2,
     color: '#1e40af',
   },
   infoText: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 12,
     color: '#1e40af',
-    lineHeight: 18,
+    lineHeight: 17,
   },
   modalButtonRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     justifyContent: 'flex-end',
   },
   modalButton: {
     backgroundColor: '#1e3a5f',
     paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: 'center',
-    minWidth: 120,
+    minWidth: 100,
+    flex: 1,
   },
   modalButtonCancel: {
     backgroundColor: '#f3f4f6',
@@ -1557,13 +1679,51 @@ const styles = StyleSheet.create({
   },
   modalButtonText: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   modalButtonCancelText: {
     color: '#374151',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  confirmModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 40,
+    elevation: 5,
+  },
+  confirmModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  confirmModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1e3a5f',
+  },
+  confirmModalBody: {
+    // Content is already styled with individual components
+  },
+  closeButtonTouchable: {
+    padding: 4,
+    paddingHorizontal: 8,
+  },
+  closeButtonText: {
+    fontSize: 28,
+    color: '#6b7280',
+    lineHeight: 28,
   },
 });
 

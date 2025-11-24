@@ -456,11 +456,13 @@ export default function OtherUserPage() {
         <Text style={styles.profileName}>{userName}</Text>
         <Text style={styles.profileUsername}>@{user.id}</Text>
         
-        {user.profile_bio && (
-          <View style={styles.bioRow}>
+        <View style={styles.bioRow}>
+          {user.profile_bio && user.profile_bio.trim() ? (
             <Text style={styles.bioText}>{user.profile_bio}</Text>
-          </View>
-        )}
+          ) : (
+            <Text style={styles.bioText}>This user has not added a bio yet.</Text>
+          )}
+        </View>
 
       
 

@@ -547,11 +547,23 @@ export default function OJTProfilePage() {
         <Text style={styles.profileName}>{user.name}</Text>
         <Text style={styles.profileUsername}>{user.username}</Text>
 
-        {user.bio && (
-          <View style={styles.bioRow}>
+        <View style={styles.bioRow}>
+          {user.bio && user.bio.trim() ? (
             <Text style={styles.bioText}>{user.bio}</Text>
-          </View>
-        )}
+          ) : isOwnProfile ? (
+            <TouchableOpacity 
+              onPress={() => {
+                setEditBio(user.bio || '');
+                setShowEditDetailsModal(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.bioText, styles.bioTextClickable]}>Tell everyone a little about yourself by adding a bio.</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.bioText}>This user has not added a bio yet.</Text>
+          )}
+        </View>
 
         {/* Action Buttons */}
         {!isOwnProfile && (
@@ -1373,6 +1385,10 @@ const styles = StyleSheet.create({
   bioText: {
     fontSize: 14,
     color: '#444',
+  },
+  bioTextClickable: {
+    color: '#174f84',
+    textDecorationLine: 'underline',
   },
   detailsCard: {
     backgroundColor: '#fff',

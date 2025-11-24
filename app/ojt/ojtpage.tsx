@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getUserInfo, getFeed } from '../../services/api';
+import { getUserInfo, getFeed, fetchFollowing } from '../../services/api';
 import NavBar from '../(tabs)/navbar';
 import UserAvatar from '../../components/UserAvatar';
 import PostCard from '../posts/postCard';
@@ -81,9 +81,32 @@ export default function OJTPage() {
   const router = useRouter();
 
   useEffect(() => {
-    loadUserInfo();
-    loadPosts();
+    const initialize = async () => {
+      // Check for first-time login first - if detected, redirect will happen and function will return
+      await checkFirstTimeLogin();
+      // Only proceed if not redirected
+      loadUserInfo();
+      loadPosts();
+    };
+    initialize();
   }, []);
+
+  const checkFirstTimeLogin = async () => {
+    try {
+      // Check if this is a first-time login that requires password change
+      const { Storage } = await import('../../services/api');
+      const mustChangePassword = await Storage.getItem('must_change_password');
+      
+      if (mustChangePassword === 'true') {
+        console.log('[OJT] 🎯 First-time login detected - redirecting to password change');
+        router.replace({ pathname: '/temporary-password/temporary-password', params: { first: '1' } as any });
+        return;
+      }
+    } catch (error) {
+      console.error('[OJT] Error checking first-time login status:', error);
+      // Continue with normal flow if check fails
+    }
+  };
 
   const loadUserInfo = async () => {
     try {
@@ -133,10 +156,41 @@ export default function OJTPage() {
       const me: any = await getUserInfo();
       const meId = me?.user_id || me?.id;
       
+      // Get list of users the current user is following
+      let followingUserIds = new Set<number>();
+      try {
+        if (meId) {
+          const followingData = await fetchFollowing(meId);
+          const followingList = followingData?.following || [];
+          followingUserIds = new Set(followingList.map((u: any) => u.user_id || u.id));
+        }
+      } catch (error) {
+        console.error('Error fetching following list:', error);
+      }
+      
       const feedItems: any[] = [];
       
       (Array.isArray(postsData) ? postsData : [])
-        .filter((item: any) => item.type !== 'forum') // Exclude forum posts from home feed
+        .filter((item: any) => {
+          // Exclude forum posts from home feed
+          if (item.type === 'forum') return false;
+          
+          // Filter donation posts: only show if user is following the creator
+          if (item.type === 'donation' || item.item_type === 'donation_post') {
+            const creatorId = item.user?.user_id || item.user?.id;
+            // Show if it's the user's own post or if they're following the creator
+            return !creatorId || creatorId === meId || followingUserIds.has(creatorId);
+          }
+          
+          // Filter donation reposts: only show if user is following the reposter
+          if (item.item_type === 'repost' && item.original_post?.type === 'donation') {
+            const reposterId = item.user?.user_id || item.user?.id;
+            // Show if it's the user's own repost or if they're following the reposter
+            return !reposterId || reposterId === meId || followingUserIds.has(reposterId);
+          }
+          
+          return true;
+        })
         .forEach((item: any) => {
           if (item.item_type === 'repost') {
             const repostLikesArr = Array.isArray(item?.likes) ? item.likes : [];
@@ -186,8 +240,20 @@ export default function OJTPage() {
   const renderPostsWithSuggestions = () => {
     const elements: React.ReactNode[] = [];
     
+    // For users with fewer than 2 posts, show People You May Know immediately
+    const shouldShowImmediately = posts.length < 2;
+    
+    if (shouldShowImmediately) {
+      elements.push(
+        <View key="people-you-may-know">
+          <PeopleYouMayKnowCard />
+        </View>
+      );
+    }
+    
     posts.forEach((item, index) => {
-      if (index === 2) {
+      // Add People You May Know after the first 2 posts (only if not shown immediately)
+      if (index === 2 && !shouldShowImmediately) {
         elements.push(
           <View key="people-you-may-know">
             <PeopleYouMayKnowCard />

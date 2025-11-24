@@ -12,7 +12,7 @@ import PostCard from './postCard';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getImagesFromContent } from '../../utils/imageUtils';
-import { formatUserFullName } from '../../utils/nameUtils';
+import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 
 dayjs.extend(relativeTime);
 
@@ -732,29 +732,33 @@ export default function PostDetailScreen() {
 
         {/* Stats */}
         <View style={styles.actionsCountsRow}>
-          <TouchableOpacity onPress={async () => {
-            try {
-              // Use likes data from post detail if available, otherwise fetch fresh data
-              let likesArray = Array.isArray(post?.likes) && post.likes.length > 0 ? post.likes : null;
-              
-              if (!likesArray) {
-                // If no likes data, refresh the post detail to get fresh data
-                const updatedPost = await getPostDetail(postId);
-                likesArray = Array.isArray(updatedPost?.likes) ? updatedPost.likes : [];
-                setPost(updatedPost); // Update the post state with fresh data
+          {(post.likes_count || 0) > 0 && (
+            <TouchableOpacity onPress={async () => {
+              try {
+                // Use likes data from post detail if available, otherwise fetch fresh data
+                let likesArray = Array.isArray(post?.likes) && post.likes.length > 0 ? post.likes : null;
+                
+                if (!likesArray) {
+                  // If no likes data, refresh the post detail to get fresh data
+                  const updatedPost = await getPostDetail(postId);
+                  likesArray = Array.isArray(updatedPost?.likes) ? updatedPost.likes : [];
+                  setPost(updatedPost); // Update the post state with fresh data
+                }
+                
+                setSelectedPost({ ...post, likes: Array.isArray(likesArray) ? likesArray : [] });
+                setViewerType('likes');
+                setViewerVisible(true);
+              } catch (e) {
+                setSelectedPost({ ...post, likes: [] });
+                setViewerType('likes');
+                setViewerVisible(true);
               }
-              
-              setSelectedPost({ ...post, likes: Array.isArray(likesArray) ? likesArray : [] });
-              setViewerType('likes');
-              setViewerVisible(true);
-            } catch (e) {
-              setSelectedPost({ ...post, likes: [] });
-              setViewerType('likes');
-              setViewerVisible(true);
-            }
-          }}>
-            <Text style={styles.countText}>{post.likes_count || 0} {post.likes_count === 1 ? 'like' : 'likes'}</Text>
-          </TouchableOpacity>
+            }}>
+              <Text style={styles.countText}>
+                {formatLikeCountText(post.likes, post.likes_count || 0)}
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => {
             // Scroll to comments section
           }}>

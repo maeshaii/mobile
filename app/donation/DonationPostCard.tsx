@@ -7,7 +7,7 @@ import { API_BASE_URL, likeDonationPost, unlikeDonationPost, commentOnDonationPo
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
-import { formatUserFullName } from '../../utils/nameUtils';
+import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 
 interface Post {
   post_id: number;
@@ -271,9 +271,13 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
 
       {/* Stats */}
       <View style={styles.actionsCountsRow}>
-        <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
-          <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
-        </TouchableOpacity>
+        {likeCount > 0 && (
+          <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
+            <Text style={styles.countText}>
+              {formatLikeCountText((post as any).likes, likeCount)}
+            </Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
           <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
         </TouchableOpacity>

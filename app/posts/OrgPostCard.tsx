@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { commentOnPost, getPostComments, likePost, unlikePost } from '../../services/api';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { formatUserFullName } from '../../utils/nameUtils';
@@ -51,6 +52,7 @@ interface Props {
 }
 
 const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAdded }) => {
+  const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [commentModalVisible, setCommentModalVisible] = useState(false);
@@ -142,7 +144,11 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
           </View>
         </View>
         <Text style={styles.postTitle}>{post.post_title}</Text>
-        <Text style={styles.postContent}>{post.post_content}</Text>
+        <View style={styles.postContent}>
+          {renderTextWithMentions(post.post_content, [], (userId) => {
+            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+          }, styles.postContent)}
+        </View>
         {imageUrl && (
           <Image 
             source={{ uri: imageUrl }} 
@@ -186,8 +192,7 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
                 </View>
                 <View style={styles.commentBubble}>
                   {renderTextWithMentions(comment.comment_content, [], (userId) => {
-                    // Navigate to user profile - you might need to implement this
-                    console.log('Navigate to user:', userId);
+                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                   })}
                 </View>
               </View>
@@ -234,8 +239,7 @@ const OrgPostCard: React.FC<Props> = ({ post, orgInfo, onLikeToggle, onCommentAd
                     </View>
                     <View style={styles.modalCommentBubble}>
                       {renderTextWithMentions(comment.comment_content, [], (userId) => {
-                        // Navigate to user profile - you might need to implement this
-                        console.log('Navigate to user:', userId);
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                       })}
                     </View>
                   </View>
