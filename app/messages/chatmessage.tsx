@@ -10,7 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 
-import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, updateMessageApi, deleteMessageApi, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL } from '../../services/api';
+import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, updateMessageApi, deleteMessageApi, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL, getAdminPesoUsers, createConversation } from '../../services/api';
 import EmojiPickerModal from '../../components/EmojiPickerModal';
 import { downloadImage, downloadVideo, downloadDocument } from '../../utils/downloadHelper';
 import { ConversationWebSocket, TypingIndicator, WsEvent } from '../../services/websocketHelper';
@@ -111,6 +111,7 @@ const ChatMessageScreen = () => {
   const hasMarkedAsRead = useRef(false);
   const typingTimeoutRef = useRef<any>(null);
   const inputRef = useRef<TextInput>(null);
+  const isResolvingConversation = useRef(false);
 
   // Emoji picker functionality
   const handleEmojiSelect = (emoji: string) => {
@@ -159,6 +160,94 @@ const ChatMessageScreen = () => {
     }
     loadUser();
   }, [conversationId]);
+
+  // Handle missing conversationId when name is provided (for CCICT/PESO messaging)
+  useEffect(() => {
+    async function resolveConversation() {
+      // Only proceed if conversationId is missing but name is provided
+      if (conversationId || !name || !currentUser?.id || isResolvingConversation.current) {
+        return;
+      }
+
+      // Mark as resolving to prevent multiple attempts
+      isResolvingConversation.current = true;
+
+      try {
+        console.log('Resolving conversation for name:', name);
+        const normalizedName = name.toUpperCase().trim();
+        
+        // Check if it's CCICT or PESO
+        if (normalizedName === 'CCICT' || normalizedName === 'PESO') {
+          console.log('Detected admin/peso messaging request:', normalizedName);
+          
+          // Get admin/peso user IDs
+          const adminPesoData = await getAdminPesoUsers();
+          const adminUserIds = adminPesoData.admin_user_ids || [];
+          const pesoUserIds = adminPesoData.peso_user_ids || [];
+          
+          console.log('Admin user IDs:', adminUserIds);
+          console.log('Peso user IDs:', pesoUserIds);
+          
+          // Determine which user ID to use
+          let targetUserId: number | null = null;
+          if (normalizedName === 'CCICT' && adminUserIds.length > 0) {
+            targetUserId = adminUserIds[0];
+            console.log('Using admin user ID for CCICT:', targetUserId);
+          } else if (normalizedName === 'PESO' && pesoUserIds.length > 0) {
+            targetUserId = pesoUserIds[0];
+            console.log('Using peso user ID for PESO:', targetUserId);
+          }
+          
+          if (!targetUserId) {
+            console.error('No user ID found for', normalizedName);
+            Alert.alert('Error', `Unable to find ${normalizedName} user. Please try again later.`);
+            router.back();
+            return;
+          }
+          
+          // Create or get existing conversation
+          console.log('Creating conversation with user ID:', targetUserId);
+          const conversation = await createConversation(targetUserId);
+          const newConversationId = conversation.conversation_id || conversation.id;
+          
+          if (!newConversationId) {
+            console.error('No conversation ID returned from createConversation');
+            Alert.alert('Error', 'Failed to create conversation. Please try again.');
+            router.back();
+            return;
+          }
+          
+          console.log('Conversation created/found with ID:', newConversationId);
+          
+          // Update route with the conversationId
+          router.replace({
+            pathname: '/messages/chatmessage',
+            params: { 
+              conversationId: String(newConversationId),
+              name: name 
+            }
+          });
+        } else {
+          // For other users, we'd need to search by name, but that's more complex
+          // For now, show an error
+          console.warn('Name provided but not CCICT or PESO:', name);
+          Alert.alert('Error', 'Unable to start conversation. Please use the search feature to find the user.');
+          router.back();
+        }
+      } catch (error) {
+        console.error('Failed to resolve conversation:', error);
+        Alert.alert('Error', 'Failed to start conversation. Please try again.');
+        router.back();
+      } finally {
+        // Reset the flag after a delay to allow navigation to complete
+        setTimeout(() => {
+          isResolvingConversation.current = false;
+        }, 1000);
+      }
+    }
+
+    resolveConversation();
+  }, [conversationId, name, currentUser?.id, router]);
 
   // Keyboard event listeners for manual handling
   useEffect(() => {

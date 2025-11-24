@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Image } from 'react-native';
 import CachedImage from './CachedImage';
 import { API_BASE_URL } from '../services/api';
@@ -52,21 +52,45 @@ const UserAvatar: React.FC<UserAvatarProps> = ({
     return `${API_BASE_URL}${relativePath}`;
   };
 
-  const uri = buildUri(profilePic);
+  // Validate profilePic - must be a non-empty string that's not just whitespace
+  const isValidProfilePic = profilePic && 
+    typeof profilePic === 'string' && 
+    profilePic.trim() !== '' && 
+    !profilePic.includes('null') && 
+    !profilePic.includes('undefined') &&
+    profilePic !== 'None' &&
+    profilePic !== 'null' &&
+    profilePic !== 'undefined';
 
-  if (uri) {
+  const uri = isValidProfilePic ? buildUri(profilePic) : null;
+
+  // Only show profile picture if we have a valid, non-empty URI
+  // Empty strings, null, undefined, or invalid URLs should show CTU logo
+  const [imageError, setImageError] = useState(false);
+  
+  useEffect(() => {
+    // Reset error state when profilePic changes
+    setImageError(false);
+  }, [profilePic]);
+
+  if (!imageError && uri && uri.trim() !== '' && !uri.includes('null') && !uri.includes('undefined') && uri !== `${API_BASE_URL}null` && uri !== `${API_BASE_URL}undefined`) {
     return (
       <View style={[avatarStyle, style, styles.imageContainer]}>
         <CachedImage
           uri={uri}
           style={[avatarStyle, { position: 'absolute' }]}
           contentFit="cover"
+          onError={() => {
+            // If image fails to load, set error state to show CTU logo
+            console.log('[UserAvatar] Image load failed for URI:', uri, 'will show CTU logo');
+            setImageError(true);
+          }}
         />
       </View>
     );
   }
 
-  // Fallback to CTU logo when no profile picture
+  // Fallback to CTU logo when no profile picture or invalid URI
   return (
     <View style={[avatarStyle, style, styles.fallback]}>
       <Image
