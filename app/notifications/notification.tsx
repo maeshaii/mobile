@@ -14,11 +14,12 @@ import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { deleteNotifications } from '../../services/api';
+import { deleteNotifications, checkUserTrackerStatus, getUserInfo } from '../../services/api';
 import { Swipeable } from 'react-native-gesture-handler';
 import UserAvatar from '../../components/UserAvatar';
 import TrackerNotificationModal from '../../components/TrackerNotificationModal';
 import NotificationModal from '../../components/NotificationModal';
+import RewardNotificationModal from '../../components/RewardNotificationModal';
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
 import { formatNotificationDate } from '../../utils/dateUtils';
 import { formatFullName, formatUserFullName } from '../../utils/nameUtils';
@@ -71,6 +72,7 @@ const NotificationScreen = () => {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [trackerNotification, setTrackerNotification] = useState<NotificationItem | null>(null);
   const [generalNotification, setGeneralNotification] = useState<NotificationItem | null>(null);
+  const [rewardNotification, setRewardNotification] = useState<NotificationItem | null>(null);
   const router = useRouter();
 
   // Transform real-time notifications to match component's expected format
@@ -328,7 +330,7 @@ const NotificationScreen = () => {
     const message = item.message?.toLowerCase();
     const fullMessage = item.fullMessage || item.message || '';
 
-    // Special case: tracker notifications - redirect directly to tracker form
+    // Special case: tracker notifications
     const isTrackerNotification = 
       type === 'tracker_submission' ||
       (type && type.includes('tracker')) || 
@@ -337,15 +339,89 @@ const NotificationScreen = () => {
       (message && (message.toLowerCase().includes('tracker form') || message.toLowerCase().includes('tracker')));
     
     if (isTrackerNotification) {
-      // Redirect directly to tracker form instead of showing modal
-      router.push('/forms/forms');
-      return;
+      // Check if this is a "Thank You" notification (already completed)
+      // Be more specific - only match if it's explicitly about completion, not just "thank you" in closing
+      const subjectLower = item.subject?.toLowerCase() || '';
+      const fullMessageLower = fullMessage?.toLowerCase() || '';
+      const messageLower = message?.toLowerCase() || '';
+      const isThankYouNotification = 
+        subjectLower.includes('thank you for completing') ||
+        subjectLower === 'thank you for completing the tracker form' ||
+        fullMessageLower.includes('thank you for completing the tracker form') ||
+        fullMessageLower.includes('already completed the tracker form') ||
+        fullMessageLower.includes('your response has been recorded successfully') ||
+        messageLower.includes('thank you for completing the tracker form') ||
+        messageLower.includes('already completed the tracker form') ||
+        messageLower.includes('your response has been recorded successfully');
+      
+      if (isThankYouNotification) {
+        // Show "Thank You" notification in TrackerNotificationModal
+        setTrackerNotification(item);
+        return;
+      }
+      
+      // For regular tracker notifications, check if user has already submitted
+      try {
+        const trackerStatus = await checkUserTrackerStatus();
+        if (trackerStatus?.has_submitted) {
+          // User has already submitted - show "Thank You" message in TrackerNotificationModal
+          // Get user info to include their name in the message
+          try {
+            const user = await getUserInfo();
+            const userName = user?.f_name && user?.l_name 
+              ? `${user.f_name} ${user.l_name}`.trim()
+              : user?.f_name || user?.l_name || 'User';
+            
+            // Create a thank you notification object to display
+            const thankYouNotification: NotificationItem = {
+              ...item,
+              subject: 'Thank You for Completing the Tracker Form',
+              fullMessage: `Thank you ${userName} for completing the alumni tracker form. Your response has been recorded successfully.`,
+              message: `Thank you ${userName} for completing the alumni tracker form. Your response has been recorded successfully.`,
+            };
+            setTrackerNotification(thankYouNotification);
+            return;
+          } catch (userError) {
+            console.error('Error getting user info:', userError);
+            // Fallback without name
+            const thankYouNotification: NotificationItem = {
+              ...item,
+              subject: 'Thank You for Completing the Tracker Form',
+              fullMessage: 'Thank you for completing the alumni tracker form. Your response has been recorded successfully.',
+              message: 'Thank you for completing the alumni tracker form. Your response has been recorded successfully.',
+            };
+            setTrackerNotification(thankYouNotification);
+            return;
+          }
+        } else {
+          // User hasn't submitted yet - show tracker reminder modal
+          setTrackerNotification(item);
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking tracker status:', error);
+        // On error, default to redirecting to form
+        router.push('/forms/forms');
+        return;
+      }
     }
 
-    // Special case: reward notifications - show modal first with content/images
-    const isRewardNotification = type === 'reward';
-    if (isRewardNotification) {
-      setGeneralNotification(item);
+    // Special case: reward notifications - show RewardNotificationModal
+    // Check for reward type or reward request type with "removed from inventory" content
+    const isRewardNotification = 
+      type === 'reward' || 
+      type === 'reward_request' ||
+      (type && type.toLowerCase().includes('reward'));
+    
+    // Check if it's a "removed from inventory" notification
+    const isRemovedFromInventory = 
+      fullMessage.toLowerCase().includes('removed from inventory') ||
+      fullMessage.toLowerCase().includes('removed from the inventory') ||
+      (item.subject && item.subject.toLowerCase().includes('removed from inventory')) ||
+      (item.subject && item.subject.toLowerCase().includes('removed from the inventory'));
+    
+    if (isRewardNotification || isRemovedFromInventory) {
+      setRewardNotification(item);
       return;
     }
 
@@ -671,32 +747,30 @@ const NotificationScreen = () => {
       return;
     }
 
-    // Handle CCICT/admin post notifications
-    if (
-      (type === 'ccict' || name?.toLowerCase().includes('admin') || name?.toLowerCase().includes('ccict')) &&
-      (message?.toLowerCase().includes('post') || message?.toLowerCase().includes('announcement'))
-    ) {
-      if (item.post_id) {
-        router.push({
-          pathname: '/posts/detail',
-          params: { postId: item.post_id.toString() },
-        });
-        return;
-      }
+    // Handle CCICT/admin notifications - show modal first (like web)
+    const isCCICTNotification = 
+      type === 'ccict' || 
+      name?.toLowerCase().includes('admin') || 
+      name?.toLowerCase().includes('ccict') ||
+      item.isAdminNotification;
+    
+    if (isCCICTNotification) {
+      // Show modal for all CCICT notifications
+      setGeneralNotification(item);
+      return;
     }
 
-    // Handle PESO post notifications (including admin_peso_post type)
-    if (
-      (type === 'peso' || type === 'admin_peso_post' || name?.toLowerCase().includes('peso')) &&
-      (message?.toLowerCase().includes('post') || message?.toLowerCase().includes('job') || message?.toLowerCase().includes('employment'))
-    ) {
-      if (item.post_id) {
-        router.push({
-          pathname: '/posts/detail',
-          params: { postId: item.post_id.toString() },
-        });
-        return;
-      }
+    // Handle PESO notifications - show modal first (like web)
+    const isPESONotification = 
+      type === 'peso' || 
+      type === 'admin_peso_post' || 
+      name?.toLowerCase().includes('peso') ||
+      item.isPesoNotification;
+    
+    if (isPESONotification) {
+      // Show modal for all PESO notifications
+      setGeneralNotification(item);
+      return;
     }
 
     // Fallback: Show debug info and alert
@@ -873,7 +947,17 @@ const NotificationScreen = () => {
       message.toLowerCase().includes('tracker');
 
     if (isTrackerNotification) {
-      return 'Tracker Notification from CCICT';
+      // Use the actual subject from the notification (matches web behavior)
+      // Fallback to a default if subject is not available
+      if (subject && subject.trim()) {
+        return subject;
+      }
+      // If no subject, use a shortened version of the message content (like web does)
+      const cleanMessage = fullMessage.replace(/<!--[^>]+-->/g, '').trim();
+      if (cleanMessage) {
+        return cleanMessage.length > 80 ? cleanMessage.substring(0, 80) + '...' : cleanMessage;
+      }
+      return 'Tracker Form Reminder';
     }
 
     // Handle specific notification types
@@ -921,11 +1005,30 @@ const NotificationScreen = () => {
     }
 
     if (type === 'admin_peso_post' || name.toLowerCase() === 'admin_peso_post') {
+      // Show the actual notification subject/content
+      if (subject) {
+        return subject;
+      }
+      // Extract first line from content if no subject
+      const firstLine = fullMessage.split('\n')[0].replace(/<!--[^>]+-->/g, '').trim();
+      if (firstLine && firstLine.length > 0) {
+        return firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+      }
       return `New post from ${name}`;
     }
 
-    // Format admin/CCICT notifications
+    // Format admin/CCICT notifications - show actual subject/content
     if (isAdminNotification) {
+      // Use subject if available
+      if (subject) {
+        return subject;
+      }
+      // Extract first line from content if no subject
+      const firstLine = fullMessage.split('\n')[0].replace(/<!--[^>]+-->/g, '').trim();
+      if (firstLine && firstLine.length > 0) {
+        return firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+      }
+      // Fallback to generic message
       if (message.toLowerCase().includes('announcement')) {
         return 'New announcement from CCICT';
       }
@@ -935,8 +1038,18 @@ const NotificationScreen = () => {
       return 'New notification from CCICT';
     }
 
-    // Format PESO notifications
+    // Format PESO notifications - show actual subject/content
     if (isPesoNotification) {
+      // Use subject if available
+      if (subject) {
+        return subject;
+      }
+      // Extract first line from content if no subject
+      const firstLine = fullMessage.split('\n')[0].replace(/<!--[^>]+-->/g, '').trim();
+      if (firstLine && firstLine.length > 0) {
+        return firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+      }
+      // Fallback to generic message
       if (message.toLowerCase().includes('job')) {
         return 'New job opportunity from PESO';
       }
@@ -1204,6 +1317,19 @@ const NotificationScreen = () => {
           content: trackerNotification.fullMessage || trackerNotification.message, // Use full message if available
           date: trackerNotification.date,
           type: trackerNotification.notif_type,
+        } : null}
+      />
+
+      {/* Reward Notification Modal */}
+      <RewardNotificationModal
+        isVisible={!!rewardNotification}
+        onClose={() => setRewardNotification(null)}
+        notification={rewardNotification ? {
+          subject: rewardNotification.subject,
+          content: rewardNotification.fullMessage || rewardNotification.message,
+          fullMessage: rewardNotification.fullMessage || rewardNotification.message,
+          date: rewardNotification.date,
+          type: rewardNotification.notif_type,
         } : null}
       />
 

@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CachedImage from '../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { getUserInfo, logoutUser, getFeed, API_BASE_URL, likeRepost, unlikeRepost } from '../services/api';
+import { getUserInfo, logoutUser, getFeed, API_BASE_URL, likeRepost, unlikeRepost, fetchFollowing } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getPosts as getPostsApi, likePost, unlikePost, getPostComments, commentOnPost,
@@ -243,6 +243,19 @@ export default function DashboardScreen() {
       } catch {}
       const me: any = await getUserInfo().catch(() => null);
       const meId = me?.user_id || me?.id;
+      
+      // Get list of users the current user is following
+      let followingUserIds = new Set<number>();
+      try {
+        if (meId) {
+          const followingData = await fetchFollowing(meId);
+          const followingList = followingData?.following || [];
+          followingUserIds = new Set(followingList.map((u: any) => u.user_id || u.id));
+        }
+      } catch (error) {
+        console.error('Error fetching following list:', error);
+      }
+      
       // Load persisted donation post likes (same key format as donation page)
       let likedDonationPostsSet = new Set<number>();
       try {
@@ -253,7 +266,27 @@ export default function DashboardScreen() {
           likedDonationPostsSet = new Set(arr.map(Number));
         }
       } catch {}
-      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+      
+      // Filter donation posts to only show those from followed users
+      const filteredPosts = Array.isArray(postsData) ? postsData.filter((item: any) => {
+        // Filter donation posts: only show if user is following the creator
+        if (item.type === 'donation' || item.item_type === 'donation_post') {
+          const creatorId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own post or if they're following the creator
+          return !creatorId || creatorId === meId || followingUserIds.has(creatorId);
+        }
+        
+        // Filter donation reposts: only show if user is following the reposter
+        if (item.item_type === 'repost' && item.original_post?.type === 'donation') {
+          const reposterId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own repost or if they're following the reposter
+          return !reposterId || reposterId === meId || followingUserIds.has(reposterId);
+        }
+        
+        return true;
+      }) : [];
+      
+      const normalized = filteredPosts.map((it: any) => {
         if (it?.item_type === 'repost') {
           // Prioritize backend is_liked field for reposts
           let repostLikedByMe = it.is_liked !== undefined ? it.is_liked : false;
@@ -299,7 +332,7 @@ export default function DashboardScreen() {
           }
           return { ...it, is_liked: !!likedByMe };
         }
-      }) : [];
+      });
       setPosts(normalized || []);
       console.log('Posts loaded successfully:', postsData?.length || 0);
     } catch (err: any) {
@@ -348,6 +381,19 @@ export default function DashboardScreen() {
         likedRepostsSet = new Set<number>(raw ? JSON.parse(raw) : []);
       } catch {}
       const meId = userInfo?.user_id || userInfo?.id;
+      
+      // Get list of users the current user is following
+      let followingUserIds = new Set<number>();
+      try {
+        if (meId) {
+          const followingData = await fetchFollowing(meId);
+          const followingList = followingData?.following || [];
+          followingUserIds = new Set(followingList.map((u: any) => u.user_id || u.id));
+        }
+      } catch (error) {
+        console.error('Error fetching following list:', error);
+      }
+      
       // Load persisted donation post likes (same key format as donation page)
       let likedDonationPostsSet = new Set<number>();
       try {
@@ -358,7 +404,27 @@ export default function DashboardScreen() {
           likedDonationPostsSet = new Set(arr.map(Number));
         }
       } catch {}
-      const normalized = Array.isArray(postsData) ? postsData.map((it: any) => {
+      
+      // Filter donation posts to only show those from followed users
+      const filteredPosts = Array.isArray(postsData) ? postsData.filter((item: any) => {
+        // Filter donation posts: only show if user is following the creator
+        if (item.type === 'donation' || item.item_type === 'donation_post') {
+          const creatorId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own post or if they're following the creator
+          return !creatorId || creatorId === meId || followingUserIds.has(creatorId);
+        }
+        
+        // Filter donation reposts: only show if user is following the reposter
+        if (item.item_type === 'repost' && item.original_post?.type === 'donation') {
+          const reposterId = item.user?.user_id || item.user?.id;
+          // Show if it's the user's own repost or if they're following the reposter
+          return !reposterId || reposterId === meId || followingUserIds.has(reposterId);
+        }
+        
+        return true;
+      }) : [];
+      
+      const normalized = filteredPosts.map((it: any) => {
         if (it?.item_type === 'repost') {
           // Prioritize backend is_liked field for reposts
           let repostLikedByMe = it.is_liked !== undefined ? it.is_liked : false;
@@ -404,7 +470,7 @@ export default function DashboardScreen() {
           }
           return { ...it, is_liked: !!likedByMe };
         }
-      }) : [];
+      });
       setPosts(normalized || []);
     } catch (err: any) {
       console.error('Error loading user info:', err);
@@ -778,10 +844,14 @@ export default function DashboardScreen() {
                   <TouchableOpacity onPress={() => { setSelectedPost(post); setViewerType('likes'); setViewerVisible(true); }}>
                     <Text style={styles.postStats}>{post.likes_count || 0} likes</Text>
                   </TouchableOpacity>
-                  <Text style={styles.postStats}> • </Text>
-                  <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-                    <Text style={styles.postStats}>{post.comments_count || 0} comments</Text>
-                  </TouchableOpacity>
+                  {(post.comments_count || 0) > 0 && (
+                    <>
+                      <Text style={styles.postStats}> • </Text>
+                      <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
+                        <Text style={styles.postStats}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </View>
               </View>
 
@@ -965,34 +1035,69 @@ export default function DashboardScreen() {
             </View>
 
             <ScrollView style={{ maxHeight: 320 }}>
-              {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => (
-                <View key={idx} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={u.profile_pic}
-                    firstName={u.f_name}
-                    lastName={u.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <Text style={styles.listText}>{formatUserFullName(u)}</Text>
-                </View>
-              ))}
+              {viewerType === 'likes' && selectedPost?.likes?.map((u: any, idx: number) => {
+                const userId = u.user_id || u.id;
+                const currentUserId = user?.user_id || user?.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={u.profile_pic}
+                      firstName={u.f_name}
+                      lastName={u.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(u)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
 
-              {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => (
-                <View key={r.repost_id} style={styles.listItemRow}>
-                  <UserAvatar 
-                    profilePic={r.user?.profile_pic}
-                    firstName={r.user?.f_name}
-                    lastName={r.user?.l_name}
-                    size={36}
-                    style={styles.listAvatar}
-                  />
-                  <View>
-                    <Text style={styles.listText}>{formatUserFullName(r.user)}</Text>
-                    <Text style={styles.listSubText}>{new Date(r.repost_date).toLocaleString()}</Text>
-                  </View>
-                </View>
-              ))}
+              {viewerType === 'reposts' && selectedPost?.reposts?.map((r: any) => {
+                const userId = r.user?.user_id || r.user?.id;
+                const currentUserId = user?.user_id || user?.id;
+                const isCurrentUser = userId && currentUserId && userId === currentUserId;
+                return (
+                  <TouchableOpacity
+                    key={r.repost_id}
+                    style={styles.listItemRow}
+                    onPress={() => {
+                      if (userId) {
+                        setViewerVisible(false);
+                        if (isCurrentUser) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }
+                    }}
+                    disabled={!userId}
+                  >
+                    <UserAvatar 
+                      profilePic={r.user?.profile_pic}
+                      firstName={r.user?.f_name}
+                      lastName={r.user?.l_name}
+                      size={36}
+                      style={styles.listAvatar}
+                    />
+                    <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>{formatUserFullName(r.user)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
 
               {viewerType === 'comments' && selectedPost?.comments?.map((c: any) => (
                 <View key={c.comment_id} style={styles.commentRow}>
@@ -1000,7 +1105,23 @@ export default function DashboardScreen() {
                   <View style={{ flex: 1 }}>
                     <View style={styles.commentHeaderRow}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.commentName}>{formatUserFullName(c.user)}</Text>
+                        <TouchableOpacity 
+                          onPress={() => {
+                            const commentUserId = c.user?.user_id || c.user?.id;
+                            const currentUserId = user?.user_id || (user as any)?.id;
+                            if (commentUserId && commentUserId !== currentUserId) {
+                              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: commentUserId } });
+                            }
+                          }}
+                          disabled={!c.user?.user_id && !c.user?.id}
+                        >
+                          <Text style={[
+                            styles.commentName,
+                            (c.user?.user_id || c.user?.id) && (c.user?.user_id || c.user?.id) !== (user?.user_id || (user as any)?.id) ? { color: '#1e3a8a' } : null
+                          ]}>
+                            {formatUserFullName(c.user)}
+                          </Text>
+                        </TouchableOpacity>
                         <Text style={styles.commentMeta}>{new Date(c.date_created).toLocaleString()}</Text>
                       </View>
                     </View>

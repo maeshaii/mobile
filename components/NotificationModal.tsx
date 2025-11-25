@@ -11,6 +11,7 @@ import {
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { API_BASE_URL } from '../services/api';
+import UserAvatar from './UserAvatar';
 
 interface NotificationModalProps {
   isVisible: boolean;
@@ -27,6 +28,9 @@ interface NotificationModalProps {
     donation_id?: number;
     comment_id?: number;
     user_id?: number;
+    profile_pic?: string;
+    first_name?: string;
+    last_name?: string;
   } | null;
   onNavigate?: () => void;
 }
@@ -137,68 +141,135 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
   };
 
   const isRewardNotification = type === 'reward';
-  const isTrackerNotification = type.includes('tracker') || content.includes('Tracker Form');
+  const isTrackerNotification = type.includes('tracker') || content.includes('Tracker Form') || content.includes('tracker form');
+  const isThankYouTrackerNotification = 
+    isTrackerNotification && 
+    (notification.subject?.toLowerCase().includes('thank you') || 
+     content.toLowerCase().includes('thank you') ||
+     content.toLowerCase().includes('completing the alumni tracker form'));
+  
+  // Check for CCICT and PESO notifications
+  const isCCICTNotification = 
+    type === 'ccict' || 
+    content.toLowerCase().includes('ccict') ||
+    (notification.subject && notification.subject.toLowerCase().includes('ccict'));
+  const isPESONotification = 
+    type === 'peso' || 
+    type === 'admin_peso_post' ||
+    content.toLowerCase().includes('peso') ||
+    (notification.subject && notification.subject.toLowerCase().includes('peso'));
 
   return (
     <Modal
       visible={isVisible}
       transparent={true}
-      animationType="slide"
+      animationType="fade"
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
         <View style={styles.modalContainer}>
           <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              {isRewardNotification && (
-                <FontAwesome name="gift" size={20} color="#1e3a8a" style={styles.headerIcon} />
-              )}
-              {isTrackerNotification && (
-                <FontAwesome name="clipboard" size={20} color="#1e3a8a" style={styles.headerIcon} />
-              )}
+            {(isThankYouTrackerNotification || isCCICTNotification || isPESONotification) && (
+              <UserAvatar
+                profilePic={notification.profile_pic}
+                firstName={notification.first_name}
+                lastName={notification.last_name}
+                size={44}
+                style={styles.logo}
+              />
+            )}
+            {!isThankYouTrackerNotification && !isCCICTNotification && !isPESONotification && isRewardNotification && (
+              <FontAwesome name="gift" size={20} color="#1e3a8a" style={styles.headerIcon} />
+            )}
+            {!isThankYouTrackerNotification && !isCCICTNotification && !isPESONotification && isTrackerNotification && (
+              <FontAwesome name="clipboard" size={20} color="#1e3a8a" style={styles.headerIcon} />
+            )}
+            <View style={styles.headerTextContainer}>
               <Text style={styles.headerTitle}>
-                {isRewardNotification ? 'Reward Update' : isTrackerNotification ? 'Tracker Update' : 'Notification'}
+                {isThankYouTrackerNotification 
+                  ? 'Thank You for Completing the Tracker Form'
+                  : isRewardNotification 
+                  ? 'Reward Update' 
+                  : isTrackerNotification 
+                  ? 'Tracker Update' 
+                  : notification.subject || 'Notification'}
               </Text>
+              {(isThankYouTrackerNotification || isCCICTNotification || isPESONotification) && notification.date && (
+                <Text style={styles.headerTimestamp}>{formatDate(notification.date)}</Text>
+              )}
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <FontAwesome name="times" size={20} color="#666" />
+              <FontAwesome name="times" size={18} color="#4b5563" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.contentContainer} showsVerticalScrollIndicator={false}>
-            {/* Images */}
-            {images.length > 0 && (
-              <View style={styles.imagesContainer}>
-                {images.map((imageUrl, index) => (
-                  <Image
-                    key={index}
-                    source={{ uri: imageUrl }}
-                    style={styles.image}
-                    resizeMode="cover"
-                  />
-                ))}
-              </View>
-            )}
+          {/* Body Content */}
+          <ScrollView style={styles.body} showsVerticalScrollIndicator={true}>
+            <View style={styles.contentContainer}>
+              {/* Images */}
+              {images.length > 0 && (
+                <View style={styles.imagesContainer}>
+                  {images.map((imageUrl, index) => (
+                    <Image
+                      key={index}
+                      source={{ uri: imageUrl }}
+                      style={styles.image}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </View>
+              )}
 
-            {/* Content */}
-            {cleanedContent && (
-              <View style={styles.contentBox}>
-                <Text style={styles.contentText}>{cleanedContent}</Text>
-              </View>
-            )}
+              {/* Content */}
+              {cleanedContent && (
+                <View style={
+                  isThankYouTrackerNotification 
+                    ? styles.thankYouContentBox 
+                    : (isCCICTNotification || isPESONotification)
+                    ? styles.ccictPesoContentBox
+                    : styles.contentBox
+                }>
+                  <Text style={
+                    isThankYouTrackerNotification 
+                      ? styles.thankYouContentText 
+                      : (isCCICTNotification || isPESONotification)
+                      ? styles.ccictPesoContentText
+                      : styles.contentText
+                  }>
+                    {cleanedContent}
+                  </Text>
+                </View>
+              )}
 
-            {/* Date */}
-            {notification.date && (
-              <Text style={styles.dateText}>{formatDate(notification.date)}</Text>
-            )}
+              {/* Date - only show if not in header (for Thank You, CCICT, PESO notifications) */}
+              {notification.date && !isThankYouTrackerNotification && !isCCICTNotification && !isPESONotification && (
+                <Text style={styles.dateText}>{formatDate(notification.date)}</Text>
+              )}
+            </View>
           </ScrollView>
 
-          {/* Action Button */}
-          {onNavigate && (
+          {/* Action Button - show for reward notifications and post-related CCICT/PESO notifications */}
+          {onNavigate && !isThankYouTrackerNotification && (
             <TouchableOpacity style={styles.actionButton} onPress={handleNavigate}>
               <Text style={styles.actionButtonText}>
                 {isRewardNotification ? 'View My Reward Requests' : 'View Details'}
               </Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* View Post button for CCICT/PESO post notifications */}
+          {!onNavigate && (isCCICTNotification || isPESONotification) && notification.post_id && (
+            <TouchableOpacity 
+              style={styles.actionButton} 
+              onPress={() => {
+                onClose();
+                router.push({
+                  pathname: '/posts/detail',
+                  params: { postId: notification.post_id?.toString() },
+                });
+              }}
+            >
+              <Text style={styles.actionButtonText}>View Post</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -211,37 +282,62 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalContainer: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '90%',
-    paddingBottom: 20,
+    borderRadius: 12,
+    maxHeight: '85%',
+    width: '90%',
+    maxWidth: 500,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+    minHeight: 80,
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  logo: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+    overflow: 'hidden',
   },
   headerIcon: {
     marginRight: 8,
   },
+  headerTextContainer: {
+    flex: 1,
+    marginRight: 8,
+  },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e3a8a',
+    marginBottom: 4,
+  },
+  headerTimestamp: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 2,
   },
   closeButton: {
     padding: 4,
+    marginTop: 0,
+  },
+  body: {
+    flex: 1,
   },
   contentContainer: {
     padding: 20,
@@ -268,6 +364,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: '#374151',
+  },
+  thankYouContentBox: {
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingHorizontal: 0,
+  },
+  thankYouContentText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#1f2937',
+    fontWeight: '400',
+  },
+  ccictPesoContentBox: {
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingHorizontal: 0,
+  },
+  ccictPesoContentText: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#374151',
+    marginBottom: 16,
   },
   dateText: {
     fontSize: 12,

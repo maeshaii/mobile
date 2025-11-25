@@ -84,7 +84,7 @@ const devDefault = Platform.select({
   default: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
 });
 // Production fallback (override with expo.extra.API_BASE_URL for real deployments)
-const ngrokUrl = 'https://nonalliterative-brian-tastefully.ngrok-free.dev';
+const ngrokUrl = 'https://carlos-unripening-henley.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
 // Use explicit config from Expo extra or env, otherwise fall back to default
 export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
@@ -662,7 +662,10 @@ export const getTrackerAcceptingStatus = async (trackerFormId: number) => {
 };
 // Mobile -> Backend: POST /api/tracker/save-draft/
 export const saveTrackerDraft = async (userId: string, answers: Record<string, any>) => {
-  return (await api.post('/api/tracker/save-draft/', { user_id: userId, answers })).data;
+  return (await api.post('/api/tracker/save-draft/', {
+    user_id: userId,
+    answers,
+  })).data;
 };
 // Mobile -> Backend: GET /api/tracker/load-draft/
 export const loadTrackerDraft = async (userId: string) => {
@@ -2203,6 +2206,17 @@ export const claimRewardRequest = async (requestId: number) => {
     return data;
   } catch (error) {
     console.error('Mobile claimRewardRequest API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/rewards/requests/{request_id}/cancel/
+export const cancelRewardRequest = async (requestId: number) => {
+  try {
+    const { data } = await api.post(`/api/rewards/requests/${requestId}/cancel/`);
+    return data;
+  } catch (error) {
+    console.error('Mobile cancelRewardRequest API Error:', error);
     throw error;
   }
 };

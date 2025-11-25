@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
-import { formatUserFullName } from '../../utils/nameUtils';
+import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 
 dayjs.extend(relativeTime);
 
@@ -28,6 +28,8 @@ interface OriginalPost {
   comments_count: number;
   reposts_count?: number;
   is_liked?: boolean;
+  forum_id?: number;
+  donation_id?: number;
   user: { 
     user_id: number; 
     f_name: string; 
@@ -229,15 +231,21 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     console.log('RepostCard - Navigating to repost screen with postId:', originalPostId, 'isForum:', isForum, 'isDonation:', isDonation);
     
     // Navigate to repost screen for the original post
-    let url = `/repost/repost?postId=${originalPostId}`;
-    if (isForum) {
-      url += '&isForumPost=true';
-    } else if (isDonation) {
+    if (isDonation) {
       // For donations, we need to handle it differently - use donation repost screen
-      router.push(`/donation/donation-repost?postId=${originalPostId}`);
+      router.push({
+        pathname: '/donation/donation-repost',
+        params: { postId: originalPostId.toString() }
+      });
       return;
     }
-    router.push(url);
+    router.push({
+      pathname: '/repost/repost',
+      params: { 
+        postId: originalPostId.toString(),
+        ...(isForum && { isForumPost: 'true' })
+      }
+    });
     // Note: Original post repost count will be updated when the user returns to this screen
   };
 
@@ -441,7 +449,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
           onPress={() => {
             const uid = repost.user?.user_id;
             if (uid) {
-              router.push(`/profile/profilepage?viewUserId=${uid}`);
+              if (uid === currentUserId) {
+                router.push('/profile/profilepage');
+              } else {
+                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+              }
             }
           }}
           disabled={!repost.user?.user_id}
@@ -508,7 +520,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                 onPress={() => {
                   const uid = repost.original_post.user?.user_id;
                   if (uid) {
-                    router.push(`/profile/profilepage?viewUserId=${uid}`);
+                    if (uid === currentUserId) {
+                      router.push('/profile/profilepage');
+                    } else {
+                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: uid } });
+                    }
                   }
                 }}
                 disabled={!repost.original_post.user?.user_id}
@@ -598,15 +614,20 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
       {/* Repost Stats */}
       <View style={styles.actionsCountsRow}>
-        <TouchableOpacity onPress={openLikes}>
-          <Text style={styles.countText}>
-            {likeCount} {likeCount === 1 ? 'like' : 'likes'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={openCommentModal}>
-          <Text style={styles.countText}>{repost.comments_count || 0} comments</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={async () => {
+        {likeCount > 0 && (
+          <TouchableOpacity onPress={openLikes}>
+            <Text style={styles.countText}>
+              {formatLikeCountText(repost.likes, likeCount)}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {(repost.comments_count || 0) > 0 && (
+          <TouchableOpacity onPress={openCommentModal}>
+            <Text style={styles.countText}>{repost.comments_count || 0} {(repost.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
+          </TouchableOpacity>
+        )}
+        {repostCount > 0 && (
+          <TouchableOpacity onPress={async () => {
           // When viewing reposts, show the original post's reposts, not the repost's own reposts
           if (onOpenViewer && repost.original_post) {
             const original = repost.original_post;
@@ -683,8 +704,9 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
             }
           }
         }}>
-          <Text style={styles.countText}>{repostCount} reposts</Text>
+          <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
         </TouchableOpacity>
+        )}
       </View>
 
       {/* Repost Actions */}
@@ -808,8 +830,24 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                       // Add safety checks for like data
                       if (!like || !like.user) return null;
                       const user = like.user;
+                      const userId = user.user_id || user.id;
+                      const isCurrentUser = userId && currentUserId && userId === currentUserId;
                       return (
-                        <View key={`like-${like.like_id || idx}`} style={styles.listItemRow}>
+                        <TouchableOpacity
+                          key={`like-${like.like_id || idx}`}
+                          style={styles.listItemRow}
+                          onPress={() => {
+                            if (userId) {
+                              setLikesModalVisible(false);
+                              if (isCurrentUser) {
+                                router.push('/profile/profilepage');
+                              } else {
+                                router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                              }
+                            }
+                          }}
+                          disabled={!userId}
+                        >
                           <UserAvatar 
                             profilePic={user.profile_pic} 
                             firstName={user.f_name || 'User'} 
@@ -817,10 +855,10 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                             size={36} 
                             style={styles.listAvatar} 
                           />
-                          <Text style={styles.listText}>
+                          <Text style={[styles.listText, userId && { color: '#1e3a8a' }]}>
                             {formatUserFullName(user)}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       );
                     })
                   )}

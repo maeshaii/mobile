@@ -16,7 +16,7 @@ const allMenuItems = [
   { label: 'Rewards', icon: <FontAwesome name="gift" size={24} color="#222" /> },
   { label: 'CCICT', icon: cciLogo },
   { label: 'Peso', icon: pesoLogo },
-  { label: 'CCICT Forum', icon: <FontAwesome name="users" size={24} color="#222" /> },
+  { label: 'Forum', icon: <MaterialIcons name="people" size={24} color="#222" /> },
   { label: 'Donation', icon: <FontAwesome name="heart" size={24} color="#222" /> },
   { label: 'Settings', icon: <FontAwesome name="cog" size={24} color="#222" /> },
   { label: 'Log out', icon: <MaterialIcons name="logout" size={24} color="#222" /> },
@@ -56,9 +56,9 @@ export default function ProfileTab() {
       const isOJT = userInfo?.account_type?.ojt || userInfo?.role === 'ojt' || userInfo?.user_type === 'ojt';
       
       if (isOJT) {
-        // Hide CCICT Forum and Donation for OJT users
+        // Hide Forum and Donation for OJT users
         const filteredItems = allMenuItems.filter(item => 
-          item.label !== 'CCICT Forum' && item.label !== 'Donation'
+          item.label !== 'Forum' && item.label !== 'Donation'
         );
         setMenuItems(filteredItems);
       } else {
@@ -122,7 +122,7 @@ export default function ProfileTab() {
               else if (item.label === 'Rewards') router.push('/rewards/rewards');
               else if (item.label === 'CCICT') router.push('/ccict/ccictpage');
               else if (item.label === 'Peso') router.push('/peso/pesopage');
-              else if (item.label === 'CCICT Forum') router.push('/forum/forumpage');
+              else if (item.label === 'Forum') router.push('/forum/forumpage');
               else if (item.label === 'Donation') router.push('/donation/donationpage');
               else if (item.label === 'Settings') router.push('/settings/settings');
             }}

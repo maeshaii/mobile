@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Dimensions,
+import {View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Dimensions,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 

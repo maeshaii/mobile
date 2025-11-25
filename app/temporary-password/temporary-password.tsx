@@ -8,7 +8,10 @@ import {
   Alert,
   TextInput,
   ActivityIndicator,
+  ScrollView,
+  SafeAreaView,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -48,6 +51,12 @@ export default function TemporaryPasswordScreen() {
   const passwordValidation = useMemo(() => {
     return validatePassword(newPassword || '');
   }, [newPassword]);
+
+  const isFormValid = useMemo(() => {
+    return oldPassword.trim().length > 0 && 
+           newPassword.trim().length > 0 && 
+           confirmPassword.trim().length > 0;
+  }, [oldPassword, newPassword, confirmPassword]);
 
   const handlePasswordSubmit = () => {
     if (newPassword && !passwordValidation.isValid) {
@@ -106,6 +115,120 @@ export default function TemporaryPasswordScreen() {
     }
   };
 
+  if (first) {
+    return (
+      <LinearGradient
+        colors={['#1a4d7a', '#003366', '#002244']}
+        style={styles.gradientBackground}
+      >
+        <SafeAreaView style={styles.firstTimeContainer}>
+          <ScrollView 
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Central Card */}
+            <View style={styles.centralCard}>
+              {/* Header with Back Button and Title */}
+              <View style={styles.cardHeader}>
+                <TouchableOpacity 
+                  style={styles.backButton}
+                  onPress={() => router.back()}
+                >
+                  <Ionicons name="arrow-back" size={24} color="#ffffff" />
+                </TouchableOpacity>
+                <Text style={styles.firstTimeTitle}>First Time Log In</Text>
+              </View>
+              
+              <Text style={styles.subtitle}>Please change your temporary password to continue.</Text>
+              
+              <Text style={styles.label}>Old Password</Text>
+              <View style={styles.inputWithIcon}>
+                <TextInput
+                  style={styles.input}
+                  value={oldPassword}
+                  onChangeText={setOldPassword}
+                  secureTextEntry={!showOld}
+                  editable={!isLoading}
+                  placeholderTextColor="rgba(0, 0, 0, 0.5)"
+                />
+                <TouchableOpacity style={styles.eyeButton} onPress={() => setShowOld((s) => !s)}>
+                  <PasswordVisibilityIcon show={showOld} size={24} color="#000000" />
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.label}>New Password</Text>
+              <View style={styles.inputWithIcon}>
+                <TextInput
+                  style={styles.input}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureTextEntry={!showNew}
+                  onSubmitEditing={handlePasswordSubmit}
+                  editable={!isLoading}
+                  placeholderTextColor="rgba(0, 0, 0, 0.5)"
+                />
+                <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNew((s) => !s)}>
+                  <PasswordVisibilityIcon show={showNew} size={24} color="#000000" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.requirementText}>
+                Must be 16+ chars with upper, lower, number, and symbol.
+              </Text>
+              {newPassword.length > 0 && (
+                <Text style={styles.strengthText}>
+                  Strength: {passwordValidation.message}
+                </Text>
+              )}
+              
+              <Text style={styles.label}>Confirm Password</Text>
+              <View style={styles.inputWithIcon}>
+                <TextInput
+                  style={styles.input}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirm}
+                  onSubmitEditing={onConfirmFirstLogin}
+                  editable={!isLoading}
+                  placeholderTextColor="rgba(0, 0, 0, 0.5)"
+                />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowConfirm((s) => !s)}
+                >
+                  <PasswordVisibilityIcon show={showConfirm} size={24} color="#000000" />
+                </TouchableOpacity>
+              </View>
+              
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              {success ? (
+                <Text style={styles.successText}>{success}</Text>
+              ) : null}
+              
+              <TouchableOpacity 
+                style={[
+                  styles.confirmButton, 
+                  (isLoading || !isFormValid) && styles.confirmButtonDisabled
+                ]} 
+                onPress={onConfirmFirstLogin}
+                disabled={isLoading || !isFormValid}
+              >
+                {isLoading ? (
+                  <>
+                    <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmButtonText}>Changing Password...</Text>
+                  </>
+                ) : (
+                  <Text style={styles.confirmButtonText}>Confirm</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
   return (
     <ImageBackground
       source={require('../../assets/images/ctu.jpg')}
@@ -118,84 +241,14 @@ export default function TemporaryPasswordScreen() {
           <View style={styles.card}>
             <View style={styles.header}>
               <Text style={styles.title}>
-                {first ? 'First Time Log In' : 'Temporary Password Generated'}
+                Temporary Password Generated
               </Text>
             </View>
-            {first ? (
-              <>
-                <Text style={styles.subtitle}>Please change your password to continue.</Text>
-                <Text style={styles.instructionsTitle}>Old Password</Text>
-                <View style={styles.inputWithIcon}>
-                  <TextInput
-                    style={styles.modalInput as any}
-                    value={oldPassword}
-                    onChangeText={setOldPassword}
-                    secureTextEntry={!showOld}
-                    editable={!isLoading}
-                  />
-                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowOld((s) => !s)}>
-                    <PasswordVisibilityIcon show={showOld} size={24} color="#000000" />
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.instructionsTitle}>New Password</Text>
-                <View style={styles.inputWithIcon}>
-                  <TextInput
-                    style={styles.modalInput as any}
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    secureTextEntry={!showNew}
-                    onSubmitEditing={handlePasswordSubmit}
-                    editable={!isLoading}
-                  />
-                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNew((s) => !s)}>
-                    <PasswordVisibilityIcon show={showNew} size={24} color="#000000" />
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.instructionsTitle}>Confirm Password</Text>
-                <View style={styles.inputWithIcon}>
-                  <TextInput
-                    style={styles.modalInput as any}
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry={!showConfirm}
-                    onSubmitEditing={onConfirmFirstLogin}
-                    editable={!isLoading}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeButton}
-                    onPress={() => setShowConfirm((s) => !s)}
-                  >
-                    <PasswordVisibilityIcon show={showConfirm} size={24} color="#000000" />
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.instructionText}>
-                  Must be 16+ chars with upper, lower, number, and symbol.
-                </Text>
-                {error ? <Text style={{ color: '#ffb3b3', marginBottom: 8 }}>{error}</Text> : null}
-                {success ? (
-                  <Text style={{ color: '#b2f2bb', marginBottom: 8 }}>{success}</Text>
-                ) : null}
-                <TouchableOpacity 
-                  style={[styles.loginButton, isLoading && styles.loginButtonDisabled]} 
-                  onPress={onConfirmFirstLogin}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <>
-                      <ActivityIndicator size="small" color="#1e3a8a" style={{ marginRight: 8 }} />
-                      <Text style={styles.loginButtonText}>Changing Password...</Text>
-                    </>
-                  ) : (
-                    <Text style={styles.loginButtonText}>Confirm</Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={styles.subtitle}>
-                  Hello {userName || 'User'}, your temporary password has been generated
-                  successfully.
-                </Text>
+            <>
+              <Text style={styles.subtitle}>
+                Hello {userName || 'User'}, your temporary password has been generated
+                successfully.
+              </Text>
                 <View style={styles.passwordContainer}>
                   <Text style={styles.passwordLabel}>Your Temporary Password:</Text>
                   <View style={styles.passwordBox}>
@@ -220,11 +273,10 @@ export default function TemporaryPasswordScreen() {
                     • This password is temporary and should not be shared
                   </Text>
                 </View>
-                <TouchableOpacity style={styles.loginButton} onPress={handleGoToLogin}>
-                  <Text style={styles.loginButtonText}>Go to Login</Text>
-                </TouchableOpacity>
-              </>
-            )}
+              <TouchableOpacity style={styles.loginButton} onPress={handleGoToLogin}>
+                <Text style={styles.loginButtonText}>Go to Login</Text>
+              </TouchableOpacity>
+            </>
           </View>
         </View>
       </View>
@@ -233,6 +285,50 @@ export default function TemporaryPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
+  // First-time login styles
+  gradientBackground: {
+    flex: 1,
+  },
+  firstTimeContainer: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 20,
+    paddingVertical: 40,
+  },
+  centralCard: {
+    backgroundColor: 'rgba(0, 45, 98, 0.85)',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    marginRight: 12,
+  },
+  firstTimeTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    flex: 1,
+  },
   background: {
     flex: 1,
     justifyContent: 'center',
@@ -276,11 +372,69 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: '#fff',
-    textAlign: 'center',
+    color: '#ffffff',
     marginBottom: 24,
     opacity: 0.9,
     lineHeight: 20,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  input: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#000000',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    paddingRight: 50,
+  },
+  requirementText: {
+    fontSize: 12,
+    color: '#ffffff',
+    marginTop: 4,
+    marginBottom: 8,
+    opacity: 0.9,
+  },
+  strengthText: {
+    fontSize: 12,
+    color: '#ffffff',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  errorText: {
+    color: '#ffb3b3',
+    marginBottom: 8,
+    fontSize: 14,
+  },
+  successText: {
+    color: '#b2f2bb',
+    marginBottom: 8,
+    fontSize: 14,
+  },
+  confirmButton: {
+    backgroundColor: '#5B9BD5',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginTop: 24,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.7,
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ffffff',
   },
   passwordContainer: {
     marginBottom: 24,
@@ -337,6 +491,7 @@ const styles = StyleSheet.create({
   inputWithIcon: {
     position: 'relative',
     justifyContent: 'center',
+    marginBottom: 4,
   },
   modalInput: {
     borderWidth: 1,
@@ -349,10 +504,11 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     position: 'absolute',
-    right: 10,
+    right: 12,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    width: 40,
   },
   eyeText: {
     fontSize: 16,

@@ -1,16 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  TextInput,
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ImageBackground,
-  ScrollView,
+import { View, TextInput, TouchableOpacity, Text, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ImageBackground, ScrollView,
 } from 'react-native';
 import { forgotPassword } from '../../services/api';
 import { useRouter } from 'expo-router';
@@ -77,7 +66,7 @@ export default function ForgotPasswordScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.innerContent}>
+          <View style={styles.cardContainer}>
             <View style={styles.header}>
               <TouchableOpacity 
                 onPress={() => router.back()}
@@ -98,7 +87,7 @@ export default function ForgotPasswordScreen() {
                 <TextInput
                   style={[styles.input, error && styles.inputError]}
                   placeholder="Enter your registered email"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
                   value={email}
                   onChangeText={(text) => {
                     setEmail(text);
@@ -132,7 +121,7 @@ export default function ForgotPasswordScreen() {
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator color="#1e3a8a" size="small" />
+                  <ActivityIndicator color="#003366" size="small" />
                 ) : (
                   <Text style={styles.buttonText}>Send Reset Link</Text>
                 )}
@@ -160,7 +149,7 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 45, 98, 0.5)',
+    backgroundColor: 'rgba(0, 51, 102, 0.8)',
   },
   container: {
     flex: 1,
@@ -171,10 +160,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 20,
   },
-  innerContent: {
+  cardContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    padding: 24,
     width: '90%',
     alignSelf: 'center',
     maxWidth: 400,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.1,
+    shadowRadius: 40,
+    elevation: 8,
   },
   header: {
     flexDirection: 'row',
@@ -204,44 +203,43 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   form: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    width: '100%',
   },
   inputGroup: {
-    marginBottom: 16,
+    width: '100%',
   },
   label: {
-    color: '#fff',
     fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 6,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 8,
+    marginTop: 16,
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
+    color: '#ffffff',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   inputError: {
     borderColor: '#e74c3c',
     borderWidth: 2,
   },
   errorContainer: {
-    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderWidth: 1,
-    borderColor: '#e74c3c',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
     borderRadius: 8,
     padding: 12,
+    marginTop: 8,
     marginBottom: 16,
   },
   errorText: {
-    color: '#e74c3c',
+    color: '#fca5a5',
     fontSize: 14,
     textAlign: 'center',
   },
@@ -269,23 +267,24 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: '#fff',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginTop: 24,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 4,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1e3a8a',
+    fontWeight: '600',
+    color: '#003366',
   },
   backToLoginButton: {
     marginTop: 16,
@@ -293,9 +292,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backToLoginText: {
-    color: '#fff',
     fontSize: 14,
-    fontWeight: '400',
-    opacity: 0.8,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
 });

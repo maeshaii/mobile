@@ -7,7 +7,7 @@ import { API_BASE_URL, likeDonationPost, unlikeDonationPost, commentOnDonationPo
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
-import { formatUserFullName } from '../../utils/nameUtils';
+import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 
 interface Post {
   post_id: number;
@@ -64,7 +64,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   console.log('Post data keys:', Object.keys(post));
   console.log('Post post_image:', post.post_image);
   console.log('Post post_images:', post.post_images);
-  console.log('Post images:', post.images);
   console.log('Extracted images:', images);
   console.log('Images count:', images.length);
   console.log('First image URL:', imageUrl);
@@ -271,15 +270,23 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
 
       {/* Stats */}
       <View style={styles.actionsCountsRow}>
-        <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
-          <Text style={styles.countText}>{likeCount} {likeCount === 1 ? 'like' : 'likes'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
-          <Text style={styles.countText}>{post.comments_count || 0} comments</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'reposts')}>
-          <Text style={styles.countText}>{repostCount} reposts</Text>
-        </TouchableOpacity>
+        {likeCount > 0 && (
+          <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
+            <Text style={styles.countText}>
+              {formatLikeCountText((post as any).likes, likeCount)}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {(post.comments_count || 0) > 0 && (
+          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
+            <Text style={styles.countText}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
+          </TouchableOpacity>
+        )}
+        {repostCount > 0 && (
+          <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'reposts')}>
+            <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Actions */}
