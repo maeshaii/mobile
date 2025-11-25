@@ -118,6 +118,8 @@ export default function TrackerForm() {
   const [checkingAlignment, setCheckingAlignment] = useState(false);
   const jobSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jobAlignmentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Flag to prevent onBlur from running when suggestion is selected
+  const suggestionSelectedRef = useRef<{ questionId: string; timestamp: number } | null>(null);
   
   // Job title autocomplete search handler (moved outside renderQuestion to avoid hooks violation)
   const searchJobTitles = useCallback(async (query: string, questionId: string) => {
@@ -191,14 +193,15 @@ export default function TrackerForm() {
         const userId = user.id || user.user_id;
         const selectedPosition = position.trim();
         
-        // IMPORTANT: Set the value immediately first (user sees it right away)
-        setResponse(questionId, selectedPosition);
+        // Note: Value is already set in the suggestion selection handler
+        // We just need to check alignment now
         
-        // Then check alignment
+        // Check alignment immediately for autocomplete selections
         const result = await checkJobAlignment(selectedPosition, userId, true);
         
-        // Preserve user's exact selection (don't overwrite with normalized)
-        // The user chose this specific suggestion - keep it as-is
+        // Preserve user's exact selection (don't overwrite with normalized position)
+        // The user chose this specific suggestion - ensure it stays as-is
+        // (Response is already set from suggestion handler, this is just a safety check)
         setResponse(questionId, selectedPosition);
         
         // Store alignment status
@@ -376,21 +379,39 @@ export default function TrackerForm() {
             
             if (draftResponse?.success && draftResponse?.has_draft && Object.keys(draftResponse.answers || {}).length > 0) {
               console.log('✅ Mobile: Draft found with', Object.keys(draftResponse.answers).length, 'answers - loading...');
+              console.log('📋 Mobile: Draft answers:', JSON.stringify(draftResponse.answers, null, 2));
               
               // Sanitize draft data (remove empty objects, null values, etc.)
+              // IMPORTANT: Keep file markers (objects with type: 'file' and uploaded: true) - these indicate files were uploaded
               const sanitizedAnswers: Record<string, any> = {};
+              let fileMarkerCount = 0;
+              
               for (const [key, value] of Object.entries(draftResponse.answers || {})) {
                 if (value === null || value === undefined) continue;
+                // Keep file markers (indicate files were uploaded before refresh)
+                if (typeof value === 'object' && !Array.isArray(value) && 'type' in value && 'uploaded' in value) {
+                  const fileMarker = value as { type?: string; uploaded?: boolean; multiple?: boolean };
+                  if (fileMarker.type === 'file' && fileMarker.uploaded === true) {
+                    sanitizedAnswers[key] = value;
+                    fileMarkerCount++;
+                    console.log(`✅ Mobile: Preserved file marker for question ${key}:`, value);
+                    continue;
+                  }
+                }
+                // Skip empty objects (but keep file markers)
                 if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) continue;
                 if (typeof value === 'string' && value.trim() === '') continue;
                 sanitizedAnswers[key] = value;
               }
+              
+              console.log(`📋 Mobile: Loaded ${Object.keys(sanitizedAnswers).length} answers (${fileMarkerCount} file markers)`);
               
               if (Object.keys(sanitizedAnswers).length > 0) {
                 setResponses(sanitizedAnswers);
                 setSaveStatus('saved');
                 setHasDraftData(true);
                 draftLoaded = true;
+                console.log('✅ Mobile: Draft loaded with file markers preserved');
               } else {
                 console.log('ℹ️ Mobile: Draft found but no valid answers after sanitization');
                 setHasDraftData(false);
@@ -496,7 +517,7 @@ export default function TrackerForm() {
               }
               setResponses(prev => ({ ...prev, ...initialResponses }));
             }
-            }
+          }
           } catch (prefillError) {
             console.error('❌ Mobile: Error prefilling form:', prefillError);
           }
@@ -541,69 +562,6 @@ export default function TrackerForm() {
     }, [checkTrackerStatus, navigation])
   );
 
-  // Auto-save formResponses (debounced - saves 3 seconds after last change)
-  useEffect(() => {
-    if (!draftCheckComplete || !userIdRef.current) {
-      return; // Don't auto-save before draft check is complete or if no user ID
-    }
-
-    // Clear existing timer
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-
-    // Don't auto-save if there are no responses
-    if (Object.keys(responses).length === 0) {
-      return;
-    }
-
-    // Set status to unsaved
-    setSaveStatus('unsaved');
-
-    // Debounce: save 3 seconds after last change
-    autoSaveTimerRef.current = setTimeout(async () => {
-      try {
-        setSaveStatus('saving');
-        console.log('💾 Auto-saving draft...');
-        
-        // Filter out file responses (files can't be saved in drafts, only during submission)
-        const draftResponses: Record<string, any> = {};
-        for (const [key, value] of Object.entries(responses)) {
-          // Skip file responses (they have type: 'file' or are arrays of file objects)
-          if (value && typeof value === 'object') {
-            if (value.type === 'file') {
-              continue; // Skip single file responses
-            }
-            if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && 'uri' in value[0]) {
-              continue; // Skip multiple file responses
-            }
-          }
-          draftResponses[key] = value;
-        }
-        
-        await saveTrackerDraft(userIdRef.current!, draftResponses);
-        
-        setSaveStatus('saved');
-        console.log('✅ Draft auto-saved successfully');
-        
-        // Reset to null after 2 seconds
-        setTimeout(() => {
-          setSaveStatus(null);
-        }, 2000);
-      } catch (error) {
-        console.error('❌ Auto-save failed:', error);
-        setSaveStatus('unsaved');
-      }
-    }, 3000); // 3 second debounce
-
-    // Cleanup
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-    };
-  }, [responses, draftCheckComplete]);
-
   const handleChange = (key: keyof typeof form, value: any) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -614,9 +572,10 @@ export default function TrackerForm() {
   };
   
   // Auto-save formResponses (debounced - saves 3 seconds after last change, matching web)
+  // SINGLE auto-save effect (removed duplicate)
   useEffect(() => {
     if (!draftCheckComplete || !userIdRef.current || !privacyAccepted) {
-      return; // Don't auto-save if draft check not complete or privacy not accepted
+      return; // Don't auto-save if draft check not complete, no user ID, or privacy not accepted
     }
 
     // Clear existing timer
@@ -637,8 +596,41 @@ export default function TrackerForm() {
       try {
         setSaveStatus('saving');
         console.log('💾 Mobile: Auto-saving draft...');
+        console.log('📋 Mobile: Total responses to save:', Object.keys(responses).length);
         
-        await saveTrackerDraft(userIdRef.current!, responses);
+        // Save draft responses - INCLUDING file markers (file markers indicate files were uploaded)
+        // Note: Actual file objects can't be saved, but markers can be saved to remember uploads after refresh
+        const draftResponses: Record<string, any> = {};
+        let fileMarkerCount = 0;
+        
+        for (const [key, value] of Object.entries(responses)) {
+          // Skip actual file objects (arrays of FileAsset or File objects with uri property)
+          if (value && typeof value === 'object') {
+            // Check if it's an actual file object (has uri property) - skip these
+            if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && 'uri' in value[0]) {
+              console.log(`⏭️ Mobile: Skipping actual file array for question ${key}`);
+              continue; // Skip actual file arrays (file objects can't be serialized)
+            }
+            // Keep file markers (objects with type: 'file' and uploaded: true) - these CAN be saved
+            if ('type' in value && 'uploaded' in value && value.type === 'file' && value.uploaded === true) {
+              // This is a file marker, save it to remember file was uploaded
+              draftResponses[key] = value;
+              fileMarkerCount++;
+              console.log(`✅ Mobile: Saving file marker for question ${key}:`, value);
+              continue;
+            }
+            // Skip actual file objects (FileAsset with uri) but keep markers
+            if ('uri' in value) {
+              console.log(`⏭️ Mobile: Skipping actual file object for question ${key}`);
+              continue; // Skip actual file objects
+            }
+          }
+          // Save all other responses (including file markers)
+          draftResponses[key] = value;
+        }
+        
+        console.log(`💾 Mobile: Saving ${Object.keys(draftResponses).length} responses (${fileMarkerCount} file markers)`);
+        await saveTrackerDraft(userIdRef.current!, draftResponses);
         
         setSaveStatus('saved');
         console.log('✅ Mobile: Draft auto-saved successfully');
@@ -674,11 +666,19 @@ export default function TrackerForm() {
       
       if (isMultiple) {
         const currentFiles = multipleFileAnswers[String(questionId)] || [];
-        setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: [...currentFiles, asset] }));
-        setResponse(String(questionId), [...currentFiles, asset]);
+        const updatedFiles = [...currentFiles, asset];
+        setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: updatedFiles }));
+        // Save file marker in responses for draft persistence (files can't be saved, but markers can)
+        setResponse(String(questionId), { 
+          type: 'file', 
+          multiple: true, 
+          uploaded: true, 
+          count: updatedFiles.length 
+        });
       } else {
         setFileAnswers((prev) => ({ ...prev, [String(questionId)]: asset }));
-        setResponse(String(questionId), { type: 'file' });
+        // Save file marker in responses for draft persistence
+        setResponse(String(questionId), { type: 'file', uploaded: true, filename: asset.name });
       }
     }
   };
@@ -687,7 +687,17 @@ export default function TrackerForm() {
     const currentFiles = multipleFileAnswers[String(questionId)] || [];
     const updatedFiles = currentFiles.filter((_, i) => i !== index);
     setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: updatedFiles }));
-    setResponse(String(questionId), updatedFiles);
+    // Update file marker in responses (remove if no files left, otherwise update count)
+    if (updatedFiles.length === 0) {
+      setResponse(String(questionId), null);
+    } else {
+      setResponse(String(questionId), { 
+        type: 'file', 
+        multiple: true, 
+        uploaded: true, 
+        count: updatedFiles.length 
+      });
+    }
   };
 
   // Submit form: show terms modal first if not accepted
@@ -734,8 +744,8 @@ export default function TrackerForm() {
             const lowerText = (question.text || '').toLowerCase();
               const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
                                              (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
-            
-            if (isAwardSupportingDocs) {
+              
+              if (isAwardSupportingDocs) {
               // Only validate if the parent award question is answered "Yes"
               const awardQuestion = categories
                 .flatMap(cat => cat.questions || [])
@@ -752,20 +762,65 @@ export default function TrackerForm() {
               }
             }
             
-            // Validate required questions
+            // Validate required questions (skip hidden questions)
             if (question.required) {
               const answer = responses[String(question.id)];
               
               if (isAwardSupportingDocs) {
+                // For award documents, require ACTUAL files for submission (not just markers)
+                // File markers are only for draft persistence after refresh
                 const files = multipleFileAnswers[String(question.id)] || [];
-                const hasValidFile = Array.isArray(files) && files.length > 0;
-                if (!hasValidFile) {
-                  missingRequiredQuestions.push(question.text);
+                // Filter out null entries to get valid file count
+                const validFiles = files.filter(f => f !== null && f !== undefined);
+                const hasActualFiles = validFiles.length > 0;
+                
+                // Check if there's a file marker (files were uploaded but lost after refresh)
+                const hasFileMarker = answer && 
+                  typeof answer === 'object' && 
+                  !Array.isArray(answer) &&
+                  'type' in answer && 
+                  'uploaded' in answer &&
+                  answer.type === 'file' && 
+                  answer.uploaded === true;
+                
+                // For FINAL SUBMISSION: Require actual files, not just markers
+                if (!hasActualFiles) {
+                  missingRequiredQuestions.push(question.text + (hasFileMarker ? ' (Files were uploaded but need to be re-uploaded after page refresh)' : ''));
                 }
-              } else if (!answer || (typeof answer === 'string' && answer.trim() === '') || 
-                       (typeof answer === 'object' && answer !== null && !Array.isArray(answer) && Object.keys(answer).length === 0) ||
+              } else if ((lowerText.includes('supporting document') && !lowerText.includes('award')) || 
+                         (lowerText.includes('file upload') && !lowerText.includes('award')) || 
+                         (lowerText.includes('document') && !lowerText.includes('award'))) {
+                // For single file upload questions, require ACTUAL file for submission (not just markers)
+                // File markers are only for draft persistence after refresh
+                const file = fileAnswers[String(question.id)];
+                const hasActualFile = file && file.uri;
+                
+                // Check for file marker (file was uploaded but lost after refresh)
+                const hasFileMarker = answer && 
+                  typeof answer === 'object' && 
+                  !Array.isArray(answer) &&
+                  'type' in answer && 
+                  'uploaded' in answer &&
+                  answer.type === 'file' && 
+                  answer.uploaded === true;
+                
+                // For FINAL SUBMISSION: Require actual file, not just marker
+                if (!hasActualFile) {
+                  missingRequiredQuestions.push(question.text + (hasFileMarker ? ' (File was uploaded but needs to be re-uploaded after page refresh)' : ''));
+                }
+              } else if (!shouldHideQuestionText(question.text || '')) {
+                // Only validate non-hidden questions
+                // Skip file markers in validation for non-file questions
+                const isFileMarker = answer && typeof answer === 'object' && !Array.isArray(answer) && 'type' in answer && answer.type === 'file';
+                if (isFileMarker) {
+                  continue; // Skip file markers in validation for non-file questions
+                }
+                
+                if (!answer || (typeof answer === 'string' && answer.trim() === '') || 
+                   (typeof answer === 'object' && answer !== null && !Array.isArray(answer) && Object.keys(answer).length === 0) ||
                        (Array.isArray(answer) && answer.length === 0)) {
                 missingRequiredQuestions.push(question.text);
+                }
               }
             }
           }
@@ -1177,6 +1232,20 @@ export default function TrackerForm() {
       // Multiple file upload for award documents (matching web implementation)
       const files = multipleFileAnswers[qid] || [];
       
+      // Check if there's a file marker in responses (from draft) indicating files were uploaded
+      const responseValue = responses[qid];
+      const hasFileMarker = responseValue && 
+        typeof responseValue === 'object' && 
+        !Array.isArray(responseValue) &&
+        'type' in responseValue && 
+        'uploaded' in responseValue &&
+        responseValue.type === 'file' && 
+        responseValue.multiple === true &&
+        responseValue.uploaded === true;
+      
+      // If file marker exists but no actual files (after refresh), show helper message
+      const showReuploadMessage = hasFileMarker && (!files || files.length === 0 || files.every(f => f === null));
+      
       // Helper function to update file at specific index
       const updateFileAtIndex = async (index: number) => {
         const result = await DocumentPicker.getDocumentAsync({});
@@ -1219,12 +1288,22 @@ export default function TrackerForm() {
           }
           currentFiles[index] = asset;
           
+          // Filter out null entries to get actual file count
+          const validFiles = currentFiles.filter(f => f !== null);
+          
           setMultipleFileAnswers((prev) => ({ ...prev, [qid]: currentFiles }));
-          setResponse(qid, currentFiles);
+          // Save file marker in responses for draft persistence (count only valid files)
+          setResponse(qid, { 
+            type: 'file', 
+            multiple: true, 
+            uploaded: true, 
+            count: validFiles.length 
+          });
         }
       };
       
-      // Ensure at least one slot exists (matching web behavior)
+      // Ensure at least one slot exists automatically when question is shown (matching web behavior)
+      // This ensures "Choose File" appears immediately without needing "+ Add Another Award"
       const displayFiles = files.length === 0 ? [null] : files;
       
       return (
@@ -1248,19 +1327,19 @@ export default function TrackerForm() {
                     }}
                   >
                     <Text style={{ color: 'white', fontSize: 12 }}>Remove</Text>
-                  </TouchableOpacity>
+              </TouchableOpacity>
                 )}
-              </View>
+            </View>
               
               {/* Choose File Button - shown for each slot (matching web) */}
               <TouchableOpacity 
                 style={styles.uploadButton}
                 onPress={() => updateFileAtIndex(index)}
               >
-                <Text style={styles.uploadButtonText}>
+            <Text style={styles.uploadButtonText}>
                   {file ? 'Choose File' : 'Choose File'}
-                </Text>
-              </TouchableOpacity>
+            </Text>
+          </TouchableOpacity>
               
               {/* Show selected file info if file exists */}
               {file && (
@@ -1283,7 +1362,16 @@ export default function TrackerForm() {
               const currentFiles = multipleFileAnswers[qid] || [];
               const updatedFiles = [...currentFiles, null as any];
               setMultipleFileAnswers((prev) => ({ ...prev, [qid]: updatedFiles }));
-              setResponse(qid, updatedFiles);
+              // Update file marker - keep existing marker if files exist, otherwise create new one
+              const existingFiles = currentFiles.filter(f => f !== null);
+              if (existingFiles.length > 0) {
+                setResponse(qid, { 
+                  type: 'file', 
+                  multiple: true, 
+                  uploaded: true, 
+                  count: existingFiles.length 
+                });
+              }
             }}
           >
             <Text style={[styles.uploadButtonText, { color: 'white' }]}>
@@ -1291,10 +1379,19 @@ export default function TrackerForm() {
             </Text>
           </TouchableOpacity>
           
-          {files.length === 0 && (
+          {files.length === 0 && !showReuploadMessage && (
             <Text style={{ marginTop: 8, color: '#888', fontSize: 12 }}>
               Click the button above to add your first award document.
             </Text>
+          )}
+          
+          {/* Show re-upload message if files were uploaded before refresh */}
+          {showReuploadMessage && (
+            <View style={{ marginTop: 8, padding: 12, backgroundColor: '#fff3cd', borderRadius: 6, borderWidth: 1, borderColor: '#ffc107' }}>
+              <Text style={{ fontSize: 12, color: '#856404', fontWeight: '500' }}>
+                ⚠️ Files were uploaded but need to be re-uploaded after page refresh. Please select your files again.
+              </Text>
+            </View>
           )}
         </View>
       );
@@ -1302,6 +1399,19 @@ export default function TrackerForm() {
 
     if (qtype === 'file' || /upload|file/i.test(q.text || '')) {
       const file = fileAnswers[qid];
+      // Check if there's a file marker in responses (from draft) indicating file was uploaded
+      const responseValue = responses[qid];
+      const hasFileMarker = responseValue && 
+        typeof responseValue === 'object' && 
+        !Array.isArray(responseValue) &&
+        'type' in responseValue && 
+        'uploaded' in responseValue &&
+        responseValue.type === 'file' && 
+        responseValue.uploaded === true;
+      
+      // If file marker exists but no actual file (after refresh), show helper message
+      const showReuploadMessage = hasFileMarker && !file;
+      
       return (
         <View key={qid} style={{ marginBottom: 12 }}>
           <Text style={styles.label}>
@@ -1312,6 +1422,15 @@ export default function TrackerForm() {
             <Text style={styles.uploadButtonText}>Choose File</Text>
           </TouchableOpacity>
           {file && <Text style={styles.fileText}>{file.name}</Text>}
+          
+          {/* Show re-upload message if file was uploaded before refresh */}
+          {showReuploadMessage && (
+            <View style={{ marginTop: 8, padding: 12, backgroundColor: '#fff3cd', borderRadius: 6, borderWidth: 1, borderColor: '#ffc107' }}>
+              <Text style={{ fontSize: 12, color: '#856404', fontWeight: '500' }}>
+                ⚠️ File was uploaded but needs to be re-uploaded after page refresh. Please select your file again.
+              </Text>
+            </View>
+          )}
         </View>
       );
     }
@@ -1635,31 +1754,48 @@ export default function TrackerForm() {
                 setShowJobSuggestions({ questionId: '', visible: false });
               }}
               onBlur={() => {
-                // CRITICAL FIX: Always check alignment on blur for manually typed jobs
-                // Use a delay to ensure suggestion selection completes first (if user clicked)
+                // CRITICAL FIX: Prevent onBlur from interfering with suggestion selection
+                // Check if a suggestion was just selected (within last 300ms)
+                const justSelected = suggestionSelectedRef.current && 
+                  suggestionSelectedRef.current.questionId === qid &&
+                  Date.now() - suggestionSelectedRef.current.timestamp < 300;
+                
+                if (justSelected) {
+                  // Don't run onBlur logic if suggestion was just selected
+                  return;
+                }
+                
+                // For manually typed jobs, check alignment after a delay
                 setTimeout(() => {
                   const currentValue = responses[qid] !== undefined ? String(responses[qid]) : '';
                   
-                  // Only check alignment if:
-                  // 1. User typed something (length >= 2)
-                  // 2. Suggestions are hidden (user didn't select from autocomplete)
-                  if (currentValue && currentValue.trim().length >= 2) {
-                    // Check if this value exactly matches any suggestion
+                  // Double-check that suggestion wasn't selected during the delay
+                  const stillJustSelected = suggestionSelectedRef.current && 
+                    suggestionSelectedRef.current.questionId === qid &&
+                    Date.now() - suggestionSelectedRef.current.timestamp < 500;
+                  
+                  if (stillJustSelected) {
+                    return; // Don't interfere with suggestion selection
+                  }
+                  
+                  // Only check alignment if user typed something manually
+                  if (currentValue && currentValue.trim().length >= 2 && !showJobSuggestions.visible) {
+                    // Check if this value exactly matches any suggestion (case-insensitive)
                     const isFromAutocomplete = currentQuestionSuggestions.some(s => 
                       s.title.toLowerCase().trim() === currentValue.toLowerCase().trim()
                     );
                     
-                    // IMPORTANT: Always check alignment for manually typed jobs (jobs not in database)
-                    // The onBlur event fires after suggestions are hidden, so this covers manually typed jobs
-                    if (!showJobSuggestions.visible) {
-                      // User finished typing - always check alignment (whether in database or not)
-                      handleCheckJobAlignment(currentValue.trim(), qid, isFromAutocomplete);
+                    // Only check alignment for manually typed jobs (not from autocomplete)
+                    if (!isFromAutocomplete) {
+                      handleCheckJobAlignment(currentValue.trim(), qid, false);
                     }
                   }
                   
-                  // Always hide suggestions after blur
-                  setShowJobSuggestions({ questionId: '', visible: false });
-                }, 250); // Delay to allow suggestion selection to complete first
+                  // Always hide suggestions after blur (if still visible)
+                  if (showJobSuggestions.visible && showJobSuggestions.questionId === qid) {
+                    setShowJobSuggestions({ questionId: '', visible: false });
+                  }
+                }, 200); // Short delay to allow suggestion selection to complete
               }}
               placeholder={q.placeholder || "Select or type Job Title"}
               autoCapitalize="words"
@@ -1683,27 +1819,29 @@ export default function TrackerForm() {
                     <TouchableOpacity
                       key={`${suggestion.title}-${suggestion.program}-${index}`}
                       style={styles.jobSuggestionItem}
-                      onPress={() => {
+                      onPress={async () => {
                         // CRITICAL FIX: Ensure the selected value appears in TextInput immediately
                         const selectedTitle = suggestion.title;
+                        
+                        // Mark that a suggestion was selected (prevents onBlur from interfering)
+                        suggestionSelectedRef.current = {
+                          questionId: qid,
+                          timestamp: Date.now()
+                        };
                         
                         // Hide suggestions immediately to prevent blur event conflicts
                         setShowJobSuggestions({ questionId: '', visible: false });
                         setJobSuggestions([]);
                         
-                        // Update response state immediately
-                        // Use functional update to ensure we're working with latest state
-                        setResponses((prev) => {
-                          const updated = { ...prev, [qid]: selectedTitle };
-                          // The updated state will be reflected in next render
-                          return updated;
-                        });
+                        // Update response state immediately - this triggers re-render with new value
+                        setResponse(qid, selectedTitle);
                         
-                        // Use a small delay to ensure state update propagates to TextInput
+                        // Use requestAnimationFrame to ensure state update has propagated to TextInput
                         // Then check alignment immediately (fromAutocomplete=true means no debounce)
-                        setTimeout(() => {
+                        requestAnimationFrame(() => {
+                          // Check alignment immediately for autocomplete selections
                           handleCheckJobAlignment(selectedTitle, qid, true);
-                        }, 100);
+                        });
                       }}
                     >
                       <Text style={styles.jobSuggestionTitle}>{suggestion.title}</Text>
@@ -2294,7 +2432,50 @@ export default function TrackerForm() {
             setAwardOptions(updatedButtons);
 
             const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) setHasAwards(selected.value);
+            if (selected) {
+              setHasAwards(selected.value);
+              
+              // When "Yes" is selected, automatically create the first file upload slot for Question 31
+              if (selected.value === 'Yes') {
+                // Find Question 31 (Supporting Documents for awards/recognition)
+                const awardDocsQuestion = categories
+                  ?.flatMap(cat => cat.questions || [])
+                  .find((q: any) => {
+                    const qt = (q.text || '').toLowerCase();
+                    return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
+                           (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
+                  });
+                
+                if (awardDocsQuestion) {
+                  const questionId = String(awardDocsQuestion.id);
+                  const currentFiles = multipleFileAnswers[questionId] || [];
+                  // Auto-create first slot if none exists
+                  if (currentFiles.length === 0) {
+                    setMultipleFileAnswers((prev) => ({ ...prev, [questionId]: [null as any] }));
+                  }
+                }
+              } else if (selected.value === 'No') {
+                // Clear award documents when "No" is selected
+                const awardDocsQuestion = categories
+                  ?.flatMap(cat => cat.questions || [])
+                  .find((q: any) => {
+                    const qt = (q.text || '').toLowerCase();
+                    return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
+                           (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
+                  });
+                
+                if (awardDocsQuestion) {
+                  const questionId = String(awardDocsQuestion.id);
+                  setMultipleFileAnswers((prev) => {
+                    const newState = { ...prev };
+                    delete newState[questionId];
+                    return newState;
+                  });
+                  // Clear file marker from responses
+                  setResponse(questionId, '');
+                }
+              }
+            }
           }}
           layout="row"
         />
