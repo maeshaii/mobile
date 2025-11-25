@@ -5,22 +5,22 @@ import {
   TouchableOpacity,
   StyleSheet,
   ImageBackground,
-  Alert,
   TextInput,
   ActivityIndicator,
   ScrollView,
   SafeAreaView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
 import { validatePassword } from '../../utils/passwordValidator';
+import { useAlert } from '../../contexts/AlertContext';
 
 export default function TemporaryPasswordScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { showAlert } = useAlert();
   const { tempPassword, userName, first } = params as any;
   const [copied, setCopied] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
@@ -37,10 +37,18 @@ export default function TemporaryPasswordScreen() {
     try {
       await Clipboard.setString(tempPassword as string);
       setCopied(true);
-      Alert.alert('Copied!', 'Temporary password copied to clipboard');
+      showAlert({
+        title: 'Copied!',
+        message: 'Temporary password copied to clipboard',
+        type: 'success',
+      });
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
-      Alert.alert('Error', 'Failed to copy password');
+      showAlert({
+        title: 'Error',
+        message: 'Failed to copy password',
+        type: 'error',
+      });
     }
   };
 
@@ -61,11 +69,11 @@ export default function TemporaryPasswordScreen() {
   const handlePasswordSubmit = () => {
     if (newPassword && !passwordValidation.isValid) {
       const missing = passwordValidation.missingRequirements;
-      Alert.alert(
-        'Password Requirements Missing',
-        `Please add the following:\n• ${missing.join('\n• ')}`,
-        [{ text: 'OK' }]
-      );
+      showAlert({
+        title: 'Password Requirements Missing',
+        message: `Please add the following:\n• ${missing.join('\n• ')}`,
+        type: 'warning',
+      });
     }
   };
 
@@ -75,21 +83,29 @@ export default function TemporaryPasswordScreen() {
     
     if (!passwordValidation.isValid) {
       const missing = passwordValidation.missingRequirements;
-      Alert.alert(
-        'Password Requirements Missing',
-        `Please add the following:\n• ${missing.join('\n• ')}`,
-        [{ text: 'OK' }]
-      );
+      showAlert({
+        title: 'Password Requirements Missing',
+        message: `Please add the following:\n• ${missing.join('\n• ')}`,
+        type: 'warning',
+      });
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert('Password Mismatch', 'Passwords do not match. Please ensure both password fields match.', [{ text: 'OK' }]);
+      showAlert({
+        title: 'Password Mismatch',
+        message: 'Passwords do not match. Please ensure both password fields match.',
+        type: 'error',
+      });
       return;
     }
 
     if (!oldPassword) {
-      Alert.alert('Required Field', 'Please enter your old password.', [{ text: 'OK' }]);
+      showAlert({
+        title: 'Required Field',
+        message: 'Please enter your old password.',
+        type: 'warning',
+      });
       return;
     }
 
@@ -117,10 +133,7 @@ export default function TemporaryPasswordScreen() {
 
   if (first) {
     return (
-      <LinearGradient
-        colors={['#1a4d7a', '#003366', '#002244']}
-        style={styles.gradientBackground}
-      >
+      <View style={styles.gradientBackground}>
         <SafeAreaView style={styles.firstTimeContainer}>
           <ScrollView 
             style={styles.scrollView}
@@ -150,10 +163,11 @@ export default function TemporaryPasswordScreen() {
                   onChangeText={setOldPassword}
                   secureTextEntry={!showOld}
                   editable={!isLoading}
-                  placeholderTextColor="rgba(0, 0, 0, 0.5)"
+                  placeholder="Enter your old password"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
                 />
                 <TouchableOpacity style={styles.eyeButton} onPress={() => setShowOld((s) => !s)}>
-                  <PasswordVisibilityIcon show={showOld} size={24} color="#000000" />
+                  <PasswordVisibilityIcon show={showOld} size={20} color="#ffffff" />
                 </TouchableOpacity>
               </View>
               
@@ -166,10 +180,11 @@ export default function TemporaryPasswordScreen() {
                   secureTextEntry={!showNew}
                   onSubmitEditing={handlePasswordSubmit}
                   editable={!isLoading}
-                  placeholderTextColor="rgba(0, 0, 0, 0.5)"
+                  placeholder="Enter your new password"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
                 />
                 <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNew((s) => !s)}>
-                  <PasswordVisibilityIcon show={showNew} size={24} color="#000000" />
+                  <PasswordVisibilityIcon show={showNew} size={20} color="#ffffff" />
                 </TouchableOpacity>
               </View>
               <Text style={styles.requirementText}>
@@ -190,13 +205,14 @@ export default function TemporaryPasswordScreen() {
                   secureTextEntry={!showConfirm}
                   onSubmitEditing={onConfirmFirstLogin}
                   editable={!isLoading}
-                  placeholderTextColor="rgba(0, 0, 0, 0.5)"
+                  placeholder="Confirm your new password"
+                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
                   onPress={() => setShowConfirm((s) => !s)}
                 >
-                  <PasswordVisibilityIcon show={showConfirm} size={24} color="#000000" />
+                  <PasswordVisibilityIcon show={showConfirm} size={20} color="#ffffff" />
                 </TouchableOpacity>
               </View>
               
@@ -225,7 +241,7 @@ export default function TemporaryPasswordScreen() {
             </View>
           </ScrollView>
         </SafeAreaView>
-      </LinearGradient>
+      </View>
     );
   }
 
@@ -288,6 +304,7 @@ const styles = StyleSheet.create({
   // First-time login styles
   gradientBackground: {
     flex: 1,
+    backgroundColor: '#003366',
   },
   firstTimeContainer: {
     flex: 1,
@@ -302,14 +319,16 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
   },
   centralCard: {
-    backgroundColor: 'rgba(0, 45, 98, 0.85)',
+    backgroundColor: '#1a4d7a',
     borderRadius: 20,
     padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.1,
+    shadowRadius: 40,
+    elevation: 8,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -385,15 +404,15 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   input: {
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#000000',
+    color: '#ffffff',
     borderWidth: 1,
-    borderColor: '#ddd',
-    paddingRight: 50,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    paddingRight: 48,
   },
   requirementText: {
     fontSize: 12,
@@ -419,22 +438,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   confirmButton: {
-    backgroundColor: '#5B9BD5',
+    backgroundColor: '#ffffff',
     paddingVertical: 16,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     marginTop: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 4,
   },
   confirmButtonDisabled: {
     opacity: 0.7,
   },
   confirmButtonText: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#ffffff',
+    fontWeight: '600',
+    color: '#003366',
   },
   passwordContainer: {
     marginBottom: 24,
@@ -505,10 +529,9 @@ const styles = StyleSheet.create({
   eyeButton: {
     position: 'absolute',
     right: 12,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 40,
+    top: '50%',
+    transform: [{ translateY: -12 }],
+    padding: 4,
   },
   eyeText: {
     fontSize: 16,

@@ -9,6 +9,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { UserProvider, useUser } from '../contexts/UserContext';
+import { AlertProvider } from '../contexts/AlertContext';
 
 /**
  * 🔒 SECURITY: Navigation Guard Component
@@ -209,9 +210,10 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <UserProvider>
-        {/* 🔒 SECURITY: Centralized navigation guard */}
-        <NavigationGuard />
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AlertProvider>
+          {/* 🔒 SECURITY: Centralized navigation guard */}
+          <NavigationGuard />
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
           <Stack>
             {/* Public Routes */}
             <Stack.Screen name="login/index" options={{ title: 'landing', headerShown: false }} />
@@ -252,6 +254,7 @@ export default function RootLayout() {
           </Stack>
           <StatusBar style="auto" />
         </ThemeProvider>
+        </AlertProvider>
       </UserProvider>
     </GestureHandlerRootView>
   );

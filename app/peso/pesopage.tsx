@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -13,19 +12,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
+import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails, API_BASE_URL } from '../../services/api';
 import PostCard from '../posts/postCard';
 import UserAvatar from '../../components/UserAvatar';
 import { formatUserFullName } from '../../utils/nameUtils';
-
-const pesoLogo = require('../../assets/images/peso_logo.jpg');
-
-const orgInfo = {
-  name: 'PESO',
-  username: 'PESO_CTU_MAIN_CAMPUS',
-  bio: 'Peso CTU-Main Campus',
-  profile_pic: pesoLogo,
-};
 
 interface Post {
   post_id: number;
@@ -116,8 +106,10 @@ export default function PESOPage() {
           profile_pic: pesoDetails?.profile_pic 
             ? (String(pesoDetails.profile_pic).startsWith('http') || String(pesoDetails.profile_pic).startsWith('data:'))
               ? pesoDetails.profile_pic 
-              : `https://magnitudinous-labialized-lorelei.ngrok-free.dev${pesoDetails.profile_pic}`
-            : pesoLogo,
+              : `${API_BASE_URL}${pesoDetails.profile_pic}`
+            : null,
+          f_name: pesoDetails?.first_name || pesoDetails?.f_name || '',
+          l_name: pesoDetails?.last_name || pesoDetails?.l_name || '',
         };
         
         console.log('PESO page - Peso profile data:', pesoProfileData);
@@ -128,7 +120,9 @@ export default function PESOPage() {
         setPesoProfile({
           name: 'Peso User',
           bio: '', // No hardcoded bio, use empty string
-          profile_pic: pesoLogo,
+          profile_pic: null,
+          f_name: '',
+          l_name: '',
         });
       }
     } catch (error) {
@@ -137,7 +131,9 @@ export default function PESOPage() {
       setPesoProfile({
         name: 'Peso User',
         bio: '', // No hardcoded bio, use empty string
-        profile_pic: pesoLogo,
+        profile_pic: null,
+        f_name: '',
+        l_name: '',
       });
     }
   };
@@ -263,9 +259,12 @@ export default function PESOPage() {
       {/* Org Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileImageWrapper}>
-          <Image 
-            source={pesoProfile?.profile_pic || pesoLogo} 
-            style={styles.profileImage} 
+          <UserAvatar
+            profilePic={pesoProfile?.profile_pic}
+            firstName={pesoProfile?.f_name}
+            lastName={pesoProfile?.l_name}
+            size={100}
+            style={styles.profileImage}
           />
         </View>
         <Text style={styles.profileName}>{pesoProfile?.name || 'Peso User'}</Text>

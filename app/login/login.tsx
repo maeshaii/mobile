@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   formContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#1a4d7a',
     borderRadius: 20,
     padding: 24,
     width: '100%',
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
   welcomeText: {
     fontSize: 24,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: '#ffffff',
     marginBottom: 8,
   },
   technologistText: {
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
   },
   tagline: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#ffffff',
     textAlign: 'center',
   },
   inputContainer: {
@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: '#ffffff',
     marginBottom: 8,
     marginTop: 16,
   },
@@ -335,6 +335,6 @@ const styles = StyleSheet.create({
   },
   forgotPasswordText: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#ffffff',
   },
 }); 

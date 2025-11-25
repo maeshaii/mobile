@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   Modal,
-  Alert,
   ActivityIndicator,
   RefreshControl,
   Animated,
@@ -34,6 +33,7 @@ import {
 } from '../../services/api';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import EarnPointsModal from '../../components/EarnPointsModal';
+import { useAlert } from '../../contexts/AlertContext';
 
 interface InventoryItem {
   id: number;
@@ -92,26 +92,43 @@ const SwipeableRow: React.FC<SwipeableRowProps> = ({
   const startX = useRef(0);
   const startY = useRef(0);
   const hasMoved = useRef(false);
+  const lastGestureState = useRef({ dx: 0, dy: 0 });
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onStartShouldSetPanResponderCapture: () => false,
+      onStartShouldSetPanResponder: () => {
+        // Capture from the start to get priority over ScrollView
+        return showCancel;
+      },
+      onStartShouldSetPanResponderCapture: () => {
+        // Aggressively capture from the start if cancel is enabled
+        return showCancel;
+      },
       onMoveShouldSetPanResponder: (_, gestureState) => {
         if (!showCancel) return false;
-        // Detect horizontal swipe left - be more sensitive
-        const isHorizontal = Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5;
-        const isSwipeLeft = gestureState.dx < -10;
-        if (isHorizontal && isSwipeLeft) {
-          return true;
+        const absDx = Math.abs(gestureState.dx);
+        const absDy = Math.abs(gestureState.dy);
+        
+        // If it's clearly a vertical scroll, release control
+        if (absDy > absDx * 2.5 && absDy > 20) {
+          return false; // Let ScrollView handle vertical scrolling
         }
-        return false;
+        
+        // Otherwise, keep control for horizontal or mixed gestures
+        return true;
       },
       onMoveShouldSetPanResponderCapture: (_, gestureState) => {
         if (!showCancel) return false;
-        // Capture early for horizontal swipes to prevent ScrollView from taking over
-        const isHorizontal = Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5;
-        return isHorizontal && gestureState.dx < 0;
+        const absDx = Math.abs(gestureState.dx);
+        const absDy = Math.abs(gestureState.dy);
+        
+        // Release if clearly vertical
+        if (absDy > absDx * 2.5 && absDy > 20) {
+          return false;
+        }
+        
+        // Keep capture for horizontal or mixed gestures
+        return true;
       },
       onPanResponderGrant: (evt) => {
         hasMoved.current = false;
@@ -121,11 +138,26 @@ const SwipeableRow: React.FC<SwipeableRowProps> = ({
         translateX.setValue(0);
       },
       onPanResponderMove: (_, gestureState) => {
+        // Track gesture state for termination request
+        lastGestureState.current = { dx: gestureState.dx, dy: gestureState.dy };
+        
         if (showCancel) {
           hasMoved.current = Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
+          const absDx = Math.abs(gestureState.dx);
+          const absDy = Math.abs(gestureState.dy);
+          
+          // Only handle horizontal swipes (left direction)
+          // If it's clearly vertical, don't translate
+          if (absDy > absDx * 2 && absDy > 15) {
+            // This is a vertical scroll, don't translate
+            return;
+          }
+          
           // Only allow swiping left (negative dx)
-          const newValue = Math.min(0, Math.max(-100, gestureState.dx));
-          translateX.setValue(newValue);
+          if (gestureState.dx < 0) {
+            const newValue = Math.min(0, Math.max(-100, gestureState.dx));
+            translateX.setValue(newValue);
+          }
         }
       },
       onPanResponderRelease: (_, gestureState) => {
@@ -156,6 +188,16 @@ const SwipeableRow: React.FC<SwipeableRowProps> = ({
             onSwipeClose();
           }
         });
+      },
+      onPanResponderTerminationRequest: (_, gestureState) => {
+        // Allow ScrollView to take over if it's clearly a vertical scroll
+        const absDx = Math.abs(gestureState.dx);
+        const absDy = Math.abs(gestureState.dy);
+        if (absDy > absDx * 3 && absDy > 20) {
+          return true; // Allow termination for vertical scrolls
+        }
+        // Don't allow ScrollView to take over for horizontal gestures
+        return false;
       },
       onPanResponderTerminate: () => {
         translateX.flattenOffset();
@@ -200,7 +242,9 @@ const SwipeableRow: React.FC<SwipeableRowProps> = ({
             {cancelling ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.swipeableCancelButtonText}>Cancel</Text>
+              <Text style={styles.swipeableCancelButtonText} numberOfLines={1}>
+                Cancel
+              </Text>
             )}
           </TouchableOpacity>
         </View>
@@ -216,7 +260,17 @@ const SwipeableRow: React.FC<SwipeableRowProps> = ({
         {...(showCancel ? panResponder.panHandlers : {})}
         collapsable={false}
       >
-        {children}
+        {showCancel ? (
+          children
+        ) : (
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={onPress || undefined}
+            style={{ flex: 1 }}
+          >
+            {children}
+          </TouchableOpacity>
+        )}
       </Animated.View>
     </View>
   );
@@ -226,7 +280,9 @@ export default function RewardsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
+  const { showAlert } = useAlert();
   const requestIdParam = params.requestId ? String(params.requestId) : null;
+  const openRequestsParam = params.openRequests === 'true';
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [userPoints, setUserPoints] = useState<any>(null);
   const [userInfo, setUserInfo] = useState<any>(null);
@@ -239,11 +295,14 @@ export default function RewardsScreen() {
   const [rewardStatusFilter, setRewardStatusFilter] = useState<'all' | 'pending' | 'approved' | 'claimed' | 'did_not_push_through'>('all');
   const [showRewardFilterDropdown, setShowRewardFilterDropdown] = useState(false);
   const [selectedRewardDetail, setSelectedRewardDetail] = useState<RewardRequest | null>(null);
+  const [showRewardDetailModal, setShowRewardDetailModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [cancellingReward, setCancellingReward] = useState<number | null>(null);
   const [swipedRowId, setSwipedRowId] = useState<number | null>(null);
   const [showCancelConfirmModal, setShowCancelConfirmModal] = useState(false);
   const [pendingCancelRequestId, setPendingCancelRequestId] = useState<number | null>(null);
+  const [showClaimConfirmModal, setShowClaimConfirmModal] = useState(false);
+  const [pendingClaimRequest, setPendingClaimRequest] = useState<{id: number; name: string; cost: number} | null>(null);
   const [showMonthlyLimitModal, setShowMonthlyLimitModal] = useState(false);
   const [showConfirmRequestModal, setShowConfirmRequestModal] = useState(false);
   const [pendingRewardRequest, setPendingRewardRequest] = useState<{id: number; name: string; value: string; type?: string} | null>(null);
@@ -259,6 +318,7 @@ export default function RewardsScreen() {
   });
   const [showEarnPointsModal, setShowEarnPointsModal] = useState(false);
   const [trackerFormEnabled, setTrackerFormEnabled] = useState(false);
+  const openingDetailModalRef = useRef(false);
 
   // Derive reward availability - matches web logic
   const deriveRewardAvailability = (item: InventoryItem) => {
@@ -277,16 +337,23 @@ export default function RewardsScreen() {
 
   const fetchUserPoints = async () => {
     try {
+      console.log('RewardsScreen: Fetching user info...');
       const user = await getUserInfo();
+      console.log('RewardsScreen: User info fetched:', user ? 'Success' : 'Failed');
       setUserInfo(user); // Store user info to check account type
       const userId = user?.user_id || user?.id;
+      console.log('RewardsScreen: User ID:', userId);
       if (userId) {
+        console.log('RewardsScreen: Fetching user points for userId:', userId);
         const points = await getUserPoints(userId);
+        console.log('RewardsScreen: User points fetched:', points);
         setUserPoints(points);
         
         // Fetch points settings
         try {
+          console.log('RewardsScreen: Fetching engagement points settings...');
           const settingsResponse = await getEngagementPointsSettings();
+          console.log('RewardsScreen: Points settings response:', settingsResponse);
           if (settingsResponse && settingsResponse.success && settingsResponse.settings) {
             setPointsSettings({
               enabled: settingsResponse.settings.enabled !== false,
@@ -300,28 +367,48 @@ export default function RewardsScreen() {
             });
             // Check if tracker form is enabled
             setTrackerFormEnabled(settingsResponse.settings.tracker_form_enabled !== false);
+            console.log('RewardsScreen: Points settings updated');
           }
         } catch (settingsError) {
-          console.error('Error fetching points settings:', settingsError);
+          console.error('RewardsScreen: Error fetching points settings:', settingsError);
         }
+      } else {
+        console.warn('RewardsScreen: No user ID found, cannot fetch points');
       }
     } catch (error) {
-      console.error('Error fetching user points:', error);
+      console.error('RewardsScreen: Error fetching user points:', error);
+      throw error; // Re-throw to be caught by loadData
     }
   };
 
   const fetchInventoryItems = async () => {
     try {
       setRewardsLoading(true);
+      console.log('RewardsScreen: Fetching inventory items...');
       const response = await getInventoryItems();
+      console.log('RewardsScreen: Inventory items response:', response);
       if (response.success) {
-        setInventoryItems(response.items || []);
+        const items = response.items || [];
+        console.log('RewardsScreen: Inventory items fetched:', items.length, 'items');
+        setInventoryItems(items);
       } else {
-        Alert.alert('Error', response.message || 'Failed to load rewards');
+        console.error('RewardsScreen: Failed to load rewards:', response.message);
+        showAlert({
+          title: 'Error',
+          message: response.message || 'Failed to load rewards',
+          type: 'error',
+        });
       }
     } catch (error: any) {
-      console.error('Error fetching inventory:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to load rewards');
+      console.error('RewardsScreen: Error fetching inventory:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to load rewards';
+      console.error('RewardsScreen: Error details:', errorMessage);
+      showAlert({
+        title: 'Error',
+        message: errorMessage,
+        type: 'error',
+      });
+      throw error; // Re-throw to be caught by loadData
     } finally {
       setRewardsLoading(false);
     }
@@ -329,26 +416,56 @@ export default function RewardsScreen() {
 
   const fetchUserRewardRequests = async () => {
     try {
+      console.log('RewardsScreen: Fetching user reward requests...');
       const response = await getRewardRequests();
+      console.log('RewardsScreen: Reward requests response:', response);
       if (response.success) {
-        setUserRewardRequests(response.requests || []);
+        const requests = response.requests || [];
+        console.log('RewardsScreen: Reward requests fetched:', requests.length, 'requests');
+        setUserRewardRequests(requests);
+        return requests;
+      } else {
+        console.warn('RewardsScreen: Failed to fetch reward requests:', response.message);
+        return [];
       }
     } catch (error) {
-      console.error('Error fetching reward requests:', error);
+      console.error('RewardsScreen: Error fetching reward requests:', error);
+      // Don't throw here - reward requests are not critical for initial load
+      return [];
     }
   };
 
   const loadData = async () => {
-    setLoading(true);
-    await Promise.all([
-      fetchUserPoints(),
-      fetchInventoryItems(),
-      fetchUserRewardRequests(),
-    ]);
-    setLoading(false);
+    try {
+      setLoading(true);
+      console.log('RewardsScreen: Starting to load data...');
+      await Promise.all([
+        fetchUserPoints(),
+        fetchInventoryItems(),
+        fetchUserRewardRequests(),
+      ]);
+      console.log('RewardsScreen: Data loaded successfully');
+    } catch (error) {
+      console.error('RewardsScreen: Error loading data:', error);
+      showAlert({
+        title: 'Error',
+        message: 'Failed to load rewards data. Please try again.',
+        type: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
+    console.log('RewardsScreen: Component mounted, loading data...');
+    // Reset all modal states on mount to prevent stale modals from appearing
+    setShowMonthlyLimitModal(false);
+    setShowConfirmRequestModal(false);
+    setShowRewardsModal(false);
+    setShowRequestsModal(false);
+    setShowCancelConfirmModal(false);
+    setPendingRewardRequest(null);
     loadData();
   }, []);
 
@@ -446,19 +563,25 @@ export default function RewardsScreen() {
   // Handle reward notification - open specific reward detail when requestId is provided
   useEffect(() => {
     const openRewardDetailFromNotification = async () => {
-      if (requestIdParam && userRewardRequests.length > 0) {
+      if (requestIdParam && !loading) {
+        // Refresh requests to ensure we have the latest data
+        const requests = await fetchUserRewardRequests();
         const requestId = parseInt(requestIdParam);
-        const rewardDetail = userRewardRequests.find(
-          (req) => req.request_id === requestId
+        const rewardDetail = requests.find(
+          (req: RewardRequest) => req.request_id === requestId
         );
         if (rewardDetail) {
           // Small delay to ensure modals are ready
           setTimeout(() => {
+            // Open the detail modal directly (not the list modal)
             setSelectedRewardDetail(rewardDetail);
-            setShowRequestsModal(true);
+            setShowRequestsModal(false);
+            setTimeout(() => {
+              setShowRewardDetailModal(true);
+            }, 300);
           }, 300);
         } else {
-          // If not found, still open the requests modal
+          // If not found, open the requests modal to show all requests
           setTimeout(() => {
             setShowRequestsModal(true);
           }, 300);
@@ -467,7 +590,20 @@ export default function RewardsScreen() {
     };
 
     openRewardDetailFromNotification();
-  }, [requestIdParam, userRewardRequests]);
+  }, [requestIdParam, loading]);
+
+  // Handle opening requests modal from notification
+  useEffect(() => {
+    if (openRequestsParam && !loading) {
+      // Refresh requests to ensure we have the latest data
+      fetchUserRewardRequests().then(() => {
+        // Small delay to ensure modals are ready
+        setTimeout(() => {
+          setShowRequestsModal(true);
+        }, 300);
+      });
+    }
+  }, [openRequestsParam, loading]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -498,28 +634,45 @@ export default function RewardsScreen() {
     console.log('Mobile: Can afford:', canAfford, 'Required:', requiredPoints, 'Has:', userPoints?.total_points);
 
     if (!canAfford) {
-      Alert.alert(
-        'Insufficient Points',
-        `You need ${requiredPoints} points but only have ${userPoints?.total_points || 0}.`
-      );
+      showAlert({
+        title: 'Insufficient Points',
+        message: `You need ${requiredPoints} points but only have ${userPoints?.total_points || 0}.`,
+        type: 'warning',
+      });
       return;
     }
 
     if (!hasStock) {
-      Alert.alert('Out of Stock', 'This reward is out of stock.');
+      showAlert({
+        title: 'Out of Stock',
+        message: 'This reward is out of stock.',
+        type: 'warning',
+      });
       return;
     }
+
+    // Refresh reward requests to ensure we have the latest data before checking monthly limit
+    const latestRequests = await fetchUserRewardRequests();
+    console.log('Mobile: Latest requests after fetch:', latestRequests.length);
 
     // Check if user has already requested a reward this month
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthlyRequests = userRewardRequests.filter((req) => {
+    const monthlyRequests = (latestRequests || []).filter((req: RewardRequest) => {
       const requestedDate = new Date(req.requested_at);
       return requestedDate >= startOfMonth;
     });
+    console.log('Mobile: Monthly requests found:', monthlyRequests.length);
 
     if (monthlyRequests.length >= 1) {
-      setShowMonthlyLimitModal(true);
+      console.log('Mobile: Monthly limit reached, showing modal');
+      // Close the rewards modal first so the monthly limit modal can show on top
+      setShowRewardsModal(false);
+      // Small delay to ensure the rewards modal closes before showing the monthly limit modal
+      setTimeout(() => {
+        console.log('Mobile: Showing monthly limit modal');
+        setShowMonthlyLimitModal(true);
+      }, 200);
       return;
     }
 
@@ -560,63 +713,116 @@ export default function RewardsScreen() {
         // Close modal
         setPendingRewardRequest(null);
       } else {
-        Alert.alert('Error', response.message || 'Failed to request reward');
+        showAlert({
+          title: 'Error',
+          message: response.message || 'Failed to request reward',
+          type: 'error',
+        });
       }
     } catch (error: any) {
       console.error('Error requesting reward:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to request reward');
+      showAlert({
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to request reward',
+        type: 'error',
+      });
     } finally {
       setClaimingReward(null);
     }
   };
 
-  const handleClaimApprovedReward = async (requestId: number) => {
+  const handleClaimApprovedReward = (requestId: number) => {
     if (claimingReward !== null) return;
 
     const request = userRewardRequests.find(req => req.request_id === requestId);
     if (!request) return;
 
-    Alert.alert(
-      'Claim Reward',
-      `Claim "${request.reward_name}"?\n\nPoints will be deducted: ${request.points_cost}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Claim',
-          onPress: async () => {
-            try {
-              setClaimingReward(requestId);
-              const response = await claimRewardRequest(requestId);
-              if (response.success) {
-                Alert.alert('Success', response.message || 'Reward claimed successfully!');
-                await fetchUserPoints();
-                await fetchUserRewardRequests();
-                setSelectedRewardDetail(null);
-              } else {
-                Alert.alert('Error', response.message || 'Failed to claim reward');
-              }
-            } catch (error: any) {
-              console.error('Error claiming reward:', error);
-              Alert.alert('Error', error.response?.data?.message || 'Failed to claim reward');
-            } finally {
-              setClaimingReward(null);
-            }
-          },
-        },
-      ]
-    );
+    // Keep the detail modal open, just show claim confirmation modal
+    setPendingClaimRequest({
+      id: requestId,
+      name: request.reward_name,
+      cost: request.points_cost
+    });
+    setTimeout(() => {
+      setShowClaimConfirmModal(true);
+    }, 200);
+  };
+
+  const confirmClaimReward = async () => {
+    if (!pendingClaimRequest) return;
+    const requestId = pendingClaimRequest.id;
+    setShowClaimConfirmModal(false);
+    
+    try {
+      setClaimingReward(requestId);
+      const response = await claimRewardRequest(requestId);
+      if (response.success) {
+        showAlert({
+          title: 'Success',
+          message: response.message || 'Reward claimed successfully!',
+          type: 'success',
+        });
+        await fetchUserPoints();
+        // Fetch updated requests and update the detail modal
+        const updatedRequests = await fetchUserRewardRequests();
+        // Update the detail modal with the latest data if it was showing this request
+        if (selectedRewardDetail?.request_id === requestId) {
+          const updatedRequest = updatedRequests.find((req: RewardRequest) => req.request_id === requestId);
+          if (updatedRequest) {
+            setSelectedRewardDetail(updatedRequest);
+            setShowRewardDetailModal(true);
+          }
+        }
+      } else {
+        showAlert({
+          title: 'Error',
+          message: response.message || 'Failed to claim reward',
+          type: 'error',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error claiming reward:', error);
+      showAlert({
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to claim reward',
+        type: 'error',
+      });
+    } finally {
+      setClaimingReward(null);
+      setPendingClaimRequest(null);
+    }
   };
 
   const handleCancelReward = (requestId: number) => {
     const request = userRewardRequests.find((req) => req.request_id === requestId);
     if (!request) return;
     if (!['pending', 'approved', 'ready_for_pickup'].includes(request.status)) {
-      Alert.alert('Error', 'This request can no longer be cancelled.');
+      showAlert({
+        title: 'Error',
+        message: 'This request can no longer be cancelled.',
+        type: 'error',
+      });
       return;
     }
     setPendingCancelRequestId(requestId);
-    setShowCancelConfirmModal(true);
     setSwipedRowId(null); // Close swipe when showing modal
+    // Close the requests modal first so the cancel confirmation modal can be seen
+    setShowRequestsModal(false);
+    setShowRewardDetailModal(false);
+    setSelectedRewardDetail(null);
+    // Small delay to ensure the requests modal closes before showing the cancel confirmation
+    setTimeout(() => {
+      setShowCancelConfirmModal(true);
+    }, 200);
+  };
+
+  const handleDismissCancelConfirm = () => {
+    setShowCancelConfirmModal(false);
+    setPendingCancelRequestId(null);
+    // Reopen the requests modal after dismissing the cancel confirmation
+    setTimeout(() => {
+      setShowRequestsModal(true);
+    }, 200);
   };
 
   const confirmCancelReward = async () => {
@@ -628,7 +834,11 @@ export default function RewardsScreen() {
       setCancellingReward(requestId);
       const response = await cancelRewardRequest(requestId);
       if (response.success) {
-        Alert.alert('Success', response.message || 'Reward request cancelled.');
+        showAlert({
+          title: 'Success',
+          message: response.message || 'Reward request cancelled.',
+          type: 'success',
+        });
         await fetchUserRewardRequests();
         await fetchInventoryItems();
         if (selectedRewardDetail?.request_id === requestId) {
@@ -636,12 +846,32 @@ export default function RewardsScreen() {
             prev ? { ...prev, status: 'cancelled' as any, notes: response.request?.notes || prev.notes } : prev
           );
         }
+        // Reopen the requests modal to show the updated list
+        setTimeout(() => {
+          setShowRequestsModal(true);
+        }, 300);
       } else {
-        Alert.alert('Error', response.message || 'Unable to cancel request.');
+        showAlert({
+          title: 'Error',
+          message: response.message || 'Unable to cancel request.',
+          type: 'error',
+        });
+        // Reopen the requests modal even on error
+        setTimeout(() => {
+          setShowRequestsModal(true);
+        }, 300);
       }
     } catch (error: any) {
       console.error('Error cancelling reward request:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to cancel request.');
+      showAlert({
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to cancel request.',
+        type: 'error',
+      });
+      // Reopen the requests modal even on error
+      setTimeout(() => {
+        setShowRequestsModal(true);
+      }, 300);
     } finally {
       setCancellingReward(null);
       setPendingCancelRequestId(null);
@@ -703,6 +933,11 @@ export default function RewardsScreen() {
         <Text style={styles.loadingText}>Loading rewards...</Text>
       </View>
     );
+  }
+
+  // Safety check: Ensure we have basic data before rendering
+  if (!userPoints && !loading) {
+    console.warn('RewardsScreen: No user points data available, but loading is false');
   }
 
   return (
@@ -877,7 +1112,11 @@ export default function RewardsScreen() {
                                 } else {
                                   console.log('Mobile: Button press ignored - canRequest:', canRequest, 'isClaiming:', isClaiming);
                                   if (!canRequest) {
-                                    Alert.alert('Cannot Request', `canAfford: ${canAfford}, hasStock: ${hasStock}`);
+                                    showAlert({
+                                      title: 'Cannot Request',
+                                      message: `canAfford: ${canAfford}, hasStock: ${hasStock}`,
+                                      type: 'warning',
+                                    });
                                   }
                                 }
                               }}
@@ -919,10 +1158,19 @@ export default function RewardsScreen() {
           animationType="fade"
           transparent={true}
           onRequestClose={() => {
-            setShowRequestsModal(false);
-            setSelectedRewardDetail(null);
-            setRewardStatusFilter('all');
-            setShowRewardFilterDropdown(false);
+            // Only clear selectedRewardDetail if we're not opening the detail modal
+            if (!openingDetailModalRef.current) {
+              setShowRequestsModal(false);
+              setShowRewardDetailModal(false);
+              setSelectedRewardDetail(null);
+              setRewardStatusFilter('all');
+              setShowRewardFilterDropdown(false);
+            } else {
+              // If we're opening the detail modal, just close the requests modal
+              setShowRequestsModal(false);
+              setRewardStatusFilter('all');
+              setShowRewardFilterDropdown(false);
+            }
           }}
         >
           <View style={styles.rewardsModalOverlay}>
@@ -930,11 +1178,21 @@ export default function RewardsScreen() {
               style={styles.overlayTouchable}
               activeOpacity={1}
               onPress={() => {
-                setShowRequestsModal(false);
-                setSelectedRewardDetail(null);
-                setRewardStatusFilter('all');
-                setShowRewardFilterDropdown(false);
-                setSwipedRowId(null);
+                // Only clear selectedRewardDetail if we're not opening the detail modal
+                if (!openingDetailModalRef.current) {
+                  setShowRequestsModal(false);
+                  setShowRewardDetailModal(false);
+                  setSelectedRewardDetail(null);
+                  setRewardStatusFilter('all');
+                  setShowRewardFilterDropdown(false);
+                  setSwipedRowId(null);
+                } else {
+                  // If we're opening the detail modal, just close the requests modal
+                  setShowRequestsModal(false);
+                  setRewardStatusFilter('all');
+                  setShowRewardFilterDropdown(false);
+                  setSwipedRowId(null);
+                }
               }}
             />
             <View 
@@ -951,7 +1209,9 @@ export default function RewardsScreen() {
                 </View>
                 <TouchableOpacity
                   onPress={() => {
+                    openingDetailModalRef.current = false;
                     setShowRequestsModal(false);
+                    setShowRewardDetailModal(false);
                     setSelectedRewardDetail(null);
                     setRewardStatusFilter('all');
                     setShowRewardFilterDropdown(false);
@@ -1064,7 +1324,26 @@ export default function RewardsScreen() {
                           onPress={() => {
                             // Only open detail if not swiped
                             if (swipedRowId !== request.request_id) {
-                              setSelectedRewardDetail(request);
+                              // Set flag to indicate we're opening the detail modal
+                              openingDetailModalRef.current = true;
+                              setShowRewardFilterDropdown(false);
+                              setSwipedRowId(null);
+                              // Store the request to show after modal closes
+                              const requestToShow = request;
+                              // Close the requests modal first
+                              setShowRequestsModal(false);
+                              // After the requests modal closes, show the detail modal
+                              setTimeout(() => {
+                                setSelectedRewardDetail(requestToShow);
+                                // Small delay to ensure state is set before showing modal
+                                setTimeout(() => {
+                                  setShowRewardDetailModal(true);
+                                  // Reset flag after modal transition
+                                  setTimeout(() => {
+                                    openingDetailModalRef.current = false;
+                                  }, 100);
+                                }, 50);
+                              }, 300);
                             } else {
                               // If swiped, close the swipe first
                               setSwipedRowId(null);
@@ -1135,10 +1414,13 @@ export default function RewardsScreen() {
         {/* Reward Detail Modal */}
         {selectedRewardDetail && (
           <Modal
-            visible={!!selectedRewardDetail}
+            visible={showRewardDetailModal && !!selectedRewardDetail}
             animationType="fade"
             transparent={true}
-            onRequestClose={() => setSelectedRewardDetail(null)}
+            onRequestClose={() => {
+              setShowRewardDetailModal(false);
+              setSelectedRewardDetail(null);
+            }}
           >
             <View style={styles.modalOverlay}>
               <View style={styles.rewardDetailModalContent}>
@@ -1147,21 +1429,42 @@ export default function RewardsScreen() {
                     <Text style={styles.rewardDetailSubtitle}>REWARD DETAILS</Text>
                     <Text style={styles.rewardDetailTitle}>{selectedRewardDetail.reward_name}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => setSelectedRewardDetail(null)}>
+                  <TouchableOpacity onPress={() => {
+                    setShowRewardDetailModal(false);
+                    setSelectedRewardDetail(null);
+                  }}>
                     <FontAwesome name="times" size={20} color="#666" />
                   </TouchableOpacity>
                 </View>
-                <ScrollView style={styles.modalScrollView}>
-                  <View style={styles.rewardDetailSection}>
-                    <Text style={styles.rewardDetailSectionLabel}>TYPE</Text>
-                    <Text style={styles.rewardDetailSectionValue}>{selectedRewardDetail.reward_type || '-'}</Text>
+                <ScrollView 
+                  style={styles.modalScrollView}
+                  contentContainerStyle={styles.rewardDetailScrollContent}
+                  showsVerticalScrollIndicator={true}
+                >
+                  {/* Type Section */}
+                  <View style={styles.detailInfoBox}>
+                    <View style={styles.detailInfoHeader}>
+                      <FontAwesome name="tag" size={20} color="#6b7280" />
+                      <Text style={styles.detailInfoTitle}>Type</Text>
+                    </View>
+                    <Text style={styles.detailInfoValue}>{selectedRewardDetail.reward_type || '-'}</Text>
                   </View>
-                  <View style={styles.rewardDetailSection}>
-                    <Text style={styles.rewardDetailSectionLabel}>POINTS COST</Text>
-                    <Text style={styles.rewardDetailSectionValue}>{selectedRewardDetail.points_cost} pts</Text>
+
+                  {/* Points Cost Section */}
+                  <View style={styles.detailInfoBox}>
+                    <View style={styles.detailInfoHeader}>
+                      <FontAwesome name="star" size={20} color="#6b7280" />
+                      <Text style={styles.detailInfoTitle}>Points Cost</Text>
+                    </View>
+                    <Text style={styles.detailInfoValue}>{selectedRewardDetail.points_cost} pts</Text>
                   </View>
-                  <View style={styles.rewardDetailSection}>
-                    <Text style={styles.rewardDetailSectionLabel}>STATUS</Text>
+
+                  {/* Status Section */}
+                  <View style={styles.detailInfoBox}>
+                    <View style={styles.detailInfoHeader}>
+                      <FontAwesome name="info-circle" size={20} color="#6b7280" />
+                      <Text style={styles.detailInfoTitle}>Status</Text>
+                    </View>
                     <View
                       style={[
                         styles.statusBadge,
@@ -1174,7 +1477,8 @@ export default function RewardsScreen() {
                             return isApproved && isNotClaimed && hasExpired;
                           })()
                           ),
-                          alignSelf: 'flex-start'
+                          alignSelf: 'flex-start',
+                          marginTop: 8,
                         },
                       ]}
                     >
@@ -1190,9 +1494,14 @@ export default function RewardsScreen() {
                       </Text>
                     </View>
                   </View>
-                  <View style={styles.rewardDetailSection}>
-                    <Text style={styles.rewardDetailSectionLabel}>REQUESTED</Text>
-                    <Text style={styles.rewardDetailSectionValue}>
+
+                  {/* Requested Section */}
+                  <View style={styles.detailInfoBox}>
+                    <View style={styles.detailInfoHeader}>
+                      <FontAwesome name="calendar" size={20} color="#6b7280" />
+                      <Text style={styles.detailInfoTitle}>Requested</Text>
+                    </View>
+                    <Text style={styles.detailInfoValue}>
                       {new Date(selectedRewardDetail.requested_at).toLocaleString('en-US', {
                         month: 'short',
                         day: 'numeric',
@@ -1203,10 +1512,15 @@ export default function RewardsScreen() {
                       })}
                     </Text>
                   </View>
+
+                  {/* Approved Section */}
                   {selectedRewardDetail.approved_at && (
-                    <View style={styles.rewardDetailSection}>
-                      <Text style={styles.rewardDetailSectionLabel}>APPROVED</Text>
-                      <Text style={styles.rewardDetailSectionValue}>
+                    <View style={styles.detailInfoBox}>
+                      <View style={styles.detailInfoHeader}>
+                        <FontAwesome name="check-circle" size={20} color="#6b7280" />
+                        <Text style={styles.detailInfoTitle}>Approved</Text>
+                      </View>
+                      <Text style={styles.detailInfoValue}>
                         {new Date(selectedRewardDetail.approved_at).toLocaleString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -1218,11 +1532,34 @@ export default function RewardsScreen() {
                       </Text>
                     </View>
                   )}
+                  {/* Claimed Section */}
+                  {selectedRewardDetail.claimed_at && (
+                    <View style={styles.detailInfoBox}>
+                      <View style={styles.detailInfoHeader}>
+                        <FontAwesome name="gift" size={20} color="#6b7280" />
+                        <Text style={styles.detailInfoTitle}>Claimed</Text>
+                      </View>
+                      <Text style={styles.detailInfoValue}>
+                        {new Date(selectedRewardDetail.claimed_at).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
+                      </Text>
+                    </View>
+                  )}
+                  {/* Expires Section */}
                   {selectedRewardDetail.expires_at && (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') && (
-                    <View style={styles.rewardDetailSection}>
-                      <Text style={styles.rewardDetailSectionLabel}>EXPIRES</Text>
+                    <View style={styles.expiresBox}>
+                      <View style={styles.expiresHeader}>
+                        <FontAwesome name="info-circle" size={20} color="#6b7280" />
+                        <Text style={styles.expiresTitle}>Expires</Text>
+                      </View>
                       <Text style={[
-                        styles.rewardDetailSectionValue,
+                        styles.expiresDate,
                         new Date(selectedRewardDetail.expires_at) < new Date() && { color: '#dc2626', fontWeight: '600' }
                       ]}>
                         {new Date(selectedRewardDetail.expires_at).toLocaleString('en-US', {
@@ -1234,26 +1571,47 @@ export default function RewardsScreen() {
                           hour12: true
                         })}
                       </Text>
+                      <View style={styles.expiresWarning}>
+                        <Text style={styles.expiresWarningText}>
+                          Failure to claim within 5 days of approval voids this request.
+                        </Text>
+                      </View>
                     </View>
                   )}
-                  {selectedRewardDetail.voucher_code && (
-                    <View style={styles.rewardDetailSection}>
-                      <Text style={styles.rewardDetailSectionLabel}>VOUCHER CODE</Text>
-                      <Text style={[styles.rewardDetailSectionValue, styles.voucherCode]}>
-                        {selectedRewardDetail.voucher_code}
-                      </Text>
-                    </View>
-                  )}
-                  {selectedRewardDetail.instructions && (
-                    <View style={styles.rewardDetailSection}>
-                      <Text style={styles.rewardDetailSectionLabel}>INSTRUCTIONS</Text>
-                      <Text style={styles.rewardDetailSectionValue}>{selectedRewardDetail.instructions}</Text>
-                    </View>
-                  )}
+                  {/* Instructions Section */}
                   {selectedRewardDetail.notes && (
-                    <View style={styles.rewardDetailSection}>
-                      <Text style={styles.rewardDetailSectionLabel}>NOTES</Text>
-                      <Text style={styles.rewardDetailSectionValue}>{selectedRewardDetail.notes}</Text>
+                    <View style={styles.instructionsBox}>
+                      <View style={styles.instructionsHeader}>
+                        <FontAwesome name="info-circle" size={20} color="#1e40af" />
+                        <Text style={styles.instructionsTitle}>Instructions</Text>
+                      </View>
+                      <Text style={styles.instructionsText}>{selectedRewardDetail.notes}</Text>
+                    </View>
+                  )}
+                  
+                  {/* Voucher Code Section */}
+                  {selectedRewardDetail.voucher_code && (
+                    <View style={styles.voucherCodeBox}>
+                      {selectedRewardDetail.status === 'claimed' ? (
+                        <>
+                          <View style={styles.voucherCodeHeader}>
+                            <FontAwesome name="ticket" size={20} color="#0284c7" />
+                            <Text style={styles.voucherCodeTitle}>Voucher Code</Text>
+                          </View>
+                          <View style={styles.voucherCodeDisplay}>
+                            <Text style={styles.voucherCodeValue}>
+                              {selectedRewardDetail.voucher_code}
+                            </Text>
+                          </View>
+                        </>
+                      ) : (
+                        <View style={styles.voucherCodeHeader}>
+                          <FontAwesome name="ticket" size={20} color="#0284c7" />
+                          <Text style={styles.voucherCodeMessage}>
+                            Voucher code will be revealed once you claim this reward.
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   )}
                   {(() => {
@@ -1276,7 +1634,10 @@ export default function RewardsScreen() {
                         {claimingReward === selectedRewardDetail.request_id ? (
                           <ActivityIndicator size="small" color="#fff" />
                         ) : (
-                          <Text style={styles.claimButtonText}>Claim Reward</Text>
+                          <>
+                            <FontAwesome name="gift" size={18} color="#fff" />
+                            <Text style={styles.claimButtonText}>Claim Reward</Text>
+                          </>
                         )}
                       </TouchableOpacity>
                     ) : null;
@@ -1294,28 +1655,40 @@ export default function RewardsScreen() {
           transparent={true}
           onRequestClose={() => setShowMonthlyLimitModal(false)}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Monthly Limit Reached</Text>
-                <TouchableOpacity onPress={() => setShowMonthlyLimitModal(false)}>
-                  <FontAwesome name="times" size={24} color="#666" />
-                </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowMonthlyLimitModal(false)}
+          >
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.monthlyLimitModalContent}>
+                <View style={styles.monthlyLimitModalHeader}>
+                  <Text style={styles.monthlyLimitModalTitle}>Monthly Limit Reached</Text>
+                  <TouchableOpacity 
+                    onPress={() => setShowMonthlyLimitModal(false)}
+                    style={styles.closeButtonTouchable}
+                  >
+                    <FontAwesome name="times" size={18} color="#6b7280" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.monthlyLimitModalBody}>
+                  <View style={styles.monthlyLimitIconContainer}>
+                    <Text style={styles.monthlyLimitIcon}>⚠️</Text>
+                  </View>
+                  <Text style={styles.monthlyLimitMessage}>
+                    You can only request 1 reward per month. Please wait until next month to request another reward.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.monthlyLimitButton}
+                    onPress={() => setShowMonthlyLimitModal(false)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.monthlyLimitButtonText}>OK</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={styles.modalBody}>
-                <Text style={styles.modalIcon}>⚠️</Text>
-                <Text style={styles.modalMessage}>
-                  You can only request 1 reward per month. Please wait until next month to request another reward.
-                </Text>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={() => setShowMonthlyLimitModal(false)}
-                >
-                  <Text style={styles.modalButtonText}>OK</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
+            </TouchableWithoutFeedback>
+          </TouchableOpacity>
         </Modal>
 
         {/* Cancel Confirmation Modal */}
@@ -1323,28 +1696,19 @@ export default function RewardsScreen() {
           visible={showCancelConfirmModal}
           animationType="fade"
           transparent={true}
-          onRequestClose={() => {
-            setShowCancelConfirmModal(false);
-            setPendingCancelRequestId(null);
-          }}
+          onRequestClose={handleDismissCancelConfirm}
         >
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
-            onPress={() => {
-              setShowCancelConfirmModal(false);
-              setPendingCancelRequestId(null);
-            }}
+            onPress={handleDismissCancelConfirm}
           >
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View style={styles.confirmModalContent}>
                 <View style={styles.confirmModalHeader}>
                   <Text style={styles.confirmModalTitle}>Cancel Request</Text>
                   <TouchableOpacity
-                    onPress={() => {
-                      setShowCancelConfirmModal(false);
-                      setPendingCancelRequestId(null);
-                    }}
+                    onPress={handleDismissCancelConfirm}
                     style={styles.closeButtonTouchable}
                   >
                     <Text style={styles.closeButtonText}>×</Text>
@@ -1352,17 +1716,14 @@ export default function RewardsScreen() {
                 </View>
                 <View style={styles.confirmModalBody}>
                   <Text style={styles.confirmMessage}>
-                    Are you sure you want to cancel your request?
+                    Are you sure you want to cancel your reward request?
                   </Text>
                   <View style={styles.modalButtonRow}>
                     <TouchableOpacity
                       style={[styles.modalButton, styles.modalButtonCancel]}
-                      onPress={() => {
-                        setShowCancelConfirmModal(false);
-                        setPendingCancelRequestId(null);
-                      }}
+                      onPress={handleDismissCancelConfirm}
                     >
-                      <Text style={styles.modalButtonCancelText}>No</Text>
+                      <Text style={styles.modalButtonCancelText}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
@@ -1375,10 +1736,84 @@ export default function RewardsScreen() {
                       {cancellingReward !== null ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
-                        <Text style={styles.modalButtonText}>Yes</Text>
+                        <Text style={styles.modalButtonText}>Confirm</Text>
                       )}
                     </TouchableOpacity>
                   </View>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Claim Confirmation Modal */}
+        <Modal
+          visible={showClaimConfirmModal}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => {
+            setShowClaimConfirmModal(false);
+            setPendingClaimRequest(null);
+          }}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => {
+              setShowClaimConfirmModal(false);
+              setPendingClaimRequest(null);
+            }}
+          >
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.confirmModalContent}>
+                <View style={styles.confirmModalHeader}>
+                  <Text style={styles.confirmModalTitle}>Claim Reward</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowClaimConfirmModal(false);
+                      setPendingClaimRequest(null);
+                    }}
+                    style={styles.closeButtonTouchable}
+                  >
+                    <Text style={styles.closeButtonText}>×</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.confirmModalBody}>
+                  {pendingClaimRequest && (
+                    <>
+                      <Text style={styles.confirmMessage}>
+                        Claim "{pendingClaimRequest.name}"?
+                      </Text>
+                      <Text style={styles.confirmSubMessage}>
+                        Points will be deducted: {pendingClaimRequest.cost} pts
+                      </Text>
+                      <View style={styles.modalButtonRow}>
+                        <TouchableOpacity
+                          style={[styles.modalButton, styles.modalButtonCancel]}
+                          onPress={() => {
+                            setShowClaimConfirmModal(false);
+                            setPendingClaimRequest(null);
+                          }}
+                        >
+                          <Text style={styles.modalButtonCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.modalButton,
+                            claimingReward !== null && styles.modalButtonDisabled
+                          ]}
+                          onPress={confirmClaimReward}
+                          disabled={claimingReward !== null}
+                        >
+                          {claimingReward !== null ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.modalButtonText}>Claim</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -1668,15 +2103,17 @@ const styles = StyleSheet.create({
   rewardDetailModalContent: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    width: '90%',
-    maxWidth: 400,
+    width: '95%',
+    maxWidth: 500,
+    height: SCREEN_HEIGHT * 0.85,
     maxHeight: SCREEN_HEIGHT * 0.85,
-    paddingBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.2,
     shadowRadius: 25,
     elevation: 5,
+    flexDirection: 'column',
+    overflow: 'hidden',
   },
   rewardsModalContent: {
     backgroundColor: '#fff',
@@ -1716,6 +2153,10 @@ const styles = StyleSheet.create({
   },
   modalScrollView: {
     flex: 1,
+  },
+  rewardDetailScrollContent: {
+    padding: 20,
+    paddingBottom: 20,
   },
   modalScrollContent: {
     padding: 20,
@@ -1938,10 +2379,11 @@ const styles = StyleSheet.create({
   },
   swipeableCancelButton: {
     backgroundColor: '#ef4444',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 8,
-    minWidth: 90,
+    minWidth: 100,
+    width: 100,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 50,
@@ -1951,6 +2393,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '600',
+    textAlign: 'center',
   },
   swipeableContent: {
     backgroundColor: '#fff',
@@ -2027,16 +2470,86 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   claimButton: {
-    backgroundColor: '#10b981',
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: '#1e3a5f',
+    padding: 14,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 8,
+    flexDirection: 'row',
+    gap: 8,
   },
   claimButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  instructionsBox: {
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: '#eff6ff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  instructionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 8,
+  },
+  instructionsTitle: {
+    fontWeight: '600',
+    color: '#1e40af',
+    fontSize: 14,
+    flex: 1,
+  },
+  instructionsText: {
+    lineHeight: 22,
+    color: '#1e3a8a',
+    fontSize: 14,
+  },
+  voucherCodeBox: {
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  voucherCodeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  voucherCodeTitle: {
+    fontWeight: '600',
+    color: '#0c4a6e',
+    fontSize: 14,
+  },
+  voucherCodeMessage: {
+    color: '#0c4a6e',
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  voucherCodeDisplay: {
+    marginTop: 16,
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#0284c7',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  voucherCodeValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#0284c7',
+    letterSpacing: 3,
+    fontFamily: 'monospace',
   },
   rewardDetailSubtitle: {
     fontSize: 11,
@@ -2053,6 +2566,71 @@ const styles = StyleSheet.create({
   },
   rewardDetailSection: {
     marginBottom: 20,
+  },
+  detailInfoBox: {
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  detailInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  detailInfoTitle: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  detailInfoValue: {
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  expiresBox: {
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  expiresHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  expiresTitle: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  expiresDate: {
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  expiresWarning: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  expiresWarningText: {
+    fontSize: 11,
+    color: '#b91c1c',
+    fontWeight: '500',
+    lineHeight: 18,
   },
   rewardDetailSectionLabel: {
     fontSize: 11,
@@ -2110,6 +2688,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#374151',
     lineHeight: 24,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  confirmSubMessage: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
     marginBottom: 24,
     textAlign: 'center',
   },
@@ -2230,6 +2815,74 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#6b7280',
     lineHeight: 28,
+  },
+  monthlyLimitModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '85%',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+    overflow: 'hidden',
+  },
+  monthlyLimitModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  monthlyLimitModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    flex: 1,
+  },
+  monthlyLimitModalBody: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  monthlyLimitIconContainer: {
+    marginBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthlyLimitIcon: {
+    fontSize: 56,
+    textAlign: 'center',
+  },
+  monthlyLimitMessage: {
+    fontSize: 15,
+    color: '#374151',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+    paddingHorizontal: 4,
+  },
+  monthlyLimitButton: {
+    backgroundColor: '#1e3a5f',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  monthlyLimitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

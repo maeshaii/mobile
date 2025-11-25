@@ -1,21 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { API_BASE_URL, getUserInfo } from '../../services/api';
+import { API_BASE_URL, getUserInfo, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
 
-const profilePic = require('../../assets/images/sample_pic.jpg');
-const cciLogo = require('../../assets/images/ccict_logo.jpg');
-const pesoLogo = require('../../assets/images/peso_logo.jpg');
-
 const allMenuItems = [
   { label: 'Rewards', icon: <FontAwesome name="gift" size={24} color="#222" /> },
-  { label: 'CCICT', icon: cciLogo },
-  { label: 'Peso', icon: pesoLogo },
+  { label: 'CCICT', icon: null, useAvatar: true },
+  { label: 'Peso', icon: null, useAvatar: true },
   { label: 'Forum', icon: <MaterialIcons name="people" size={24} color="#222" /> },
   { label: 'Donation', icon: <FontAwesome name="heart" size={24} color="#222" /> },
   { label: 'Settings', icon: <FontAwesome name="cog" size={24} color="#222" /> },
@@ -41,16 +37,77 @@ interface UserProfile {
   user_type?: string;
 }
 
+interface AdminPesoProfile {
+  profile_pic?: string | null;
+  f_name?: string;
+  l_name?: string;
+}
+
 export default function ProfileTab() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [menuItems, setMenuItems] = useState(allMenuItems);
+  const [adminProfile, setAdminProfile] = useState<AdminPesoProfile | null>(null);
+  const [pesoProfile, setPesoProfile] = useState<AdminPesoProfile | null>(null);
+
+  const loadAdminProfile = useCallback(async () => {
+    try {
+      const adminUsersData = await getAdminPesoUsers();
+      const adminUserIds = adminUsersData.admin_user_ids || [];
+      
+      if (adminUserIds.length > 0) {
+        const adminUserId = adminUserIds[0];
+        const adminDetailsResponse = await getAlumniDetails(adminUserId);
+        const adminDetails = adminDetailsResponse?.alumni || adminDetailsResponse || {};
+        
+        setAdminProfile({
+          profile_pic: adminDetails?.profile_pic 
+            ? (String(adminDetails.profile_pic).startsWith('http') || String(adminDetails.profile_pic).startsWith('data:'))
+              ? adminDetails.profile_pic 
+              : `${API_BASE_URL}${adminDetails.profile_pic}`
+            : null,
+          f_name: adminDetails?.first_name || adminDetails?.f_name || '',
+          l_name: adminDetails?.last_name || adminDetails?.l_name || '',
+        });
+      }
+    } catch (error) {
+      console.error('ProfileTab - Error loading admin profile:', error);
+    }
+  }, []);
+
+  const loadPesoProfile = useCallback(async () => {
+    try {
+      const pesoUsersData = await getAdminPesoUsers();
+      const pesoUserIds = pesoUsersData.peso_user_ids || [];
+      
+      if (pesoUserIds.length > 0) {
+        const pesoUserId = pesoUserIds[0];
+        const pesoDetailsResponse = await getAlumniDetails(pesoUserId);
+        const pesoDetails = pesoDetailsResponse?.alumni || pesoDetailsResponse || {};
+        
+        setPesoProfile({
+          profile_pic: pesoDetails?.profile_pic 
+            ? (String(pesoDetails.profile_pic).startsWith('http') || String(pesoDetails.profile_pic).startsWith('data:'))
+              ? pesoDetails.profile_pic 
+              : `${API_BASE_URL}${pesoDetails.profile_pic}`
+            : null,
+          f_name: pesoDetails?.first_name || pesoDetails?.f_name || '',
+          l_name: pesoDetails?.last_name || pesoDetails?.l_name || '',
+        });
+      }
+    } catch (error) {
+      console.error('ProfileTab - Error loading peso profile:', error);
+    }
+  }, []);
 
   const fetchUser = useCallback(async () => {
     try {
       const userInfo = await getUserInfo();
       setUser(userInfo);
+      
+      // Load admin and PESO profiles
+      await Promise.all([loadAdminProfile(), loadPesoProfile()]);
       
       // Filter menu items based on user type
       const isOJT = userInfo?.account_type?.ojt || userInfo?.role === 'ojt' || userInfo?.user_type === 'ojt';
@@ -70,7 +127,7 @@ export default function ProfileTab() {
       setUser(null);
       setMenuItems(allMenuItems);
     }
-  }, []);
+  }, [loadAdminProfile, loadPesoProfile]);
 
   useEffect(() => { fetchUser(); }, [fetchUser]);
   useFocusEffect(
@@ -113,28 +170,68 @@ export default function ProfileTab() {
         </TouchableOpacity>
 
         {/* Menu Items */}
-        {menuItems.map((item, idx) => (
-          <TouchableOpacity
-            key={item.label}
-            style={styles.menuCard}
-            onPress={() => {
-              if (item.label === 'Log out') router.push('/logout');
-              else if (item.label === 'Rewards') router.push('/rewards/rewards');
-              else if (item.label === 'CCICT') router.push('/ccict/ccictpage');
-              else if (item.label === 'Peso') router.push('/peso/pesopage');
-              else if (item.label === 'Forum') router.push('/forum/forumpage');
-              else if (item.label === 'Donation') router.push('/donation/donationpage');
-              else if (item.label === 'Settings') router.push('/settings/settings');
-            }}
-          >
-            {typeof item.icon === 'number' ? (
-              <Image source={item.icon} style={styles.menuIcon} />
-            ) : (
+        {menuItems.map((item, idx) => {
+          // Handle CCICT and PESO with UserAvatar
+          if (item.label === 'CCICT' && item.useAvatar) {
+            return (
+              <TouchableOpacity
+                key={item.label}
+                style={styles.menuCard}
+                onPress={() => router.push('/ccict/ccictpage')}
+              >
+                <View style={styles.menuIcon}>
+                  <UserAvatar
+                    profilePic={adminProfile?.profile_pic}
+                    firstName={adminProfile?.f_name}
+                    lastName={adminProfile?.l_name}
+                    size={32}
+                  />
+                </View>
+                <Text style={styles.menuLabel}>{item.label}</Text>
+              </TouchableOpacity>
+            );
+          }
+          
+          if (item.label === 'Peso' && item.useAvatar) {
+            return (
+              <TouchableOpacity
+                key={item.label}
+                style={styles.menuCard}
+                onPress={() => router.push('/peso/pesopage')}
+              >
+                <View style={styles.menuIcon}>
+                  <UserAvatar
+                    profilePic={pesoProfile?.profile_pic}
+                    firstName={pesoProfile?.f_name}
+                    lastName={pesoProfile?.l_name}
+                    size={32}
+                  />
+                </View>
+                <Text style={styles.menuLabel}>{item.label}</Text>
+              </TouchableOpacity>
+            );
+          }
+          
+          // Handle other menu items with icons
+          return (
+            <TouchableOpacity
+              key={item.label}
+              style={styles.menuCard}
+              onPress={() => {
+                if (item.label === 'Log out') router.push('/logout');
+                else if (item.label === 'Rewards') router.push('/rewards/rewards');
+                else if (item.label === 'CCICT') router.push('/ccict/ccictpage');
+                else if (item.label === 'Peso') router.push('/peso/pesopage');
+                else if (item.label === 'Forum') router.push('/forum/forumpage');
+                else if (item.label === 'Donation') router.push('/donation/donationpage');
+                else if (item.label === 'Settings') router.push('/settings/settings');
+              }}
+            >
               <View style={styles.menuIcon}>{item.icon}</View>
-            )}
-            <Text style={styles.menuLabel}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
+              <Text style={styles.menuLabel}>{item.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
       <NavBar />
     </View>

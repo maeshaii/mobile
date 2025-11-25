@@ -93,6 +93,15 @@ const RewardNotificationModal: React.FC<RewardNotificationModalProps> = ({
 
   const rewardName = extractRewardName(content);
 
+  // Extract request ID from notification content (if available)
+  // Pattern: <!--REQUEST_ID:123-->
+  const extractRequestId = (text: string): string | null => {
+    const requestIdMatch = text.match(/<!--REQUEST_ID:(\d+)-->/);
+    return requestIdMatch ? requestIdMatch[1] : null;
+  };
+
+  const requestId = extractRequestId(content);
+
   // Format date
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -126,7 +135,13 @@ const RewardNotificationModal: React.FC<RewardNotificationModalProps> = ({
 
   const handleViewRewards = () => {
     onClose();
-    router.push('/rewards/rewards');
+    // If we have a request ID, navigate to the specific reward detail
+    // Otherwise, just open the requests modal
+    if (requestId) {
+      router.push(`/rewards/rewards?requestId=${requestId}`);
+    } else {
+      router.push('/rewards/rewards?openRequests=true');
+    }
   };
 
   return (
@@ -171,14 +186,16 @@ const RewardNotificationModal: React.FC<RewardNotificationModalProps> = ({
             </View>
           </View>
 
-          {/* Action Button */}
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleViewRewards}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.actionButtonText}>View My Reward Requests</Text>
-          </TouchableOpacity>
+          {/* Action Button - Only show for non-removed-from-inventory notifications */}
+          {!isRemovedFromInventory && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleViewRewards}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.actionButtonText}>View My Reward Requests</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </Modal>
