@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import CachedImage from '../../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -10,6 +10,7 @@ import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/i
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { screenWidth, screenHeight, wp, hp, getResponsiveFontSize, getResponsivePadding, getPercentageWidth } from '../../utils/responsive';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 interface Post {
   post_id: number;
@@ -49,6 +50,7 @@ interface Props {
 
 const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
+  const { showAlert } = useAlert();
 
   // Local state
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
@@ -119,7 +121,11 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
         onLikeToggle?.(post.post_id, true);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to update like.');
+      showAlert({
+        title: 'Error',
+        message: 'Failed to update like.',
+        type: 'error',
+      });
     }
   };
 
@@ -130,7 +136,11 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     
     // Validate post ID
     if (!post.post_id) {
-      Alert.alert('Error', 'Invalid post ID. Cannot repost this post.');
+      showAlert({
+        title: 'Error',
+        message: 'Invalid post ID. Cannot repost this post.',
+        type: 'error',
+      });
       return;
     }
 
@@ -143,10 +153,11 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
     console.log('PostCard - alreadyReposted:', alreadyReposted);
     
     if (alreadyReposted) {
-      Alert.alert(
-        'Already Reposted',
-        'You have already reposted this post. Would you like to edit your repost?',
-        [
+      showAlert({
+        title: 'Already Reposted',
+        message: 'You have already reposted this post. Would you like to edit your repost?',
+        type: 'info',
+        buttons: [
           { text: 'Cancel', style: 'cancel' },
           { 
             text: 'Edit Repost', 
@@ -157,7 +168,7 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
             }
           }
         ]
-      );
+      });
     } else {
       // Navigate to repost screen so user can add an optional caption
       console.log('PostCard - Navigating to repost screen with postId:', post.post_id);
@@ -168,10 +179,11 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
 
   const handleDelete = async () => {
     setShowActions(false);
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post?',
-      [
+    showAlert({
+      title: 'Delete Post',
+      message: 'Are you sure you want to delete this post?',
+      type: 'warning',
+      buttons: [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
@@ -180,25 +192,41 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
             try {
               const response = await deletePost(post.post_id);
               if (response.success !== false) {
-                Alert.alert('Success', 'Post deleted successfully.');
+                showAlert({
+                  title: 'Success',
+                  message: 'Post deleted successfully.',
+                  type: 'success',
+                });
                 setShowActions(false);
                 onDeleted?.(post.post_id);
               } else {
-                Alert.alert('Error', response.message || 'Failed to delete post.');
+                showAlert({
+                  title: 'Error',
+                  message: response.message || 'Failed to delete post.',
+                  type: 'error',
+                });
               }
             } catch (error: any) {
               console.error('Delete post error:', error);
-              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not delete post.');
+              showAlert({
+                title: 'Error',
+                message: error?.response?.data?.error || error?.message || 'Could not delete post.',
+                type: 'error',
+              });
             }
           }
         }
       ]
-    );
+    });
   };
 
   const handleEdit = async () => {
     if (!editContent.trim()) {
-      Alert.alert('Error', 'Post content cannot be empty.');
+      showAlert({
+        title: 'Error',
+        message: 'Post content cannot be empty.',
+        type: 'error',
+      });
       return;
     }
 
@@ -208,15 +236,27 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
       setEditLoading(true);
       const response = await editPost(post.post_id, { post_content: editContent.trim() });
       if (response.success !== false) {
-        Alert.alert('Success', 'Post updated successfully.');
+        showAlert({
+          title: 'Success',
+          message: 'Post updated successfully.',
+          type: 'success',
+        });
         setEditModal(false);
         onEdited?.(post.post_id, editContent.trim());
       } else {
-        Alert.alert('Error', response.message || 'Failed to update post.');
+        showAlert({
+          title: 'Error',
+          message: response.message || 'Failed to update post.',
+          type: 'error',
+        });
       }
     } catch (error: any) {
       console.error('Edit post error:', error);
-      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not update post.');
+      showAlert({
+        title: 'Error',
+        message: error?.response?.data?.error || error?.message || 'Could not update post.',
+        type: 'error',
+      });
     } finally {
       setEditLoading(false);
     }

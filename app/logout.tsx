@@ -1,27 +1,40 @@
-import React, { useEffect } from 'react';
-import { View, ActivityIndicator, Text, StyleSheet, Alert } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { forceLogout } from '../services/api';
 import { useRouter } from 'expo-router';
+import { useAlert } from '../contexts/AlertContext';
 
 export default function LogoutScreen() {
   const router = useRouter();
+  const { showAlert } = useAlert();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel', onPress: () => router.back() },
+    setShowLogoutModal(true);
+    showAlert({
+      title: 'Logout',
+      message: 'Are you sure you want to logout?',
+      type: 'warning',
+      buttons: [
+        { 
+          text: 'Cancel', 
+          style: 'cancel', 
+          onPress: () => {
+            setShowLogoutModal(false);
+            router.back();
+          }
+        },
         {
           text: 'Logout',
           style: 'destructive',
           onPress: async () => {
+            setShowLogoutModal(false);
             await forceLogout();
             router.replace('/login/login');
           },
         },
       ]
-    );
+    });
   }, []);
 
   return (

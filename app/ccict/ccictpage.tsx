@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -13,12 +12,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
+import { getPosts, getUserInfo, getPostLikes, getPostReposts, getRepostLikes, getRepostDetail, getAdminPesoUsers, getAlumniDetails, API_BASE_URL } from '../../services/api';
 import PostCard from '../posts/postCard';
 import UserAvatar from '../../components/UserAvatar';
 import { formatUserFullName } from '../../utils/nameUtils';
-
-const ccictLogo = require('../../assets/images/ccict_logo.jpg');
 
 interface Post {
   post_id: number;
@@ -109,8 +106,10 @@ export default function CCICTPage() {
           profile_pic: adminDetails?.profile_pic 
             ? (String(adminDetails.profile_pic).startsWith('http') || String(adminDetails.profile_pic).startsWith('data:'))
               ? adminDetails.profile_pic 
-              : `https://magnitudinous-labialized-lorelei.ngrok-free.dev${adminDetails.profile_pic}`
-            : ccictLogo,
+              : `${API_BASE_URL}${adminDetails.profile_pic}`
+            : null,
+          f_name: adminDetails?.first_name || adminDetails?.f_name || '',
+          l_name: adminDetails?.last_name || adminDetails?.l_name || '',
         };
         
         console.log('CCICT page - Admin profile data:', adminProfileData);
@@ -121,7 +120,9 @@ export default function CCICTPage() {
         setAdminProfile({
           name: 'Admin User',
           bio: '', // No hardcoded bio, use empty string
-          profile_pic: ccictLogo,
+          profile_pic: null,
+          f_name: '',
+          l_name: '',
         });
       }
     } catch (error) {
@@ -130,7 +131,9 @@ export default function CCICTPage() {
       setAdminProfile({
         name: 'Admin User',
         bio: '', // No hardcoded bio, use empty string
-        profile_pic: ccictLogo,
+        profile_pic: null,
+        f_name: '',
+        l_name: '',
       });
     }
   };
@@ -260,9 +263,12 @@ export default function CCICTPage() {
       {/* Org Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileImageWrapper}>
-          <Image 
-            source={adminProfile?.profile_pic || ccictLogo} 
-            style={styles.profileImage} 
+          <UserAvatar
+            profilePic={adminProfile?.profile_pic}
+            firstName={adminProfile?.f_name}
+            lastName={adminProfile?.l_name}
+            size={100}
+            style={styles.profileImage}
           />
         </View>
         <Text style={styles.profileName}>{adminProfile?.name || 'Admin User'}</Text>

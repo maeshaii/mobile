@@ -6,9 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   RefreshControl,
-  Image,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
@@ -23,6 +21,7 @@ import RewardNotificationModal from '../../components/RewardNotificationModal';
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
 import { formatNotificationDate } from '../../utils/dateUtils';
 import { formatFullName, formatUserFullName } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 interface NotificationItem {
   id?: number;
@@ -74,6 +73,7 @@ const NotificationScreen = () => {
   const [generalNotification, setGeneralNotification] = useState<NotificationItem | null>(null);
   const [rewardNotification, setRewardNotification] = useState<NotificationItem | null>(null);
   const router = useRouter();
+  const { showAlert } = useAlert();
 
   // Transform real-time notifications to match component's expected format
   const notifications = realTimeNotifications.map((n: any, index: number) => {
@@ -435,7 +435,11 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        Alert.alert('Follow Notification', 'Unable to navigate to user profile - user ID not found.');
+        showAlert({
+          title: 'Follow Notification',
+          message: 'Unable to navigate to user profile - user ID not found.',
+          type: 'error',
+        });
         return;
       }
     }
@@ -505,10 +509,11 @@ const NotificationScreen = () => {
           repost_id: item.repost_id,
           fullMessage: item.fullMessage
         });
-        Alert.alert(
-          'Like Notification', 
-          'Unable to navigate to post - post ID not found in notification. Please try viewing the post from the dashboard.'
-        );
+        showAlert({
+          title: 'Like Notification',
+          message: 'Unable to navigate to post - post ID not found in notification. Please try viewing the post from the dashboard.',
+          type: 'error',
+        });
         return;
       }
     }
@@ -586,7 +591,11 @@ const NotificationScreen = () => {
           reply_id: item.reply_id,
           fullMessage: item.fullMessage
         });
-        Alert.alert('Reply Notification', 'Unable to navigate to post - post ID not found.');
+        showAlert({
+          title: 'Reply Notification',
+          message: 'Unable to navigate to post - post ID not found.',
+          type: 'error',
+        });
         return;
       }
     }
@@ -636,7 +645,11 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        Alert.alert('Mention Notification', 'Unable to navigate to post - post ID not found.');
+        showAlert({
+          title: 'Mention Notification',
+          message: 'Unable to navigate to post - post ID not found.',
+          type: 'error',
+        });
         return;
       }
     }
@@ -685,7 +698,11 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        Alert.alert('Comment Notification', 'Unable to navigate to post - post ID not found.');
+        showAlert({
+          title: 'Comment Notification',
+          message: 'Unable to navigate to post - post ID not found.',
+          type: 'error',
+        });
         return;
       }
     }
@@ -736,7 +753,11 @@ const NotificationScreen = () => {
         });
         return;
       } else {
-        Alert.alert('Repost Notification', 'Unable to navigate to repost - repost ID not found.');
+        showAlert({
+          title: 'Repost Notification',
+          message: 'Unable to navigate to repost - repost ID not found.',
+          type: 'error',
+        });
         return;
       }
     }
@@ -775,7 +796,11 @@ const NotificationScreen = () => {
 
     // Fallback: Show debug info and alert
     console.log('Unhandled notification type:', { type, name, item });
-    Alert.alert('Notification', `This notification type is not yet handled.\nType: ${type}\nName: ${name}\nPost ID: ${item.post_id}\nUser ID: ${item.user_id}`);
+    showAlert({
+      title: 'Notification',
+      message: `This notification type is not yet handled.\nType: ${type}\nName: ${name}\nPost ID: ${item.post_id}\nUser ID: ${item.user_id}`,
+      type: 'info',
+    });
   };
   
 
@@ -785,33 +810,50 @@ const NotificationScreen = () => {
       // Refresh notifications after delete
       await refreshNotifications();
     } catch (error) {
-      Alert.alert('Error', 'Failed to delete notification');
+      showAlert({
+        title: 'Error',
+        message: 'Failed to delete notification',
+        type: 'error',
+      });
     }
   };
 
   const handleDeleteSelected = async () => {
     if (selectedIds.length === 0) {
-      Alert.alert('No selection', 'Please select notifications to delete.');
+      showAlert({
+        title: 'No selection',
+        message: 'Please select notifications to delete.',
+        type: 'warning',
+      });
       return;
     }
-    Alert.alert('Delete', `Delete ${selectedIds.length} notifications?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteNotifications(selectedIds);
-            setSelectionMode(false);
-            setSelectedIds([]);
-            // Refresh notifications after delete
-            await refreshNotifications();
-          } catch {
-            Alert.alert('Error', 'Failed to delete notifications');
-          }
+    showAlert({
+      title: 'Delete',
+      message: `Delete ${selectedIds.length} notifications?`,
+      type: 'warning',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteNotifications(selectedIds);
+              setSelectionMode(false);
+              setSelectedIds([]);
+              // Refresh notifications after delete
+              await refreshNotifications();
+            } catch {
+              showAlert({
+                title: 'Error',
+                message: 'Failed to delete notifications',
+                type: 'error',
+              });
+            }
+          },
         },
-      },
-    ]);
+      ],
+    });
   };
 
   const toggleSelect = (id: number) => {
@@ -1142,49 +1184,11 @@ const NotificationScreen = () => {
   };
 
   const renderAvatar = (item: NotificationItem) => {
-    // Use the pre-detected notification source
-    const isAdminNotification = item.isAdminNotification || false;
-    const isPesoNotification = item.isPesoNotification || false;
-    const isRewardNotification = item.notif_type?.toLowerCase() === 'reward';
     const iconName = getNotificationIcon(item);
 
-    // Admin/CCICT notifications - show CCICT logo (including reward notifications)
-    if ((isAdminNotification || isRewardNotification) && !isPesoNotification) {
-      return (
-        <View style={styles.avatarContainer}>
-          <Image
-            source={require('../../assets/images/ccict_logo.jpg')}
-            style={styles.avatar}
-            resizeMode="cover"
-          />
-          {iconName && (
-            <View style={styles.iconBadge}>
-              <FontAwesome name={iconName as any} size={12} color="#fff" />
-            </View>
-          )}
-        </View>
-      );
-    }
-    
-    // PESO notifications - show PESO logo
-    if (isPesoNotification) {
-      return (
-        <View style={styles.avatarContainer}>
-          <Image
-            source={require('../../assets/images/peso_logo.jpg')}
-            style={styles.avatar}
-            resizeMode="cover"
-          />
-          {iconName && (
-            <View style={styles.iconBadge}>
-              <FontAwesome name={iconName as any} size={12} color="#fff" />
-            </View>
-          )}
-        </View>
-      );
-    }
-    
-    // For user notifications, use UserAvatar with proper fallback
+    // Use UserAvatar for all notifications (admin, PESO, alumni, OJT, etc.)
+    // UserAvatar will show the user's profile picture if available,
+    // or fall back to CTU logo as default
     return (
       <View style={styles.avatarContainer}>
         <UserAvatar

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, Text, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ImageBackground, ScrollView,
+import { View, TextInput, TouchableOpacity, Text, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { forgotPassword } from '../../services/api';
 import { useRouter } from 'expo-router';
@@ -52,12 +52,7 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/ctu.jpg')}
-      style={styles.background}
-      blurRadius={3}
-    >
-      <View style={styles.overlay} />
+    <View style={styles.background}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -137,19 +132,16 @@ export default function ForgotPasswordScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   background: {
     flex: 1,
+    backgroundColor: '#003366',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 51, 102, 0.8)',
   },
   container: {
     flex: 1,
@@ -159,12 +151,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     paddingVertical: 20,
+    paddingHorizontal: 20,
   },
   cardContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#1a4d7a',
     borderRadius: 20,
     padding: 24,
-    width: '90%',
+    width: '100%',
     alignSelf: 'center',
     maxWidth: 400,
     borderWidth: 1,
@@ -197,9 +190,8 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: '#fff',
+    color: '#ffffff',
     marginBottom: 24,
-    opacity: 0.9,
     lineHeight: 20,
   },
   form: {
@@ -211,7 +203,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: '#ffffff',
     marginBottom: 8,
     marginTop: 16,
   },
@@ -293,6 +285,6 @@ const styles = StyleSheet.create({
   },
   backToLoginText: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#ffffff',
   },
 });
