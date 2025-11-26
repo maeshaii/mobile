@@ -286,28 +286,50 @@ export default function TrackerForm() {
   const navigation = useNavigation();
   
   // Function to check tracker status (reusable for focus effect and after submission)
-  const checkTrackerStatus = React.useCallback(async () => {
+  // CRITICAL: Returns null only on error - must be treated as blocking condition
+  const checkTrackerStatus = React.useCallback(async (retryCount = 0): Promise<{ accepting: boolean; hasSubmitted: boolean } | null> => {
+    const MAX_RETRIES = 2;
     try {
       const active = await getActiveTrackerForm();
+      if (!active?.tracker_form_id) {
+        console.error('❌ No active tracker form found');
+        return null;
+      }
+
       const status = await checkUserTrackerStatus();
+      if (!status || typeof status.has_submitted !== 'boolean') {
+        console.error('❌ Invalid status response:', status);
+        if (retryCount < MAX_RETRIES) {
+          console.log(`🔄 Retrying status check (${retryCount + 1}/${MAX_RETRIES})...`);
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+          return checkTrackerStatus(retryCount + 1);
+        }
+        return null;
+      }
+
       let acceptingStatus = null;
-      
       try {
-        acceptingStatus = await getTrackerAcceptingStatus(active?.tracker_form_id);
+        acceptingStatus = await getTrackerAcceptingStatus(active.tracker_form_id);
       } catch (e) {
         console.warn('Could not get accepting status:', e);
         acceptingStatus = { accepting_responses: true };
       }
       
       const accepting = Boolean(acceptingStatus?.accepting_responses);
-      const hasSubmitted = Boolean(status?.has_submitted);
+      const hasSubmitted = Boolean(status.has_submitted);
       
+      console.log('✅ Tracker status check:', { accepting, hasSubmitted });
       setAccepting(accepting);
       setHasSubmitted(hasSubmitted);
       
       return { accepting, hasSubmitted };
     } catch (e) {
-      console.warn('Tracker status check failed:', e);
+      console.error('❌ Tracker status check failed:', e);
+      if (retryCount < MAX_RETRIES) {
+        console.log(`🔄 Retrying status check after error (${retryCount + 1}/${MAX_RETRIES})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+        return checkTrackerStatus(retryCount + 1);
+      }
       return null;
     }
   }, []);
@@ -341,18 +363,37 @@ export default function TrackerForm() {
         const user = await getUserInfo();
 
         // 1) Gating: active form + status
+        // CRITICAL: If status check fails (returns null), block form loading to prevent re-submission
         const statusResult = await checkTrackerStatus();
-        if (statusResult) {
-          if (statusResult.hasSubmitted) {
-            Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
-            navigation.goBack();
-            return;
-          }
-          if (!statusResult.accepting) {
-            Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
-            navigation.goBack();
-            return;
-          }
+        if (!statusResult) {
+          // Status check failed - this is a blocking condition to prevent allowing form access
+          // when we can't verify if user has already submitted
+          Alert.alert(
+            'Error', 
+            'Unable to verify your submission status. Please check your internet connection and try again later.',
+            [
+              {
+                text: 'OK',
+                onPress: () => navigation.goBack()
+              }
+            ]
+          );
+          setLoading(false);
+          return;
+        }
+
+        // User has already submitted - block access
+        if (statusResult.hasSubmitted) {
+          Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+          navigation.goBack();
+          return;
+        }
+
+        // Form is not accepting responses - block access
+        if (!statusResult.accepting) {
+          Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
+          navigation.goBack();
+          return;
         }
 
         // 2) Fetch dynamic questions
@@ -543,19 +584,27 @@ export default function TrackerForm() {
     React.useCallback(() => {
       const refreshStatus = async () => {
         const statusResult = await checkTrackerStatus();
-        if (statusResult) {
-          // If already submitted, show alert and go back
-          if (statusResult.hasSubmitted) {
-            Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
-            navigation.goBack();
-            return;
-          }
-          // If form is closed, show alert and go back
-          if (!statusResult.accepting) {
-            Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
-            navigation.goBack();
-            return;
-          }
+        if (!statusResult) {
+          // Status check failed - block access to prevent re-submission
+          Alert.alert(
+            'Error',
+            'Unable to verify your submission status. Please check your connection and try again.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+          return;
+        }
+
+        // If already submitted, show alert and go back
+        if (statusResult.hasSubmitted) {
+          Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+          navigation.goBack();
+          return;
+        }
+        // If form is closed, show alert and go back
+        if (!statusResult.accepting) {
+          Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
+          navigation.goBack();
+          return;
         }
       };
       refreshStatus();
