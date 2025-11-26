@@ -1271,7 +1271,32 @@ const HomeScreen = () => {
       <TrackerReminderModal
         isVisible={showTrackerReminder}
         onClose={() => setShowTrackerReminder(false)}
-        onTakeSurvey={() => { setShowTrackerReminder(false); router.push('/forms/forms'); }}
+        onTakeSurvey={async () => {
+          try {
+            // CRITICAL: Verify submission status before navigating to prevent re-submission
+            console.log('🔍 Homepage: Verifying tracker status before navigation...');
+            const status = await checkUserTrackerStatus();
+            
+            if (status?.has_submitted) {
+              Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+              setShowTrackerReminder(false);
+              return;
+            }
+
+            // Status check passed - proceed to form
+            setShowTrackerReminder(false);
+            console.log('✅ Homepage: Status verified - navigating to tracker form...');
+            router.push('/forms/forms');
+          } catch (error) {
+            console.error('❌ Homepage: Error verifying tracker status:', error);
+            Alert.alert(
+              'Error',
+              'Unable to verify your submission status. Please check your connection and try again.',
+              [{ text: 'OK' }]
+            );
+            setShowTrackerReminder(false);
+          }
+        }}
         onRemindLater={() => setShowTrackerReminder(false)}
       />
       {/* Post actions sheet */}

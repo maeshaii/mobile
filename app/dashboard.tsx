@@ -523,10 +523,31 @@ export default function DashboardScreen() {
     Alert.alert('Profile updated (not saved to backend)');
   };
 
-  const handleTakeSurvey = () => {
-    setShowTrackerModal(false);
-    console.log('🚀 Navigating to tracker form...');
-    router.push('/forms/forms');
+  const handleTakeSurvey = async () => {
+    try {
+      // CRITICAL: Verify submission status before navigating to prevent re-submission
+      console.log('🔍 Verifying tracker status before navigation...');
+      const status = await checkUserTrackerStatus();
+      
+      if (status?.has_submitted) {
+        Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+        setShowTrackerModal(false);
+        return;
+      }
+
+      // Status check passed - proceed to form
+      setShowTrackerModal(false);
+      console.log('✅ Status verified - navigating to tracker form...');
+      router.push('/forms/forms');
+    } catch (error) {
+      console.error('❌ Error verifying tracker status:', error);
+      Alert.alert(
+        'Error',
+        'Unable to verify your submission status. Please check your connection and try again.',
+        [{ text: 'OK' }]
+      );
+      setShowTrackerModal(false);
+    }
   };
 
   const handleRemindLater = () => {

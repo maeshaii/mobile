@@ -130,7 +130,8 @@ const MessageScreen = () => {
           firstName,
           lastName,
           unread: c.unread_count || 0,
-          isMessageRequest: c.is_message_request || false,
+          // Ensure is_message_request is properly mapped (explicit boolean check)
+          isMessageRequest: c.is_message_request === true || c.is_message_request === 'true' || false,
           // online to be determined via other participant's user_id
           isOnline: false,
         };
@@ -140,23 +141,38 @@ const MessageScreen = () => {
       // Load online users
       try {
         const onlineResponse = await getOnlineUsers();
+        console.log('[Mobile Online Users] API Response:', onlineResponse);
         if (onlineResponse.success) {
-          const onlineUserIds = new Set<number>(onlineResponse.online_users.map((user: any) => user.user_id));
+          // Ensure all user_ids are numbers for consistent Set operations
+          const onlineUserIds = new Set<number>(
+            onlineResponse.online_users.map((user: any) => Number(user.user_id))
+          );
+          console.log('[Mobile Online Users] Setting online users:', {
+            count: onlineUserIds.size,
+            userIds: Array.from(onlineUserIds),
+            users: onlineResponse.online_users.map((u: any) => ({ user_id: u.user_id, name: u.name }))
+          });
           setOnlineUsers(onlineUserIds);
           setOnlineUsersData(onlineResponse.online_users);
           
           // Update rows with online status using other participant's user_id
           const updatedRows = (data || []).map((c: ConversationSummary, idx: number) => {
             const otherUserId = c.other_participant?.user_id;
+            const isOnline = otherUserId ? onlineUserIds.has(Number(otherUserId)) : false;
+            if (isOnline) {
+              console.log(`[Mobile Online Users] Marking ${c.other_participant?.name} (${otherUserId}) as online`);
+            }
             return {
               ...mapped[idx],
-              isOnline: otherUserId ? onlineUserIds.has(otherUserId) : false,
+              isOnline,
             };
           });
           setRows(updatedRows);
+        } else {
+          console.warn('[Mobile Online Users] API returned success=false:', onlineResponse);
         }
       } catch (error) {
-        console.warn('Failed to load online users:', error);
+        console.warn('[Mobile Online Users] Failed to load online users:', error);
       }
     } catch (e) {
       console.warn('Failed to load conversations', e);
@@ -172,21 +188,72 @@ const MessageScreen = () => {
     let filtered = rows;
     
     // Apply filter
-    if (activeFilter === 'request') {
+    if (activeFilter === 'all') {
+      // All Messages should EXCLUDE message requests AND empty conversations (no messages sent)
+      filtered = rows.filter(row => {
+        // CRITICAL: Exclude message requests - they should NEVER appear in All Messages
+        // Double-check to ensure isMessageRequest is properly set
+        if (row.isMessageRequest === true) {
+          return false;
+        }
+        // Additional safety check: if isMessageRequest is undefined/null, treat as false (regular conversation)
+        // But if it's explicitly true, exclude it
+        if (row.isMessageRequest) {
+          return false;
+        }
+        // Exclude conversations with no messages (empty conversations)
+        // A conversation should only appear if it has at least one message
+        if (!row.lastMessage || row.lastMessage.trim() === '') return false;
+        return true;
+      });
+    } else if (activeFilter === 'request') {
       filtered = rows.filter(row => row.isMessageRequest);
     } else if (activeFilter === 'online') {
+      console.log('[Mobile Online Filter] Checking online status:', {
+        totalRows: rows.length,
+        onlineUsersCount: onlineUsers.size,
+        onlineUsersDataCount: onlineUsersData?.length || 0,
+        onlineUserIds: Array.from(onlineUsers),
+        onlineUsersData: onlineUsersData?.map((u: any) => ({ user_id: u.user_id, name: u.name })) || []
+      });
+
       // 1) Existing conversations whose other participant is online
-      const existingOnline = rows.filter(row => row.isOnline);
+      // Check both isOnline property AND onlineUsers Set for reliability
+      const existingOnline = rows.filter(row => {
+        const isOnlineByProperty = row.isOnline;
+        const isOnlineBySet = row.targetUserId ? onlineUsers.has(Number(row.targetUserId)) : false;
+        const isOnline = isOnlineByProperty || isOnlineBySet;
+        
+        if (isOnline) {
+          console.log(`[Mobile Online Filter] Found online conversation: ${row.name} (user_id: ${row.targetUserId})`);
+        }
+        return isOnline;
+      });
       
+      console.log(`[Mobile Online Filter] Found ${existingOnline.length} existing online conversations`);
+
       // 2) Virtual items for online mutuals without an existing conversation
       const existingOtherIds = new Set<number>(
-        rows.map(r => r.targetUserId).filter(Boolean) as number[]
+        rows
+          .map(r => r.targetUserId)
+          .filter(Boolean)
+          .map(id => Number(id))
       );
+
+      console.log(`[Mobile Online Filter] Existing conversation user IDs:`, Array.from(existingOtherIds));
+
       const virtualRows: Row[] = (onlineUsersData || [])
-        .filter((u: any) => !existingOtherIds.has(u.user_id))
+        .filter((u: any) => {
+          const userId = Number(u.user_id);
+          const isExisting = existingOtherIds.has(userId);
+          if (!isExisting) {
+            console.log(`[Mobile Online Filter] Adding virtual item for: ${u.name || formatUserFullName(u)} (user_id: ${userId})`);
+          }
+          return !isExisting;
+        })
         .map((u: any) => ({
-          id: -u.user_id, // sentinel negative id for virtual row
-          targetUserId: u.user_id,
+          id: -Number(u.user_id), // sentinel negative id for virtual row
+          targetUserId: Number(u.user_id),
           name: u.name || formatUserFullName(u),
           lastMessage: '',
           date: new Date().toLocaleDateString(),
@@ -198,6 +265,9 @@ const MessageScreen = () => {
           isOnline: true,
         }));
       
+      console.log(`[Mobile Online Filter] Created ${virtualRows.length} virtual items`);
+      console.log(`[Mobile Online Filter] Total filtered conversations: ${existingOnline.length + virtualRows.length}`);
+
       filtered = [...existingOnline, ...virtualRows];
     }
     
@@ -317,18 +387,24 @@ const MessageScreen = () => {
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={styles.nameContainer}>
                   <Text style={styles.name}>{item.name}</Text>
-                  {item.isMessageRequest && <Text style={styles.messageRequestIndicator}>📩</Text>}
+                  {activeFilter !== 'online' && item.isMessageRequest && (
+                    <Text style={styles.messageRequestIndicator}>📩</Text>
+                  )}
                 </View>
-                <Text style={styles.date}>{item.date}</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={styles.message} numberOfLines={1}>{item.lastMessage}</Text>
-                {item.unread > 0 && (
-                  <View style={{ backgroundColor: '#1C4E80', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
-                    <Text style={{ color: '#fff', fontSize: 12 }}>{item.unread}</Text>
-                  </View>
+                {activeFilter !== 'online' && (
+                  <Text style={styles.date}>{item.date}</Text>
                 )}
               </View>
+              {activeFilter !== 'online' && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={styles.message} numberOfLines={1}>{item.lastMessage}</Text>
+                  {item.unread > 0 && (
+                    <View style={{ backgroundColor: '#1C4E80', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                      <Text style={{ color: '#fff', fontSize: 12 }}>{item.unread}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
           </TouchableOpacity>
         )}

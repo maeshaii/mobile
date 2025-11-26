@@ -87,7 +87,7 @@ const devDefault = Platform.select({
 const ngrokUrl = 'https://carlos-unripening-henley.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
 // Use explicit config from Expo extra or env, otherwise fall back to default
-export const API_BASE_URL = normalizeBaseUrl(rawFromExpo || rawFromEnv || defaultUrl);
+export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -106,10 +106,21 @@ const api = axios.create({
   },
 });
 
+// Public API instance for endpoints that don't require authentication
+const publicApi = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 30000,
+  withCredentials: false,
+  headers: {
+    Accept: 'application/json',
+    'ngrok-skip-browser-warning': 'true'
+  },
+});
+
 // Note: FormData uploads are handled separately using fetch() to avoid Content-Type issues
 
 /** Export api instance for session management */
-export { api };
+export { api, publicApi };
 
 /** Auth helpers */
 export const getAccessToken = async () => Storage.getItem('accessToken');
@@ -659,6 +670,50 @@ export const saveTrackerDraft = async (userId: string, answers: Record<string, a
 // Mobile -> Backend: GET /api/tracker/load-draft/
 export const loadTrackerDraft = async (userId: string) => {
   return (await api.get(`/api/tracker/load-draft/?user_id=${userId}`)).data;
+};
+
+/** Job Autocomplete and Alignment */
+// Mobile -> Backend: GET /api/shared/job-autocomplete/?q=query&limit=20
+export const getJobAutocomplete = async (query: string, limit: number = 20) => {
+  try {
+    const response = await publicApi.get('/api/shared/job-autocomplete/', {
+      params: { q: query, limit }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Mobile getJobAutocomplete API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/shared/check-job-alignment/
+export const checkJobAlignment = async (position: string, userId: number, fromAutocomplete: boolean = false) => {
+  try {
+    const response = await publicApi.post('/api/shared/check-job-alignment/', {
+      position,
+      user_id: userId,
+      from_autocomplete: fromAutocomplete
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Mobile checkJobAlignment API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/shared/confirm-job-alignment/
+export const confirmJobAlignment = async (employmentId: number, userId: number, confirmed: boolean) => {
+  try {
+    const response = await publicApi.post('/api/shared/confirm-job-alignment/', {
+      employment_id: employmentId,
+      user_id: userId,
+      confirmed: confirmed
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Mobile confirmJobAlignment API Error:', error);
+    throw error;
+  }
 };
 
 /** Alumni */
@@ -1838,6 +1893,28 @@ export const listMessages = async (conversationId: number, params?: { cursor?: s
     return data;
   } catch (error) {
     console.error('Mobile listMessages API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: GET /api/messaging/users/search/?q={query}
+export const searchUsersForMessaging = async (q: string) => {
+  try {
+    const { data } = await api.get(`/api/messaging/users/search/?q=${encodeURIComponent(q)}`);
+    console.log('Mobile searchUsersForMessaging API Response:', data);
+    // Ensure all users have proper fields including m_name and avatar_url
+    const users = (data?.users || []).map((user: any) => ({
+      user_id: user.user_id,
+      f_name: user.f_name || '',
+      m_name: user.m_name || user.middle_name || null,
+      l_name: user.l_name || '',
+      avatar_url: user.avatar_url || null,
+      profile_pic: user.profile_pic || null,
+      profile: user.profile || null,
+    }));
+    return { ...data, users } as { users: Array<{ user_id: number; f_name: string; m_name?: string | null; l_name: string; avatar_url?: string | null; profile_pic?: string | null; profile?: any }>; count: number; query: string };
+  } catch (error) {
+    console.error('Mobile searchUsersForMessaging API Error:', error);
     throw error;
   }
 };

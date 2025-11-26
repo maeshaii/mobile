@@ -1,5 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator,
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  Alert,
+  ActivityIndicator,
+  Modal,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import RadioGroup from 'react-native-radio-buttons-group';
@@ -9,7 +19,7 @@ import type {} from 'expo-document-picker';
 import type {} from 'react-native-radio-buttons-group';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
-import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, saveTrackerDraft, loadTrackerDraft } from '../../services/api';
+import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, saveTrackerDraft, loadTrackerDraft, getJobAutocomplete, checkJobAlignment, confirmJobAlignment } from '../../services/api';
 import TermsAndConditionsModal from './termsandcondi';
 
 type FileAsset = {
@@ -75,8 +85,10 @@ export default function TrackerForm() {
   const [error, setError] = useState<string | null>(null);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-
-  // Auto-save states
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  
+  // Auto-save states (matching web)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | null>(null);
   const [draftCheckComplete, setDraftCheckComplete] = useState(false);
   const [hasDraftData, setHasDraftData] = useState(false);
@@ -89,32 +101,235 @@ export default function TrackerForm() {
   const [showCurrentStatusDropdown, setShowCurrentStatusDropdown] = useState(false);
   const [showYearsEmployedDropdown, setShowYearsEmployedDropdown] = useState(false);
   const [showSalaryRangeDropdown, setShowSalaryRangeDropdown] = useState(false);
+  
+  // Date picker state
+  const [showDatePicker, setShowDatePicker] = useState<{ questionId: string; visible: boolean }>({ questionId: '', visible: false });
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  // Raw input values for date picker (allow free typing)
+  const [dateInputs, setDateInputs] = useState({ year: '', month: '', day: '' });
+  
+  // Job title autocomplete state
+  const [jobSuggestions, setJobSuggestions] = useState<any[]>([]);
+  const [showJobSuggestions, setShowJobSuggestions] = useState<{ questionId: string; visible: boolean }>({ questionId: '', visible: false });
+  const [loadingJobSuggestions, setLoadingJobSuggestions] = useState<{ questionId: string; loading: boolean }>({ questionId: '', loading: false });
+  const [jobAlignmentStatus, setJobAlignmentStatus] = useState<{ questionId: string; status: string; normalized?: string } | null>(null);
+  const [showJobAlignmentModal, setShowJobAlignmentModal] = useState<{ questionId: string; position: string; visible: boolean; needsConfirmation: boolean; suggestion?: any }>({ questionId: '', position: '', visible: false, needsConfirmation: false });
+  const [jobAlignmentAnswer, setJobAlignmentAnswer] = useState<'yes' | 'no' | null>(null);
+  const [checkingAlignment, setCheckingAlignment] = useState(false);
+  const jobSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jobAlignmentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Flag to prevent onBlur from running when suggestion is selected
+  const suggestionSelectedRef = useRef<{ questionId: string; timestamp: number } | null>(null);
+  
+  // Job title autocomplete search handler (moved outside renderQuestion to avoid hooks violation)
+  const searchJobTitles = useCallback(async (query: string, questionId: string) => {
+    if (query.length < 2) {
+      setJobSuggestions([]);
+      setShowJobSuggestions({ questionId: '', visible: false });
+      setLoadingJobSuggestions({ questionId: '', loading: false });
+      return;
+    }
+    
+    // Clear previous debounce
+    if (jobSearchDebounceRef.current) {
+      clearTimeout(jobSearchDebounceRef.current);
+    }
+    
+    // Set loading state
+    setLoadingJobSuggestions({ questionId, loading: true });
+    
+    // Debounce search (300ms to match web)
+    jobSearchDebounceRef.current = setTimeout(async () => {
+      try {
+        const user = await getUserInfo();
+        if (!user?.id && !user?.user_id) {
+          setLoadingJobSuggestions({ questionId: '', loading: false });
+          return;
+        }
+        
+        const result = await getJobAutocomplete(query, 20);
+        if (result.success && result.suggestions) {
+          setJobSuggestions(result.suggestions);
+          setShowJobSuggestions({ questionId: questionId, visible: true });
+        } else {
+          setJobSuggestions([]);
+          setShowJobSuggestions({ questionId: '', visible: false });
+        }
+      } catch (error) {
+        console.error('Error searching job titles:', error);
+        setJobSuggestions([]);
+        setShowJobSuggestions({ questionId: '', visible: false });
+      } finally {
+        setLoadingJobSuggestions({ questionId: '', loading: false });
+      }
+    }, 300);
+  }, []);
+  
+  // Check job alignment (called when user finishes typing or selects a suggestion)
+  const handleCheckJobAlignment = useCallback(async (position: string, questionId: string, fromAutocomplete: boolean = false) => {
+    if (!position || position.trim().length < 2) {
+      setJobAlignmentStatus(null);
+      return;
+    }
+    
+    // CRITICAL: When user selects from autocomplete, check immediately (no debounce)
+    // This ensures the modal shows immediately and value is set correctly
+    if (fromAutocomplete) {
+      // Clear any pending debounced check
+      if (jobAlignmentDebounceRef.current) {
+        clearTimeout(jobAlignmentDebounceRef.current);
+        jobAlignmentDebounceRef.current = null;
+      }
+      
+      // Check alignment immediately for autocomplete selections
+      setCheckingAlignment(true);
+      try {
+        const user = await getUserInfo();
+        if (!user?.id && !user?.user_id) {
+          setCheckingAlignment(false);
+          return;
+        }
+        
+        const userId = user.id || user.user_id;
+        const selectedPosition = position.trim();
+        
+        // Note: Value is already set in the suggestion selection handler
+        // We just need to check alignment now
+        
+        // Check alignment immediately for autocomplete selections
+        const result = await checkJobAlignment(selectedPosition, userId, true);
+        
+        // Preserve user's exact selection (don't overwrite with normalized position)
+        // The user chose this specific suggestion - ensure it stays as-is
+        // (Response is already set from suggestion handler, this is just a safety check)
+        setResponse(questionId, selectedPosition);
+        
+        // Store alignment status
+        setJobAlignmentStatus({
+          questionId,
+          status: result.job_alignment_status || 'unknown',
+          normalized: result.normalized_position
+        });
+        
+        // Show confirmation modal if needed
+        if (result.needs_confirmation) {
+          setShowJobAlignmentModal({
+            questionId,
+            position: selectedPosition, // Use the selected position, not normalized
+            visible: true,
+            needsConfirmation: true,
+            suggestion: result.suggestion
+          });
+        }
+      } catch (error) {
+        console.error('Error checking job alignment:', error);
+        setJobAlignmentStatus({ questionId, status: 'error' });
+      } finally {
+        setCheckingAlignment(false);
+      }
+      return; // Exit early for autocomplete selections
+    }
+    
+    // For manual typing, use debounce to avoid excessive API calls
+    // Clear previous debounce
+    if (jobAlignmentDebounceRef.current) {
+      clearTimeout(jobAlignmentDebounceRef.current);
+    }
+    
+    setCheckingAlignment(true);
+    
+    // Debounce alignment check for manual typing
+    jobAlignmentDebounceRef.current = setTimeout(async () => {
+      try {
+        const user = await getUserInfo();
+        if (!user?.id && !user?.user_id) {
+          setCheckingAlignment(false);
+          return;
+        }
+        
+        const userId = user.id || user.user_id;
+        const result = await checkJobAlignment(position.trim(), userId, false);
+        
+        // User typed manually - allow normalization if provided
+        if (result.normalized_position && result.normalized_position !== position.trim()) {
+          setTimeout(() => {
+            setResponse(questionId, result.normalized_position);
+          }, 50);
+        }
+        
+        // Store alignment status
+        setJobAlignmentStatus({
+          questionId,
+          status: result.job_alignment_status || 'unknown',
+          normalized: result.normalized_position
+        });
+        
+        // Show confirmation modal if needed
+        if (result.needs_confirmation) {
+          setShowJobAlignmentModal({
+            questionId,
+            position: result.normalized_position || position,
+            visible: true,
+            needsConfirmation: true,
+            suggestion: result.suggestion
+          });
+        }
+      } catch (error) {
+        console.error('Error checking job alignment:', error);
+        setJobAlignmentStatus({ questionId, status: 'error' });
+      } finally {
+        setCheckingAlignment(false);
+      }
+    }, 500); // Debounce for manual typing
+  }, [responses]); // Include responses in dependencies to avoid stale closure
 
   const navigation = useNavigation();
   
   // Function to check tracker status (reusable for focus effect and after submission)
-  const checkTrackerStatus = React.useCallback(async () => {
+  // CRITICAL: Returns null only on error - must be treated as blocking condition
+  const checkTrackerStatus = React.useCallback(async (retryCount = 0): Promise<{ accepting: boolean; hasSubmitted: boolean } | null> => {
+    const MAX_RETRIES = 2;
     try {
       const active = await getActiveTrackerForm();
+      if (!active?.tracker_form_id) {
+        console.error('❌ No active tracker form found');
+        return null;
+      }
+
       const status = await checkUserTrackerStatus();
+      if (!status || typeof status.has_submitted !== 'boolean') {
+        console.error('❌ Invalid status response:', status);
+        if (retryCount < MAX_RETRIES) {
+          console.log(`🔄 Retrying status check (${retryCount + 1}/${MAX_RETRIES})...`);
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+          return checkTrackerStatus(retryCount + 1);
+        }
+        return null;
+      }
+
       let acceptingStatus = null;
-      
       try {
-        acceptingStatus = await getTrackerAcceptingStatus(active?.tracker_form_id);
+        acceptingStatus = await getTrackerAcceptingStatus(active.tracker_form_id);
       } catch (e) {
         console.warn('Could not get accepting status:', e);
         acceptingStatus = { accepting_responses: true };
       }
       
       const accepting = Boolean(acceptingStatus?.accepting_responses);
-      const hasSubmitted = Boolean(status?.has_submitted);
+      const hasSubmitted = Boolean(status.has_submitted);
       
+      console.log('✅ Tracker status check:', { accepting, hasSubmitted });
       setAccepting(accepting);
       setHasSubmitted(hasSubmitted);
       
       return { accepting, hasSubmitted };
     } catch (e) {
-      console.warn('Tracker status check failed:', e);
+      console.error('❌ Tracker status check failed:', e);
+      if (retryCount < MAX_RETRIES) {
+        console.log(`🔄 Retrying status check after error (${retryCount + 1}/${MAX_RETRIES})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+        return checkTrackerStatus(retryCount + 1);
+      }
       return null;
     }
   }, []);
@@ -148,18 +363,37 @@ export default function TrackerForm() {
         const user = await getUserInfo();
 
         // 1) Gating: active form + status
+        // CRITICAL: If status check fails (returns null), block form loading to prevent re-submission
         const statusResult = await checkTrackerStatus();
-        if (statusResult) {
-          if (statusResult.hasSubmitted) {
-            Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
-            navigation.goBack();
-            return;
-          }
-          if (!statusResult.accepting) {
-            Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
-            navigation.goBack();
-            return;
-          }
+        if (!statusResult) {
+          // Status check failed - this is a blocking condition to prevent allowing form access
+          // when we can't verify if user has already submitted
+          Alert.alert(
+            'Error', 
+            'Unable to verify your submission status. Please check your internet connection and try again later.',
+            [
+              {
+                text: 'OK',
+                onPress: () => navigation.goBack()
+              }
+            ]
+          );
+          setLoading(false);
+          return;
+        }
+
+        // User has already submitted - block access
+        if (statusResult.hasSubmitted) {
+          Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+          navigation.goBack();
+          return;
+        }
+
+        // Form is not accepting responses - block access
+        if (!statusResult.accepting) {
+          Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
+          navigation.goBack();
+          return;
         }
 
         // 2) Fetch dynamic questions
@@ -177,38 +411,61 @@ export default function TrackerForm() {
 
         // 2.5) Load saved draft if available (before prefill)
         let draftLoaded = false;
-        if (user?.id && Array.isArray(cats) && cats.length > 0) {
+        if ((user?.id || user?.user_id) && Array.isArray(cats) && cats.length > 0) {
           const userId = String(user.user_id || user.id);
           userIdRef.current = userId;
           try {
-            console.log('🔄 Checking for saved draft for user:', userId);
+            console.log('🔄 Mobile: Checking for saved draft for user:', userId);
             const draftResponse = await loadTrackerDraft(userId);
             
             if (draftResponse?.success && draftResponse?.has_draft && Object.keys(draftResponse.answers || {}).length > 0) {
-              console.log('✅ Draft found with', Object.keys(draftResponse.answers).length, 'answers - loading...');
+              console.log('✅ Mobile: Draft found with', Object.keys(draftResponse.answers).length, 'answers - loading...');
+              console.log('📋 Mobile: Draft answers:', JSON.stringify(draftResponse.answers, null, 2));
               
               // Sanitize draft data (remove empty objects, null values, etc.)
+              // IMPORTANT: Keep file markers (objects with type: 'file' and uploaded: true) - these indicate files were uploaded
               const sanitizedAnswers: Record<string, any> = {};
-              for (const [key, value] of Object.entries(draftResponse.answers)) {
+              let fileMarkerCount = 0;
+              
+              for (const [key, value] of Object.entries(draftResponse.answers || {})) {
                 if (value === null || value === undefined) continue;
+                // Keep file markers (indicate files were uploaded before refresh)
+                if (typeof value === 'object' && !Array.isArray(value) && 'type' in value && 'uploaded' in value) {
+                  const fileMarker = value as { type?: string; uploaded?: boolean; multiple?: boolean };
+                  if (fileMarker.type === 'file' && fileMarker.uploaded === true) {
+                    sanitizedAnswers[key] = value;
+                    fileMarkerCount++;
+                    console.log(`✅ Mobile: Preserved file marker for question ${key}:`, value);
+                    continue;
+                  }
+                }
+                // Skip empty objects (but keep file markers)
                 if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) continue;
                 if (typeof value === 'string' && value.trim() === '') continue;
                 sanitizedAnswers[key] = value;
               }
               
-              setResponses(sanitizedAnswers);
-              setSaveStatus('saved');
-              setHasDraftData(true);
-              draftLoaded = true;
+              console.log(`📋 Mobile: Loaded ${Object.keys(sanitizedAnswers).length} answers (${fileMarkerCount} file markers)`);
+              
+              if (Object.keys(sanitizedAnswers).length > 0) {
+                setResponses(sanitizedAnswers);
+                setSaveStatus('saved');
+                setHasDraftData(true);
+                draftLoaded = true;
+                console.log('✅ Mobile: Draft loaded with file markers preserved');
+              } else {
+                console.log('ℹ️ Mobile: Draft found but no valid answers after sanitization');
+                setHasDraftData(false);
+              }
             } else {
-              console.log('ℹ️ No saved draft found');
+              console.log('ℹ️ Mobile: No saved draft found');
               setHasDraftData(false);
             }
           } catch (error) {
-            console.error('❌ Error loading draft:', error);
+            console.error('❌ Mobile: Error loading draft:', error);
             setHasDraftData(false);
           }
-        } else if (user?.id) {
+        } else if (user?.id || user?.user_id) {
           userIdRef.current = String(user.user_id || user.id);
         }
         setDraftCheckComplete(true);
@@ -216,8 +473,9 @@ export default function TrackerForm() {
         // 3) Prefill like web does (only if no draft was loaded)
         if (!draftLoaded) {
           try {
-            if (user?.id) {
-            const details = await getAlumniDetails(user.id);
+            if (user?.id || user?.user_id) {
+            const userId = user.id || user.user_id;
+            const details = await getAlumniDetails(userId);
             const alumni = details?.alumni || {};
             setUserDetails(alumni);
             setForm(prev => ({
@@ -238,7 +496,7 @@ export default function TrackerForm() {
               socmedlink: alumni.social_media || prev.socmedlink,
             }));
             
-            // Prefill dynamic form responses
+              // Prefill dynamic form responses (only if no draft)
             if (Array.isArray(cats) && cats.length > 0) {
               const initialResponses: Record<string, any> = {};
               for (const category of cats) {
@@ -283,19 +541,33 @@ export default function TrackerForm() {
                     initialResponses[qid] = yearValue ? String(yearValue) : '';
                   } else if (questionText.includes('program graduated') || (questionText.includes('program') && questionText.includes('graduated'))) {
                     initialResponses[qid] = alumni.program || '';
+                  } else if (questionText.includes('current position')) {
+                    // Don't pre-fill position - let user answer (matching web behavior)
+                    // This prevents OJT data from affecting current employment
+                    initialResponses[qid] = '';
+                  } else if (questionText.includes('current company') || (questionText.includes('current') && questionText.includes('organization') && questionText.includes('employer'))) {
+                    // Don't pre-fill company name - let user answer (matching web behavior)
+                    // This prevents OJT data from affecting current employment
+                    initialResponses[qid] = '';
+                  } else if (questionText.includes('presently employed') || (questionText.includes('presently') && questionText.includes('employed'))) {
+                    // Don't pre-fill employment status - let user answer (matching web behavior)
+                    // This prevents OJT data from affecting employment status
+                    initialResponses[qid] = '';
                   }
                 }
               }
               setResponses(prev => ({ ...prev, ...initialResponses }));
             }
           }
-          } catch {}
+          } catch (prefillError) {
+            console.error('❌ Mobile: Error prefilling form:', prefillError);
+          }
         }
 
         setError(null);
         
-        // Show terms and conditions modal on first load
-        setShowTermsModal(true);
+        // Show privacy modal on first load (matching web behavior)
+        setShowPrivacyModal(true);
       } catch (err) {
         console.error('Failed to initialize tracker form:', err);
         setError('Failed to load tracker form');
@@ -312,29 +584,47 @@ export default function TrackerForm() {
     React.useCallback(() => {
       const refreshStatus = async () => {
         const statusResult = await checkTrackerStatus();
-        if (statusResult) {
-          // If already submitted, show alert and go back
-          if (statusResult.hasSubmitted) {
-            Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
-            navigation.goBack();
-            return;
-          }
-          // If form is closed, show alert and go back
-          if (!statusResult.accepting) {
-            Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
-            navigation.goBack();
-            return;
-          }
+        if (!statusResult) {
+          // Status check failed - block access to prevent re-submission
+          Alert.alert(
+            'Error',
+            'Unable to verify your submission status. Please check your connection and try again.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+          return;
+        }
+
+        // If already submitted, show alert and go back
+        if (statusResult.hasSubmitted) {
+          Alert.alert('Tracker', 'You have already completed the tracker form. Thank you!');
+          navigation.goBack();
+          return;
+        }
+        // If form is closed, show alert and go back
+        if (!statusResult.accepting) {
+          Alert.alert('Tracker', 'The tracker form is currently closed. Please check back later.');
+          navigation.goBack();
+          return;
         }
       };
       refreshStatus();
     }, [checkTrackerStatus, navigation])
   );
 
-  // Auto-save formResponses (debounced - saves 3 seconds after last change)
+  const handleChange = (key: keyof typeof form, value: any) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // Dynamic responses change (triggers auto-save)
+  const setResponse = (questionId: string | number, value: any) => {
+    setResponses((prev) => ({ ...prev, [String(questionId)]: value }));
+  };
+  
+  // Auto-save formResponses (debounced - saves 3 seconds after last change, matching web)
+  // SINGLE auto-save effect (removed duplicate)
   useEffect(() => {
-    if (!draftCheckComplete || !userIdRef.current) {
-      return; // Don't auto-save before draft check is complete or if no user ID
+    if (!draftCheckComplete || !userIdRef.current || !privacyAccepted) {
+      return; // Don't auto-save if draft check not complete, no user ID, or privacy not accepted
     }
 
     // Clear existing timer
@@ -350,41 +640,59 @@ export default function TrackerForm() {
     // Set status to unsaved
     setSaveStatus('unsaved');
 
-    // Debounce: save 3 seconds after last change
+    // Debounce: save 3 seconds after last change (matching web)
     autoSaveTimerRef.current = setTimeout(async () => {
       try {
         setSaveStatus('saving');
-        console.log('💾 Auto-saving draft...');
+        console.log('💾 Mobile: Auto-saving draft...');
+        console.log('📋 Mobile: Total responses to save:', Object.keys(responses).length);
         
-        // Filter out file responses (files can't be saved in drafts, only during submission)
+        // Save draft responses - INCLUDING file markers (file markers indicate files were uploaded)
+        // Note: Actual file objects can't be saved, but markers can be saved to remember uploads after refresh
         const draftResponses: Record<string, any> = {};
+        let fileMarkerCount = 0;
+        
         for (const [key, value] of Object.entries(responses)) {
-          // Skip file responses (they have type: 'file' or are arrays of file objects)
+          // Skip actual file objects (arrays of FileAsset or File objects with uri property)
           if (value && typeof value === 'object') {
-            if (value.type === 'file') {
-              continue; // Skip single file responses
-            }
+            // Check if it's an actual file object (has uri property) - skip these
             if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && 'uri' in value[0]) {
-              continue; // Skip multiple file responses
+              console.log(`⏭️ Mobile: Skipping actual file array for question ${key}`);
+              continue; // Skip actual file arrays (file objects can't be serialized)
+            }
+            // Keep file markers (objects with type: 'file' and uploaded: true) - these CAN be saved
+            if ('type' in value && 'uploaded' in value && value.type === 'file' && value.uploaded === true) {
+              // This is a file marker, save it to remember file was uploaded
+              draftResponses[key] = value;
+              fileMarkerCount++;
+              console.log(`✅ Mobile: Saving file marker for question ${key}:`, value);
+              continue;
+            }
+            // Skip actual file objects (FileAsset with uri) but keep markers
+            if ('uri' in value) {
+              console.log(`⏭️ Mobile: Skipping actual file object for question ${key}`);
+              continue; // Skip actual file objects
             }
           }
+          // Save all other responses (including file markers)
           draftResponses[key] = value;
         }
         
+        console.log(`💾 Mobile: Saving ${Object.keys(draftResponses).length} responses (${fileMarkerCount} file markers)`);
         await saveTrackerDraft(userIdRef.current!, draftResponses);
         
         setSaveStatus('saved');
-        console.log('✅ Draft auto-saved successfully');
+        console.log('✅ Mobile: Draft auto-saved successfully');
         
         // Reset to null after 2 seconds
         setTimeout(() => {
           setSaveStatus(null);
         }, 2000);
       } catch (error) {
-        console.error('❌ Auto-save failed:', error);
+        console.error('❌ Mobile: Auto-save failed:', error);
         setSaveStatus('unsaved');
       }
-    }, 3000); // 3 second debounce
+    }, 3000); // 3 second debounce (matching web)
 
     // Cleanup
     return () => {
@@ -392,16 +700,7 @@ export default function TrackerForm() {
         clearTimeout(autoSaveTimerRef.current);
       }
     };
-  }, [responses, draftCheckComplete]);
-
-  const handleChange = (key: keyof typeof form, value: any) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  // Dynamic responses change
-  const setResponse = (questionId: string | number, value: any) => {
-    setResponses((prev) => ({ ...prev, [String(questionId)]: value }));
-  };
+  }, [responses, draftCheckComplete, privacyAccepted]);
 
   const pickFileForQuestion = async (questionId: string | number, isMultiple: boolean = false) => {
     const result = await DocumentPicker.getDocumentAsync({});
@@ -416,11 +715,19 @@ export default function TrackerForm() {
       
       if (isMultiple) {
         const currentFiles = multipleFileAnswers[String(questionId)] || [];
-        setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: [...currentFiles, asset] }));
-        setResponse(String(questionId), [...currentFiles, asset]);
+        const updatedFiles = [...currentFiles, asset];
+        setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: updatedFiles }));
+        // Save file marker in responses for draft persistence (files can't be saved, but markers can)
+        setResponse(String(questionId), { 
+          type: 'file', 
+          multiple: true, 
+          uploaded: true, 
+          count: updatedFiles.length 
+        });
       } else {
         setFileAnswers((prev) => ({ ...prev, [String(questionId)]: asset }));
-        setResponse(String(questionId), { type: 'file' });
+        // Save file marker in responses for draft persistence
+        setResponse(String(questionId), { type: 'file', uploaded: true, filename: asset.name });
       }
     }
   };
@@ -429,7 +736,17 @@ export default function TrackerForm() {
     const currentFiles = multipleFileAnswers[String(questionId)] || [];
     const updatedFiles = currentFiles.filter((_, i) => i !== index);
     setMultipleFileAnswers((prev) => ({ ...prev, [String(questionId)]: updatedFiles }));
-    setResponse(String(questionId), updatedFiles);
+    // Update file marker in responses (remove if no files left, otherwise update count)
+    if (updatedFiles.length === 0) {
+      setResponse(String(questionId), null);
+    } else {
+      setResponse(String(questionId), { 
+        type: 'file', 
+        multiple: true, 
+        uploaded: true, 
+        count: updatedFiles.length 
+      });
+    }
   };
 
   // Submit form: show terms modal first if not accepted
@@ -457,26 +774,102 @@ export default function TrackerForm() {
       setSubmitting(true);
       const user = await getUserInfo();
 
-      // Validate required questions
+      // Validate required questions (matching web validation logic)
       if (Array.isArray(categories) && categories.length > 0) {
         const missingRequiredQuestions: any[] = [];
         for (const category of categories) {
+          // Only validate questions in visible categories (matching web)
+          if (!shouldShowCategory(category)) {
+            continue;
+          }
+          
           for (const question of category.questions || []) {
-            if (question.required) {
-              const answer = responses[String(question.id)];
-              const lowerText = question.text?.toLowerCase() || '';
+            // Skip hidden questions (matching web)
+            if (shouldHideQuestionText(question.text || '')) {
+              continue;
+            }
+            
+            // Skip conditional questions that shouldn't be shown (matching web)
+            const lowerText = (question.text || '').toLowerCase();
               const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
                                              (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
               
               if (isAwardSupportingDocs) {
+              // Only validate if the parent award question is answered "Yes"
+              const awardQuestion = categories
+                .flatMap(cat => cat.questions || [])
+                .find((ques: any) => {
+                  const qt = (ques.text || '').toLowerCase();
+                  return ques.type === 'radio' && 
+                         (qt.includes('awards') || qt.includes('award') || qt.includes('recognition')) &&
+                         (qt.includes('received') || qt.includes('during') || qt.includes('employment'));
+                });
+              
+              // Only validate if parent question exists and is answered "Yes"
+              if (!awardQuestion || responses[String(awardQuestion.id)] !== 'Yes') {
+                continue; // Skip validation - question shouldn't be shown
+              }
+            }
+            
+            // Validate required questions (skip hidden questions)
+            if (question.required) {
+              const answer = responses[String(question.id)];
+              
+              if (isAwardSupportingDocs) {
+                // For award documents, require ACTUAL files for submission (not just markers)
+                // File markers are only for draft persistence after refresh
                 const files = multipleFileAnswers[String(question.id)] || [];
-                const hasValidFile = Array.isArray(files) && files.length > 0;
-                if (!hasValidFile) {
-                  missingRequiredQuestions.push(question.text);
+                // Filter out null entries to get valid file count
+                const validFiles = files.filter(f => f !== null && f !== undefined);
+                const hasActualFiles = validFiles.length > 0;
+                
+                // Check if there's a file marker (files were uploaded but lost after refresh)
+                const hasFileMarker = answer && 
+                  typeof answer === 'object' && 
+                  !Array.isArray(answer) &&
+                  'type' in answer && 
+                  'uploaded' in answer &&
+                  answer.type === 'file' && 
+                  answer.uploaded === true;
+                
+                // For FINAL SUBMISSION: Require actual files, not just markers
+                if (!hasActualFiles) {
+                  missingRequiredQuestions.push(question.text + (hasFileMarker ? ' (Files were uploaded but need to be re-uploaded after page refresh)' : ''));
                 }
-              } else if (!answer || (typeof answer === 'string' && answer.trim() === '') || 
+              } else if ((lowerText.includes('supporting document') && !lowerText.includes('award')) || 
+                         (lowerText.includes('file upload') && !lowerText.includes('award')) || 
+                         (lowerText.includes('document') && !lowerText.includes('award'))) {
+                // For single file upload questions, require ACTUAL file for submission (not just markers)
+                // File markers are only for draft persistence after refresh
+                const file = fileAnswers[String(question.id)];
+                const hasActualFile = file && file.uri;
+                
+                // Check for file marker (file was uploaded but lost after refresh)
+                const hasFileMarker = answer && 
+                  typeof answer === 'object' && 
+                  !Array.isArray(answer) &&
+                  'type' in answer && 
+                  'uploaded' in answer &&
+                  answer.type === 'file' && 
+                  answer.uploaded === true;
+                
+                // For FINAL SUBMISSION: Require actual file, not just marker
+                if (!hasActualFile) {
+                  missingRequiredQuestions.push(question.text + (hasFileMarker ? ' (File was uploaded but needs to be re-uploaded after page refresh)' : ''));
+                }
+              } else if (!shouldHideQuestionText(question.text || '')) {
+                // Only validate non-hidden questions
+                // Skip file markers in validation for non-file questions
+                const isFileMarker = answer && typeof answer === 'object' && !Array.isArray(answer) && 'type' in answer && answer.type === 'file';
+                if (isFileMarker) {
+                  continue; // Skip file markers in validation for non-file questions
+                }
+                
+                if (!answer || (typeof answer === 'string' && answer.trim() === '') || 
+                   (typeof answer === 'object' && answer !== null && !Array.isArray(answer) && Object.keys(answer).length === 0) ||
                        (Array.isArray(answer) && answer.length === 0)) {
                 missingRequiredQuestions.push(question.text);
+                }
               }
             }
           }
@@ -640,27 +1033,15 @@ export default function TrackerForm() {
     
   };
 
-  // Helper: get flat list of all questions with their number
-  const getFlatQuestions = () => {
-    if (!Array.isArray(categories)) return [];
-    const flat: { catIdx: number; qIdx: number; number: number }[] = [];
-    let num = 1;
-    categories.forEach((cat, catIdx) => {
-      (cat.questions || []).forEach((q: any, qIdx: number) => {
-        flat.push({ catIdx, qIdx, number: num++ });
-      });
-    });
-    return flat;
+  // Helper: check if question text should be hidden (matching web)
+  const shouldHideQuestionText = (text: string): boolean => {
+    const t = (text || '').toLowerCase();
+    return t.includes('current scope of your job');
   };
   
-  const getQuestionNumber = (catIdx: number, qIdx: number) => {
-    const flatQuestions = getFlatQuestions();
-    const found = flatQuestions.find((fq) => fq.catIdx === catIdx && fq.qIdx === qIdx);
-    return found ? found.number : '';
-  };
-  
-  // Conditional rendering logic
-  const shouldShowCategory = (category: any) => {
+  // Conditional rendering logic (MUST be defined before getFlatQuestions since it's used there)
+  // Use useCallback to maintain stable reference and prevent infinite re-renders
+  const shouldShowCategory = useCallback((category: any) => {
     if (!Array.isArray(categories)) return true;
     
     const title = (category.title || category.name || '').toLowerCase();
@@ -710,6 +1091,80 @@ export default function TrackerForm() {
 
     // Show all other categories by default
     return true;
+  }, [categories, responses]);
+  
+  // Helper: get flat list of all VISIBLE questions with their number (matching web logic exactly)
+  const getFlatQuestions = () => {
+    if (!Array.isArray(categories)) return [];
+    const flat: { catIdx: number; qIdx: number; questionId: number; number: number }[] = [];
+    let num = 1;
+    
+    // Only count questions from visible categories (same filter as rendering)
+    categories
+      .filter((cat) => shouldShowCategory(cat))
+      .forEach((cat) => {
+        // Get the original category index from the full categories array
+        const originalCatIdx = categories.indexOf(cat);
+        
+        // Sort questions by order (same as rendering)
+        const sortedQuestions = [...(cat.questions || [])].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+        
+        sortedQuestions.forEach((q: any) => {
+          // Skip hidden questions (same check as rendering)
+          if (shouldHideQuestionText(q.text || '')) return;
+          
+          // Check for conditional questions (e.g., award supporting docs)
+          const lowerText = (q.text || '').toLowerCase();
+          const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
+                                         (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
+          
+          if (isAwardSupportingDocs) {
+            // Find question 30 (awards/recognition question) - only count if it would be shown
+            const awardQuestion = categories
+              .flatMap(cat => cat.questions || [])
+              .find((ques: any) => {
+                const qt = (ques.text || '').toLowerCase();
+                return ques.type === 'radio' && 
+                       (qt.includes('awards') || qt.includes('award') || qt.includes('recognition')) &&
+                       (qt.includes('received') || qt.includes('during') || qt.includes('employment'));
+              });
+            
+            // Only count if the award question exists (would be shown when answered Yes)
+            if (!awardQuestion) return; // Skip if parent question doesn't exist
+          }
+          
+          // Find the original index in the unsorted questions array
+          const originalQIdx = (cat.questions || []).findIndex((origQ: any) => origQ.id === q.id);
+          
+          flat.push({ catIdx: originalCatIdx, qIdx: originalQIdx, questionId: q.id, number: num++ });
+        });
+      });
+    
+    return flat;
+  };
+  
+  // Memoize flat questions to avoid recalculating on every render (matching web)
+  // Note: shouldShowCategory is defined above and uses useCallback for stable reference
+  const flatQuestions = useMemo(() => getFlatQuestions(), [categories, responses, shouldShowCategory]);
+  
+  // Helper to get question number by question ID directly (most reliable, matching web)
+  const getQuestionNumberById = (questionId: number) => {
+    const found = flatQuestions.find((fq) => fq.questionId === questionId);
+    return found ? found.number : '';
+  };
+  
+  // Fallback: get question number by indices (for backward compatibility)
+  const getQuestionNumber = (catIdx: number, qIdx: number) => {
+    // First try to find by question ID (most reliable)
+    const question = categories?.[catIdx]?.questions?.[qIdx];
+    if (question) {
+      const found = flatQuestions.find((fq) => fq.questionId === question.id);
+      if (found) return found.number;
+    }
+    
+    // Fallback: try to find by catIdx and qIdx
+    const found = flatQuestions.find((fq) => fq.catIdx === catIdx && fq.qIdx === qIdx);
+    return found ? found.number : '';
   };
   
   // Helper to check if field should be read-only
@@ -719,9 +1174,11 @@ export default function TrackerForm() {
            text.includes('birthdate') || text.includes('birth date') || text.includes('birthday');
   };
   
-  // Helper to get prefilled value
+  // Helper to get prefilled value (matching web logic exactly)
   const getPrefilledValue = (q: any) => {
     const qid = String(q.id);
+    
+    // Always check responses first (user input or draft)
     if (responses[qid] !== undefined) {
       return responses[qid];
     }
@@ -729,6 +1186,34 @@ export default function TrackerForm() {
     if (!userDetails) return '';
     
     const text = (q.text || '').toLowerCase();
+    
+    // Always use User model for course, batch, birthdate, phone (matching web)
+    if (text.includes('program graduated') || (text.includes('program') && text.includes('graduated'))) {
+      return userDetails.program || '';
+    } else if ((text.includes('year') && text.includes('graduated')) || text.includes('batch')) {
+      const yearValue = userDetails.year_graduated || userDetails.batch || '';
+      return yearValue ? String(yearValue) : '';
+    } else if (text.includes('birthdate') || text.includes('birth date') || text.includes('birthday')) {
+      if (userDetails.birthdate) {
+        const date = new Date(userDetails.birthdate);
+        return date.toISOString().split('T')[0];
+      }
+      return '';
+    } else if (text.includes('phone') || text.includes('mobile') || text.includes('contact') || text.includes('landline')) {
+      return userDetails.phone || userDetails.phone_num || '';
+    }
+    
+    // Don't pre-fill current position/company/presently employed (matching web behavior)
+    // This prevents OJT data from affecting current employment
+    if (text.includes('current position')) {
+      return ''; // Don't pre-fill - let user answer
+    } else if (text.includes('current company') || (text.includes('current') && text.includes('organization') && text.includes('employer'))) {
+      return ''; // Don't pre-fill - let user answer
+    } else if (text.includes('presently employed') || (text.includes('presently') && text.includes('employed'))) {
+      return ''; // Don't pre-fill - let user answer
+    }
+    
+    // Standard field mappings (matching web)
     if (text.includes('first name')) {
       return userDetails.first_name || userDetails.f_name || '';
     } else if (text.includes('last name')) {
@@ -737,11 +1222,6 @@ export default function TrackerForm() {
       return userDetails.middle_name || userDetails.m_name || '';
     } else if (text.includes('email')) {
       return userDetails.email || '';
-    } else if (text.includes('birthdate') || text.includes('birth date')) {
-      if (userDetails.birthdate) {
-        const date = new Date(userDetails.birthdate);
-        return date.toISOString().split('T')[0];
-      }
     } else if (text.includes('age')) {
       if (userDetails.age) {
         return String(userDetails.age);
@@ -753,19 +1233,13 @@ export default function TrackerForm() {
           ((today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate()) ? 1 : 0);
         return String(age);
       }
-    } else if (text.includes('phone') || text.includes('mobile') || text.includes('landline')) {
-      return userDetails.phone || userDetails.phone_num || '';
+      return '';
     } else if (text.includes('address') && !text.includes('company')) {
       return userDetails.address || '';
     } else if (text.includes('civil status')) {
       return userDetails.civil_status || '';
     } else if (text.includes('social media')) {
       return userDetails.social_media || '';
-    } else if ((text.includes('year') && text.includes('graduated')) || text.includes('batch')) {
-      const yearValue = userDetails.year_graduated || userDetails.batch || '';
-      return yearValue ? String(yearValue) : '';
-    } else if (text.includes('program graduated') || (text.includes('program') && text.includes('graduated'))) {
-      return userDetails.program || '';
     }
     
     return '';
@@ -776,10 +1250,17 @@ export default function TrackerForm() {
     const qid = String(q.id ?? q.question_id ?? q.key ?? q.text);
     const qtype = (q.type || '').toLowerCase();
     const value = responses[qid] !== undefined ? responses[qid] : getPrefilledValue(q);
-    const questionNumber = getQuestionNumber(catIdx, qIdx);
+    // Use question ID for numbering (most reliable, matching web)
+    const questionNumber = getQuestionNumberById(q.id) || getQuestionNumber(catIdx, qIdx);
+    // Define lowerText early for use throughout the function
+    const lowerText = (q.text || '').toLowerCase();
+    
+    // Skip hidden questions (matching web behavior)
+    if (shouldHideQuestionText(q.text || '')) {
+      return null;
+    }
     
     // Check if this is award supporting docs question - only show if awards question is "Yes"
-    const lowerText = (q.text || '').toLowerCase();
     const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
                                    (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
     
@@ -797,33 +1278,189 @@ export default function TrackerForm() {
         return null;
       }
       
-      // Multiple file upload for award documents
+      // Multiple file upload for award documents (matching web implementation)
       const files = multipleFileAnswers[qid] || [];
+      
+      // Check if there's a file marker in responses (from draft) indicating files were uploaded
+      const responseValue = responses[qid];
+      const hasFileMarker = responseValue && 
+        typeof responseValue === 'object' && 
+        !Array.isArray(responseValue) &&
+        'type' in responseValue && 
+        'uploaded' in responseValue &&
+        responseValue.type === 'file' && 
+        responseValue.multiple === true &&
+        responseValue.uploaded === true;
+      
+      // If file marker exists but no actual files (after refresh), show helper message
+      const showReuploadMessage = hasFileMarker && (!files || files.length === 0 || files.every(f => f === null));
+      
+      // Helper function to update file at specific index
+      const updateFileAtIndex = async (index: number) => {
+        const result = await DocumentPicker.getDocumentAsync({});
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const f = result.assets[0];
+          const asset: FileAsset = {
+            name: f.name,
+            uri: f.uri,
+            mimeType: f.mimeType,
+            size: f.size,
+          };
+          
+          // Validate file size (10MB)
+          if (asset.size && asset.size > 10 * 1024 * 1024) {
+            Alert.alert('File Size Error', 'File size must be less than 10MB');
+            return;
+          }
+          
+          // Validate file type
+          const allowedTypes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/gif',
+          ];
+          
+          if (asset.mimeType && !allowedTypes.includes(asset.mimeType)) {
+            Alert.alert('File Type Error', 'Please select a valid file type: PDF, DOC, DOCX, JPG, PNG, or GIF');
+            return;
+          }
+          
+          // Update file at specific index
+          const currentFiles = [...files];
+          // Ensure array is large enough
+          while (currentFiles.length <= index) {
+            currentFiles.push(null as any);
+          }
+          currentFiles[index] = asset;
+          
+          // Filter out null entries to get actual file count
+          const validFiles = currentFiles.filter(f => f !== null);
+          
+          setMultipleFileAnswers((prev) => ({ ...prev, [qid]: currentFiles }));
+          // Save file marker in responses for draft persistence (count only valid files)
+          setResponse(qid, { 
+            type: 'file', 
+            multiple: true, 
+            uploaded: true, 
+            count: validFiles.length 
+          });
+        }
+      };
+      
+      // Ensure at least one slot exists automatically when question is shown (matching web behavior)
+      // This ensures "Choose File" appears immediately without needing "+ Add Another Award"
+      const displayFiles = files.length === 0 ? [null] : files;
+      
       return (
         <View key={qid} style={{ marginBottom: 12 }}>
           <Text style={styles.label}>
             {questionNumber ? `${questionNumber}. ` : ''}{q.text}
             {q.required && <Text style={{ color: 'red' }}> *</Text>}
           </Text>
-          {files.map((file, index) => (
-            <View key={index} style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={styles.fileText}>{file.name}</Text>
-              <TouchableOpacity onPress={() => removeFileFromMultiple(qid, index)}>
-                <Text style={{ color: 'red', marginLeft: 8 }}>Remove</Text>
+          {displayFiles.map((file, index) => (
+            <View key={index} style={{ marginBottom: 8, padding: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 4 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ fontWeight: '500', fontSize: 14 }}>Award Document {index + 1}</Text>
+                {displayFiles.length > 1 && file && (
+                  <TouchableOpacity 
+                    onPress={() => removeFileFromMultiple(qid, index)}
+                    style={{
+                      backgroundColor: '#ff3b3b',
+                      paddingVertical: 4,
+                      paddingHorizontal: 12,
+                      borderRadius: 4,
+                    }}
+                  >
+                    <Text style={{ color: 'white', fontSize: 12 }}>Remove</Text>
               </TouchableOpacity>
+                )}
             </View>
-          ))}
-          <TouchableOpacity style={styles.uploadButton} onPress={() => pickFileForQuestion(qid, true)}>
+              
+              {/* Choose File Button - shown for each slot (matching web) */}
+              <TouchableOpacity 
+                style={styles.uploadButton}
+                onPress={() => updateFileAtIndex(index)}
+              >
             <Text style={styles.uploadButtonText}>
-              {files.length === 0 ? 'Choose File' : '+ Add Another Award'}
+                  {file ? 'Choose File' : 'Choose File'}
             </Text>
           </TouchableOpacity>
+              
+              {/* Show selected file info if file exists */}
+              {file && (
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.fileText}>{file.name}</Text>
+                  {file.size && (
+                    <Text style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>
+                      ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                    </Text>
+                  )}
+                </View>
+              )}
+            </View>
+          ))}
+          
+          {/* Add Another Award Button */}
+          <TouchableOpacity 
+            style={[styles.uploadButton, { marginTop: 8, backgroundColor: '#1e4c7a' }]} 
+            onPress={() => {
+              const currentFiles = multipleFileAnswers[qid] || [];
+              const updatedFiles = [...currentFiles, null as any];
+              setMultipleFileAnswers((prev) => ({ ...prev, [qid]: updatedFiles }));
+              // Update file marker - keep existing marker if files exist, otherwise create new one
+              const existingFiles = currentFiles.filter(f => f !== null);
+              if (existingFiles.length > 0) {
+                setResponse(qid, { 
+                  type: 'file', 
+                  multiple: true, 
+                  uploaded: true, 
+                  count: existingFiles.length 
+                });
+              }
+            }}
+          >
+            <Text style={[styles.uploadButtonText, { color: 'white' }]}>
+              + Add Another Award
+            </Text>
+          </TouchableOpacity>
+          
+          {files.length === 0 && !showReuploadMessage && (
+            <Text style={{ marginTop: 8, color: '#888', fontSize: 12 }}>
+              Click the button above to add your first award document.
+            </Text>
+          )}
+          
+          {/* Show re-upload message if files were uploaded before refresh */}
+          {showReuploadMessage && (
+            <View style={{ marginTop: 8, padding: 12, backgroundColor: '#fff3cd', borderRadius: 6, borderWidth: 1, borderColor: '#ffc107' }}>
+              <Text style={{ fontSize: 12, color: '#856404', fontWeight: '500' }}>
+                ⚠️ Files were uploaded but need to be re-uploaded after page refresh. Please select your files again.
+              </Text>
+            </View>
+          )}
         </View>
       );
     }
 
     if (qtype === 'file' || /upload|file/i.test(q.text || '')) {
       const file = fileAnswers[qid];
+      // Check if there's a file marker in responses (from draft) indicating file was uploaded
+      const responseValue = responses[qid];
+      const hasFileMarker = responseValue && 
+        typeof responseValue === 'object' && 
+        !Array.isArray(responseValue) &&
+        'type' in responseValue && 
+        'uploaded' in responseValue &&
+        responseValue.type === 'file' && 
+        responseValue.uploaded === true;
+      
+      // If file marker exists but no actual file (after refresh), show helper message
+      const showReuploadMessage = hasFileMarker && !file;
+      
       return (
         <View key={qid} style={{ marginBottom: 12 }}>
           <Text style={styles.label}>
@@ -834,6 +1471,15 @@ export default function TrackerForm() {
             <Text style={styles.uploadButtonText}>Choose File</Text>
           </TouchableOpacity>
           {file && <Text style={styles.fileText}>{file.name}</Text>}
+          
+          {/* Show re-upload message if file was uploaded before refresh */}
+          {showReuploadMessage && (
+            <View style={{ marginTop: 8, padding: 12, backgroundColor: '#fff3cd', borderRadius: 6, borderWidth: 1, borderColor: '#ffc107' }}>
+              <Text style={{ fontSize: 12, color: '#856404', fontWeight: '500' }}>
+                ⚠️ File was uploaded but needs to be re-uploaded after page refresh. Please select your file again.
+              </Text>
+            </View>
+          )}
         </View>
       );
     }
@@ -937,9 +1583,377 @@ export default function TrackerForm() {
       );
     }
 
-    // default to text input
+    // Special handling for date fields (Birthdate, Date Hired, Date Started)
     const text = (q.text || '').toLowerCase();
-    const isDate = text.includes('birth') || text.includes('bday') || text.includes('date');
+    const isBirthdate = text.includes('birth') || text.includes('bday') || (text.includes('date') && text.includes('birth'));
+    const isDateHired = (text.includes('date hired') || (text.includes('hired') && text.includes('date'))) && !text.includes('birth');
+    const isDateStarted = (text.includes('date started') || (text.includes('started') && text.includes('date'))) && !text.includes('birth');
+    const isDate = isBirthdate || isDateHired || isDateStarted;
+    
+    if (isDate) {
+      // Helper function to safely parse date
+      const parseDateSafe = (dateStr: string): Date | null => {
+        if (!dateStr || dateStr.trim() === '') return null;
+        
+        // Try YYYY-MM-DD format
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          const date = new Date(dateStr);
+          if (!isNaN(date.getTime())) return date;
+        }
+        
+        // Try MM/DD/YYYY format
+        if (dateStr.includes('/')) {
+          const parts = dateStr.split('/');
+          if (parts.length === 3) {
+            const month = parseInt(parts[0]) - 1;
+            const day = parseInt(parts[1]);
+            const year = parseInt(parts[2]);
+            if (!isNaN(month) && !isNaN(day) && !isNaN(year)) {
+              const date = new Date(year, month, day);
+              if (!isNaN(date.getTime())) return date;
+            }
+          }
+        }
+        
+        // Try direct Date parsing as fallback
+        const date = new Date(dateStr);
+        if (!isNaN(date.getTime())) return date;
+        
+        return null;
+      };
+      
+      const currentValue = value ? String(value) : '';
+      let formattedValue = '';
+      const parsedDate = parseDateSafe(currentValue);
+      
+      if (parsedDate) {
+        // Format as YYYY-MM-DD
+        const year = parsedDate.getFullYear();
+        const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(parsedDate.getDate()).padStart(2, '0');
+        formattedValue = `${year}-${month}-${day}`;
+      }
+      
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              // Use parsed date if valid, otherwise use today
+              let initialDate: Date;
+              if (parsedDate && !isNaN(parsedDate.getTime())) {
+                initialDate = parsedDate;
+              } else {
+                initialDate = new Date();
+              }
+              // Ensure date is valid before setting
+              if (isNaN(initialDate.getTime())) {
+                initialDate = new Date();
+              }
+              setSelectedDate(initialDate);
+              // Initialize raw inputs with current date values
+              setDateInputs({
+                year: String(initialDate.getFullYear()),
+                month: String(initialDate.getMonth() + 1),
+                day: String(initialDate.getDate())
+              });
+              setShowDatePicker({ questionId: qid, visible: true });
+            }}
+            style={[styles.input, { justifyContent: 'center' }]}
+          >
+            <Text style={{ color: formattedValue ? '#000' : '#999' }}>
+              {formattedValue || 'YYYY-MM-DD'}
+            </Text>
+            <FontAwesome name="calendar" size={16} color="#666" style={{ marginLeft: 'auto', marginRight: 8 }} />
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    // Special handling for "How long have you been employed?" (Question 28)
+    const isEmploymentDuration = text.includes('how long') && text.includes('employed');
+    if (isEmploymentDuration) {
+      const durationOptions = [
+        { value: 'less_than_6_months', label: 'Less than 6 months' },
+        { value: '6_months_1_year', label: '6 months – 1 year' },
+        { value: '1_2_years', label: '1 – 2 years' },
+        { value: '3_5_years', label: '3 – 5 years' },
+        { value: 'more_than_5_years', label: 'More than 5 years' }
+      ];
+      
+      const currentLabel = durationOptions.find(opt => opt.value === value)?.label || value || '';
+      
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
+          <TouchableOpacity
+            style={styles.input}
+            onPress={() => {
+              Alert.alert(
+                'Select Employment Duration',
+                '',
+                [
+                  ...durationOptions.map(opt => ({
+                    text: opt.label,
+                    onPress: () => setResponse(qid, opt.value)
+                  })),
+                  { text: 'Cancel', style: 'cancel' }
+                ]
+              );
+            }}
+          >
+            <Text style={{ color: currentLabel ? '#000' : '#999' }}>
+              {currentLabel || 'Select employment duration'}
+            </Text>
+            <FontAwesome name="chevron-down" size={16} color="#666" style={{ marginLeft: 'auto' }} />
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    // Special handling for "Current Salary range" (Question 29)
+    const isSalaryRange = (text.includes('salary') || text.includes('salary range')) && !text.includes('monthly') && !text.includes('annual');
+    if (isSalaryRange) {
+      const salaryOptions = [
+        { value: 'below_5000', label: '5,000 below' },
+        { value: '5001_10000', label: '5,001 to 10,000' },
+        { value: '10001_20000', label: '10,001 to 20,000' },
+        { value: '20001_30000', label: '20,001 to 30,000' },
+        { value: 'above_30000', label: '30,000 above' }
+      ];
+      
+      const currentLabel = salaryOptions.find(opt => opt.value === value)?.label || value || '';
+      
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
+          <TouchableOpacity
+            style={styles.input}
+            onPress={() => {
+              Alert.alert(
+                'Select Salary Range',
+                '',
+                [
+                  ...salaryOptions.map(opt => ({
+                    text: opt.label,
+                    onPress: () => setResponse(qid, opt.value)
+                  })),
+                  { text: 'Cancel', style: 'cancel' }
+                ]
+              );
+            }}
+          >
+            <Text style={{ color: currentLabel ? '#000' : '#999' }}>
+              {currentLabel || 'Select salary range'}
+            </Text>
+            <FontAwesome name="chevron-down" size={16} color="#666" style={{ marginLeft: 'auto' }} />
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    // Enhanced current position with autocomplete and alignment checking (matching web)
+    const isCurrentPosition = lowerText.includes('current position');
+    if (isCurrentPosition) {
+      const currentQuestionSuggestions = showJobSuggestions.questionId === qid ? jobSuggestions : [];
+      const alignmentInfo = jobAlignmentStatus?.questionId === qid ? jobAlignmentStatus : null;
+      const isLoadingSuggestions = loadingJobSuggestions.questionId === qid && loadingJobSuggestions.loading;
+      const isCheckingAlignment = checkingAlignment && jobAlignmentStatus?.questionId === qid;
+      
+      return (
+        <View key={qid} style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>
+            {questionNumber ? `${questionNumber}. ` : ''}{q.text}
+            {q.required && <Text style={{ color: 'red' }}> *</Text>}
+          </Text>
+          
+          {/* Job Title Input with Suggestions */}
+          <View style={{ position: 'relative', zIndex: 1000 }}>
+            <TextInput
+              style={styles.input}
+              value={value !== null && value !== undefined ? String(value) : ''}
+              onChangeText={(v) => {
+                setResponse(qid, v);
+                // Clear alignment status when typing
+                if (jobAlignmentStatus?.questionId === qid) {
+                  setJobAlignmentStatus(null);
+                }
+                // Search for job suggestions (debounced)
+                searchJobTitles(v, qid);
+              }}
+              onSubmitEditing={() => {
+                // Handle Enter key - check alignment if user typed manually
+                const currentValue = responses[qid] !== undefined ? String(responses[qid]) : '';
+                if (currentValue && currentValue.trim().length >= 2) {
+                  const isFromAutocomplete = currentQuestionSuggestions.some(s => s.title.toLowerCase().trim() === currentValue.toLowerCase().trim());
+                  if (!isFromAutocomplete) {
+                    handleCheckJobAlignment(currentValue.trim(), qid, false);
+                  }
+                }
+                // Hide suggestions
+                setShowJobSuggestions({ questionId: '', visible: false });
+              }}
+              onBlur={() => {
+                // CRITICAL FIX: Prevent onBlur from interfering with suggestion selection
+                // Check if a suggestion was just selected (within last 300ms)
+                const justSelected = suggestionSelectedRef.current && 
+                  suggestionSelectedRef.current.questionId === qid &&
+                  Date.now() - suggestionSelectedRef.current.timestamp < 300;
+                
+                if (justSelected) {
+                  // Don't run onBlur logic if suggestion was just selected
+                  return;
+                }
+                
+                // For manually typed jobs, check alignment after a delay
+                setTimeout(() => {
+                  const currentValue = responses[qid] !== undefined ? String(responses[qid]) : '';
+                  
+                  // Double-check that suggestion wasn't selected during the delay
+                  const stillJustSelected = suggestionSelectedRef.current && 
+                    suggestionSelectedRef.current.questionId === qid &&
+                    Date.now() - suggestionSelectedRef.current.timestamp < 500;
+                  
+                  if (stillJustSelected) {
+                    return; // Don't interfere with suggestion selection
+                  }
+                  
+                  // Only check alignment if user typed something manually
+                  if (currentValue && currentValue.trim().length >= 2 && !showJobSuggestions.visible) {
+                    // Check if this value exactly matches any suggestion (case-insensitive)
+                    const isFromAutocomplete = currentQuestionSuggestions.some(s => 
+                      s.title.toLowerCase().trim() === currentValue.toLowerCase().trim()
+                    );
+                    
+                    // Only check alignment for manually typed jobs (not from autocomplete)
+                    if (!isFromAutocomplete) {
+                      handleCheckJobAlignment(currentValue.trim(), qid, false);
+                    }
+                  }
+                  
+                  // Always hide suggestions after blur (if still visible)
+                  if (showJobSuggestions.visible && showJobSuggestions.questionId === qid) {
+                    setShowJobSuggestions({ questionId: '', visible: false });
+                  }
+                }, 200); // Short delay to allow suggestion selection to complete
+              }}
+              placeholder={q.placeholder || "Select or type Job Title"}
+              autoCapitalize="words"
+              ref={(ref) => {
+                // Store ref for potential programmatic updates if needed
+              }}
+            />
+            
+            {/* Loading Indicator */}
+            {isLoadingSuggestions && (
+              <View style={{ position: 'absolute', right: 12, top: 12 }}>
+                <ActivityIndicator size="small" color="#174f84" />
+              </View>
+            )}
+            
+            {/* Job Suggestions Dropdown */}
+            {currentQuestionSuggestions.length > 0 && showJobSuggestions.visible && showJobSuggestions.questionId === qid && (
+              <View style={styles.jobSuggestionsContainer}>
+                <ScrollView style={styles.jobSuggestionsList} nestedScrollEnabled={true}>
+                  {currentQuestionSuggestions.map((suggestion, index) => (
+                    <TouchableOpacity
+                      key={`${suggestion.title}-${suggestion.program}-${index}`}
+                      style={styles.jobSuggestionItem}
+                      onPress={async () => {
+                        // CRITICAL FIX: Ensure the selected value appears in TextInput immediately
+                        const selectedTitle = suggestion.title;
+                        
+                        // Mark that a suggestion was selected (prevents onBlur from interfering)
+                        suggestionSelectedRef.current = {
+                          questionId: qid,
+                          timestamp: Date.now()
+                        };
+                        
+                        // Hide suggestions immediately to prevent blur event conflicts
+                        setShowJobSuggestions({ questionId: '', visible: false });
+                        setJobSuggestions([]);
+                        
+                        // Update response state immediately - this triggers re-render with new value
+                        setResponse(qid, selectedTitle);
+                        
+                        // Use requestAnimationFrame to ensure state update has propagated to TextInput
+                        // Then check alignment immediately (fromAutocomplete=true means no debounce)
+                        requestAnimationFrame(() => {
+                          // Check alignment immediately for autocomplete selections
+                          handleCheckJobAlignment(selectedTitle, qid, true);
+                        });
+                      }}
+                    >
+                      <Text style={styles.jobSuggestionTitle}>{suggestion.title}</Text>
+                      <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                        <Text style={styles.jobSuggestionProgram}>{suggestion.program}</Text>
+                        <Text style={styles.jobSuggestionCode}> • Code: {suggestion.code}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+          
+          {/* Alignment Status Helper Text */}
+          {isCheckingAlignment ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+              <ActivityIndicator size="small" color="#174f84" style={{ marginRight: 6 }} />
+              <Text style={{ fontSize: 12, color: '#666', fontStyle: 'italic' }}>
+                Checking job alignment...
+              </Text>
+            </View>
+          ) : alignmentInfo && (
+            <View style={{ marginTop: 6 }}>
+              {alignmentInfo.status === 'aligned' ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#e8f5e9', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#4caf50' }}>
+                  <FontAwesome name="check-circle" size={14} color="#2e7d32" style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 12, color: '#2e7d32', fontWeight: '500' }}>
+                    ✓ This job is aligned to your program
+                  </Text>
+                </View>
+              ) : alignmentInfo.status === 'not_aligned' ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff3e0', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#ff9800' }}>
+                  <FontAwesome name="info-circle" size={14} color="#f57c00" style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 12, color: '#e65100', fontWeight: '500' }}>
+                    ⚠ This job may not be aligned to your program
+                  </Text>
+                </View>
+              ) : alignmentInfo.status === 'pending' || showJobAlignmentModal.needsConfirmation ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#e3f2fd', padding: 8, borderRadius: 6, borderWidth: 1, borderColor: '#2196f3' }}>
+                  <FontAwesome name="question-circle" size={14} color="#1976d2" style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 12, color: '#1565c0', fontWeight: '500' }}>
+                    ? Please confirm if this job is aligned to your program
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+          
+          {/* Helper Text (always show) */}
+          <Text style={{ fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' }}>
+            💡 Tip: Type your job title to see suggestions. The system will check if it's aligned with your course.
+          </Text>
+        </View>
+      );
+    }
+    
+    // Special handling for "Current Company Name" - regular text input (matching web)
+    const isCurrentCompany = lowerText.includes('current company') || 
+                            (lowerText.includes('current') && lowerText.includes('organization') && lowerText.includes('employer')) ||
+                            lowerText.includes('company name');
+    
+    // default to text input
     const isPhone = text.includes('phone') || text.includes('mobile') || text.includes('contact');
     const isEmail = text.includes('email');
     const isNumeric = text.includes('age') || text.includes('units') || text.includes('number');
@@ -959,8 +1973,9 @@ export default function TrackerForm() {
               setResponse(qid, v);
             }
           }}
-          placeholder={q.placeholder || ''}
-          keyboardType={isDate ? 'default' : isPhone ? 'phone-pad' : isEmail ? 'email-address' : isNumeric ? 'numeric' : 'default'}
+          placeholder={q.placeholder || (isCurrentCompany ? 'Enter company name' : '')}
+          keyboardType={isPhone ? 'phone-pad' : isEmail ? 'email-address' : isNumeric ? 'numeric' : 'default'}
+          autoCapitalize={isCurrentCompany ? 'words' : 'none'}
           editable={!readOnly}
         />
       </View>
@@ -1466,7 +2481,50 @@ export default function TrackerForm() {
             setAwardOptions(updatedButtons);
 
             const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) setHasAwards(selected.value);
+            if (selected) {
+              setHasAwards(selected.value);
+              
+              // When "Yes" is selected, automatically create the first file upload slot for Question 31
+              if (selected.value === 'Yes') {
+                // Find Question 31 (Supporting Documents for awards/recognition)
+                const awardDocsQuestion = categories
+                  ?.flatMap(cat => cat.questions || [])
+                  .find((q: any) => {
+                    const qt = (q.text || '').toLowerCase();
+                    return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
+                           (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
+                  });
+                
+                if (awardDocsQuestion) {
+                  const questionId = String(awardDocsQuestion.id);
+                  const currentFiles = multipleFileAnswers[questionId] || [];
+                  // Auto-create first slot if none exists
+                  if (currentFiles.length === 0) {
+                    setMultipleFileAnswers((prev) => ({ ...prev, [questionId]: [null as any] }));
+                  }
+                }
+              } else if (selected.value === 'No') {
+                // Clear award documents when "No" is selected
+                const awardDocsQuestion = categories
+                  ?.flatMap(cat => cat.questions || [])
+                  .find((q: any) => {
+                    const qt = (q.text || '').toLowerCase();
+                    return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
+                           (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
+                  });
+                
+                if (awardDocsQuestion) {
+                  const questionId = String(awardDocsQuestion.id);
+                  setMultipleFileAnswers((prev) => {
+                    const newState = { ...prev };
+                    delete newState[questionId];
+                    return newState;
+                  });
+                  // Clear file marker from responses
+                  setResponse(questionId, '');
+                }
+              }
+            }
           }}
           layout="row"
         />
@@ -1672,12 +2730,389 @@ export default function TrackerForm() {
     </ScrollView>
       )}
 
-      {/* Terms and Conditions Modal */}
+      {/* Privacy Notice Modal (matching web) */}
+      <Modal
+        visible={showPrivacyModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          // Don't allow closing without accepting
+          if (!privacyAccepted) {
+            Alert.alert('Privacy Notice', 'Please read and accept the Privacy Notice to continue.');
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Privacy Notice</Text>
+              <Text style={styles.modalSubtitle}>Republic Act No. 10173 - Data Privacy Act of 2012</Text>
+            </View>
+            
+            <ScrollView 
+              style={styles.modalScrollView} 
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={true}
+            >
+              <View style={styles.modalBody}>
+                <Text style={styles.modalText}>
+                  We are committed to protecting your personal data in accordance with the Data Privacy Act of 2012. 
+                  The information you provide in this Tracer Form will be used solely for academic and institutional purposes.
+                </Text>
+                <Text style={styles.modalText}>
+                  Your personal data will be:
+                </Text>
+                <View style={styles.modalBulletList}>
+                  <Text style={styles.modalBullet}>• Collected and processed lawfully and fairly</Text>
+                  <Text style={styles.modalBullet}>• Used only for the stated purposes</Text>
+                  <Text style={styles.modalBullet}>• Kept accurate and up-to-date</Text>
+                  <Text style={styles.modalBullet}>• Stored securely and confidentially</Text>
+                  <Text style={styles.modalBullet}>• Not shared with unauthorized parties</Text>
+                </View>
+                <Text style={styles.modalText}>
+                  By proceeding with the Tracer Form, you acknowledge that you have read and understood this privacy notice.
+                </Text>
+                
+                <TouchableOpacity
+                  style={[styles.modalCheckbox, privacyAccepted && styles.modalCheckboxChecked]}
+                  onPress={() => setPrivacyAccepted(!privacyAccepted)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.checkboxBox, privacyAccepted && styles.checked]} />
+                  <Text style={styles.modalCheckboxText}>
+                    I have read and understood the Privacy Notice and I voluntarily consent to the collection and use of my personal data for Tracer Form.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+            
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => {
+                  setShowPrivacyModal(false);
+                  setPrivacyAccepted(false);
+                  navigation.goBack();
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modalButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalButton, 
+                  styles.modalButtonAccept, 
+                  !privacyAccepted && styles.modalButtonDisabled
+                ]}
+                onPress={() => {
+                  if (privacyAccepted) {
+                    setShowPrivacyModal(false);
+                  } else {
+                    Alert.alert('Privacy Notice', 'Please accept the Privacy Notice to continue.');
+                  }
+                }}
+                disabled={!privacyAccepted}
+                activeOpacity={0.7}
+              >
+                <Text style={[
+                  styles.modalButtonAcceptText,
+                  !privacyAccepted && styles.modalButtonAcceptTextDisabled
+                ]}>
+                  Accept & Continue
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Job Alignment Confirmation Modal */}
+      <Modal
+        visible={showJobAlignmentModal.visible && showJobAlignmentModal.needsConfirmation}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowJobAlignmentModal({ questionId: '', position: '', visible: false, needsConfirmation: false })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.jobAlignmentModalContent}>
+            {/* Header */}
+            <View style={styles.jobAlignmentHeader}>
+              <Text style={styles.jobAlignmentTitle}>🤔 Job Alignment Question</Text>
+            </View>
+            
+            {/* Content */}
+            <View style={styles.jobAlignmentBody}>
+              <Text style={styles.jobAlignmentQuestion}>
+                {showJobAlignmentModal.suggestion?.question || `Is '${showJobAlignmentModal.position}' aligned to your program?`}
+              </Text>
+              
+              {/* Radio Options */}
+              <View style={styles.jobAlignmentOptions}>
+                <TouchableOpacity
+                  style={[
+                    styles.jobAlignmentOption,
+                    jobAlignmentAnswer === 'yes' && styles.jobAlignmentOptionSelected
+                  ]}
+                  onPress={() => setJobAlignmentAnswer('yes')}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.radioCircle, jobAlignmentAnswer === 'yes' && styles.radioCircleSelected]}>
+                    {jobAlignmentAnswer === 'yes' && <View style={styles.radioCircleInner} />}
+                  </View>
+                  <Text style={[styles.jobAlignmentOptionText, jobAlignmentAnswer === 'yes' && styles.jobAlignmentOptionTextSelected]}>
+                    ✅ Yes, this job is aligned to my program
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.jobAlignmentOption,
+                    jobAlignmentAnswer === 'no' && styles.jobAlignmentOptionSelected
+                  ]}
+                  onPress={() => setJobAlignmentAnswer('no')}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.radioCircle, jobAlignmentAnswer === 'no' && styles.radioCircleSelected]}>
+                    {jobAlignmentAnswer === 'no' && <View style={styles.radioCircleInner} />}
+                  </View>
+                  <Text style={[styles.jobAlignmentOptionText, jobAlignmentAnswer === 'no' && styles.jobAlignmentOptionTextSelected]}>
+                    ❌ No, this job is not aligned to my program
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            
+            {/* Footer */}
+            <View style={styles.jobAlignmentFooter}>
+              <TouchableOpacity
+                style={[
+                  styles.jobAlignmentConfirmButton,
+                  (!jobAlignmentAnswer || checkingAlignment) && styles.jobAlignmentConfirmButtonDisabled
+                ]}
+                onPress={async () => {
+                  if (!jobAlignmentAnswer || checkingAlignment) return;
+                  
+                  try {
+                    setCheckingAlignment(true);
+                    const user = await getUserInfo();
+                    if (!user?.id && !user?.user_id) {
+                      Alert.alert('Error', 'User ID not found');
+                      return;
+                    }
+                    
+                    const userId = user.id || user.user_id;
+                    const employmentId = showJobAlignmentModal.suggestion?.employment_id || 0;
+                    
+                    const result = await confirmJobAlignment(employmentId, userId, jobAlignmentAnswer === 'yes');
+                    
+                    if (result.success) {
+                      // Update alignment status
+                      setJobAlignmentStatus({
+                        questionId: showJobAlignmentModal.questionId,
+                        status: result.job_alignment_status || (jobAlignmentAnswer === 'yes' ? 'aligned' : 'not_aligned')
+                      });
+                      
+                      // Close modal
+                      setShowJobAlignmentModal({ questionId: '', position: '', visible: false, needsConfirmation: false });
+                      setJobAlignmentAnswer(null);
+                    } else {
+                      Alert.alert('Error', 'Failed to confirm job alignment');
+                    }
+                  } catch (error) {
+                    console.error('Error confirming job alignment:', error);
+                    Alert.alert('Error', 'Failed to confirm job alignment');
+                  } finally {
+                    setCheckingAlignment(false);
+                  }
+                }}
+                disabled={!jobAlignmentAnswer || checkingAlignment}
+                activeOpacity={0.7}
+              >
+                {checkingAlignment ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.jobAlignmentConfirmButtonText}>Confirm Answer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Date Picker Modal */}
+      <Modal
+        visible={showDatePicker.visible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDatePicker({ questionId: '', visible: false })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.datePickerModalContent}>
+            {/* Header */}
+            <View style={styles.datePickerHeader}>
+              <View style={styles.datePickerIconContainer}>
+                <FontAwesome name="calendar" size={24} color="#174f84" />
+              </View>
+              <Text style={styles.datePickerTitle}>Select Date</Text>
+              <TouchableOpacity
+                style={styles.datePickerCloseButton}
+                onPress={() => setShowDatePicker({ questionId: '', visible: false })}
+              >
+                <FontAwesome name="times" size={18} color="#666" />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Content */}
+            <View style={styles.datePickerBody}>
+              {/* Date Inputs in Grid */}
+              <View style={styles.dateInputGrid}>
+                {/* Year Input */}
+                <View style={styles.dateInputGroup}>
+                  <Text style={styles.dateInputLabel}>Year</Text>
+                  <TextInput
+                    style={styles.dateInputField}
+                    value={dateInputs.year}
+                    onChangeText={(year) => setDateInputs(prev => ({ ...prev, year }))}
+                    keyboardType="numeric"
+                    placeholder="YYYY"
+                    placeholderTextColor="#999"
+                    maxLength={4}
+                    selectTextOnFocus={true}
+                  />
+                  <Text style={styles.dateInputHint}>1900 - 2100</Text>
+                </View>
+                
+                {/* Month Input */}
+                <View style={styles.dateInputGroup}>
+                  <Text style={styles.dateInputLabel}>Month</Text>
+                  <TextInput
+                    style={styles.dateInputField}
+                    value={dateInputs.month}
+                    onChangeText={(month) => setDateInputs(prev => ({ ...prev, month }))}
+                    keyboardType="numeric"
+                    placeholder="MM"
+                    placeholderTextColor="#999"
+                    maxLength={2}
+                    selectTextOnFocus={true}
+                  />
+                  <Text style={styles.dateInputHint}>1 - 12</Text>
+                </View>
+                
+                {/* Day Input */}
+                <View style={styles.dateInputGroup}>
+                  <Text style={styles.dateInputLabel}>Day</Text>
+                  <TextInput
+                    style={styles.dateInputField}
+                    value={dateInputs.day}
+                    onChangeText={(day) => setDateInputs(prev => ({ ...prev, day }))}
+                    keyboardType="numeric"
+                    placeholder="DD"
+                    placeholderTextColor="#999"
+                    maxLength={2}
+                    selectTextOnFocus={true}
+                  />
+                  <Text style={styles.dateInputHint}>1 - 31</Text>
+                </View>
+              </View>
+              
+              {/* Preview Section */}
+              {(() => {
+                const year = parseInt(dateInputs.year);
+                const month = parseInt(dateInputs.month);
+                const day = parseInt(dateInputs.day);
+                if (!isNaN(year) && !isNaN(month) && !isNaN(day) && year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                  const previewDate = new Date(year, month - 1, day);
+                  const maxDays = new Date(year, month, 0).getDate();
+                  if (day <= maxDays && !isNaN(previewDate.getTime())) {
+                    return (
+                      <View style={styles.datePreviewContainer}>
+                        <Text style={styles.datePreviewLabel}>Selected Date</Text>
+                        <View style={styles.datePreviewBox}>
+                          <FontAwesome name="check-circle" size={16} color="#28a745" style={{ marginRight: 8 }} />
+                          <Text style={styles.datePreviewText}>
+                            {year}-{String(month).padStart(2, '0')}-{String(day).padStart(2, '0')}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  }
+                }
+                return null;
+              })()}
+            </View>
+            
+            {/* Footer Actions */}
+            <View style={styles.datePickerFooter}>
+              <TouchableOpacity
+                style={styles.datePickerButtonCancel}
+                onPress={() => setShowDatePicker({ questionId: '', visible: false })}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.datePickerButtonCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.datePickerButtonConfirm}
+                onPress={() => {
+                  // Validate inputs on confirm
+                  const year = parseInt(dateInputs.year);
+                  const month = parseInt(dateInputs.month);
+                  const day = parseInt(dateInputs.day);
+                  
+                  if (isNaN(year) || isNaN(month) || isNaN(day)) {
+                    Alert.alert('Invalid Date', 'Please enter year, month, and day');
+                    return;
+                  }
+                  
+                  if (year < 1900 || year > 2100) {
+                    Alert.alert('Invalid Year', 'Year must be between 1900 and 2100');
+                    return;
+                  }
+                  
+                  if (month < 1 || month > 12) {
+                    Alert.alert('Invalid Month', 'Month must be between 1 and 12');
+                    return;
+                  }
+                  
+                  const maxDays = new Date(year, month, 0).getDate();
+                  if (day < 1 || day > maxDays) {
+                    Alert.alert('Invalid Day', `Day must be between 1 and ${maxDays} for ${year}-${String(month).padStart(2, '0')}`);
+                    return;
+                  }
+                  
+                  const finalDate = new Date(year, month - 1, day);
+                  if (isNaN(finalDate.getTime())) {
+                    Alert.alert('Invalid Date', 'Please enter a valid date');
+                    return;
+                  }
+                  
+                  // Format as YYYY-MM-DD
+                  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  setResponse(showDatePicker.questionId, dateStr);
+                  setShowDatePicker({ questionId: '', visible: false });
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.datePickerButtonConfirmText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      
       <TermsAndConditionsModal
         isVisible={showTermsModal}
         onClose={handleTermsClose}
         onAccept={handleTermsAccept}
       />
+      
+      {/* Auto-save status indicator (matching web) */}
+      {saveStatus && (
+        <View style={styles.saveStatusIndicator}>
+          <Text style={styles.saveStatusText}>
+            {saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? 'Saving...' : 'Unsaved'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -1898,6 +3333,472 @@ uploadButtonText: {
   },
   dropdownItemText: {
     color: '#222',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '85%',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+    flexDirection: 'column',
+  },
+  modalHeader: {
+    paddingTop: 30,
+    paddingHorizontal: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#174f84',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+  },
+  modalScrollView: {
+    maxHeight: 350,
+  },
+  modalScrollContent: {
+    paddingVertical: 10,
+    paddingHorizontal: 0,
+  },
+  modalBody: {
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginVertical: 15,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    minHeight: 200,
+  },
+  modalText: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 15,
+    lineHeight: 22,
+  },
+  modalBulletList: {
+    marginBottom: 15,
+    paddingLeft: 10,
+  },
+  modalBullet: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 8,
+    lineHeight: 22,
+  },
+  modalCheckbox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  modalCheckboxChecked: {
+    borderColor: '#174f84',
+  },
+  modalCheckboxText: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+    marginLeft: 10,
+    lineHeight: 20,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalButtonCancel: {
+    backgroundColor: '#6c757d',
+  },
+  modalButtonAccept: {
+    backgroundColor: '#174f84',
+  },
+  modalButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.6,
+  },
+  modalButtonCancelText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  modalButtonAcceptText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  modalButtonAcceptTextDisabled: {
+    color: '#999',
+  },
+  // Date Picker Modal Styles
+  datePickerModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 420,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    backgroundColor: '#f8f9fa',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    position: 'relative',
+  },
+  datePickerIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e3f2fd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  datePickerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#174f84',
+    flex: 1,
+  },
+  datePickerCloseButton: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  datePickerBody: {
+    padding: 24,
+  },
+  dateInputGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 20,
+  },
+  dateInputGroup: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  dateInputLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  dateInputField: {
+    width: '100%',
+    height: 56,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: '#e9ecef',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#174f84',
+    textAlign: 'center',
+  },
+  dateInputHint: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  datePreviewContainer: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  datePreviewLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 10,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  datePreviewBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e8f5e9',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#4caf50',
+  },
+  datePreviewText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2e7d32',
+    letterSpacing: 1,
+  },
+  datePickerFooter: {
+    flexDirection: 'row',
+    padding: 20,
+    gap: 12,
+    backgroundColor: '#f8f9fa',
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  datePickerButtonCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#dee2e6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePickerButtonCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6c757d',
+  },
+  datePickerButtonConfirm: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#174f84',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#174f84',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  datePickerButtonConfirmText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.5,
+  },
+  // Job Alignment Modal Styles
+  jobAlignmentModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 400,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  jobAlignmentHeader: {
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  jobAlignmentTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#174f84',
+    textAlign: 'center',
+  },
+  jobAlignmentBody: {
+    padding: 24,
+  },
+  jobAlignmentQuestion: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 20,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  jobAlignmentOptions: {
+    gap: 12,
+  },
+  jobAlignmentOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e9ecef',
+    backgroundColor: '#ffffff',
+  },
+  jobAlignmentOptionSelected: {
+    borderColor: '#174f84',
+    backgroundColor: '#e3f2fd',
+  },
+  radioCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#ccc',
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCircleSelected: {
+    borderColor: '#174f84',
+  },
+  radioCircleInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#174f84',
+  },
+  jobAlignmentOptionText: {
+    flex: 1,
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 20,
+  },
+  jobAlignmentOptionTextSelected: {
+    color: '#174f84',
+    fontWeight: '600',
+  },
+  jobAlignmentFooter: {
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  jobAlignmentConfirmButton: {
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#174f84',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#174f84',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  jobAlignmentConfirmButtonDisabled: {
+    backgroundColor: '#ccc',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  jobAlignmentConfirmButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.5,
+  },
+  // Job Suggestions Styles
+  jobSuggestionsContainer: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    marginTop: 4,
+    maxHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1000,
+  },
+  jobSuggestionsList: {
+    maxHeight: 200,
+  },
+  jobSuggestionItem: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  jobSuggestionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#174f84',
+    marginBottom: 4,
+  },
+  jobSuggestionProgram: {
+    fontSize: 13,
+    color: '#666',
+  },
+  jobSuggestionCode: {
+    fontSize: 12,
+    color: '#999',
+  },
+  saveStatusIndicator: {
+    position: 'absolute',
+    top: 80,
+    right: 20,
+    backgroundColor: '#4CAF50',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  saveStatusText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
   },
 
 });
