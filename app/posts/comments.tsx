@@ -10,6 +10,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { API_BASE_URL, commentOnPost, deleteComment, getPostComments, getPostDetail, getUserInfo, updateComment,
   commentOnForumPost, getForumComments, updateForumComment, deleteForumComment, getForumDetail, commentOnDonationPost, getDonationComments,
   updateDonationComment, deleteDonationComment, getDonationDetail, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply,
+  getCurrentUserId,
 } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import MentionInput from '../../components/MentionInput';
@@ -346,7 +347,7 @@ export default function PostCommentsScreen() {
     }
   }, [postId, isForumPost, isDonationPost]);
 
-  const meId = me?.id || me?.user_id;
+  const meId = getCurrentUserId(me);
   const canSend = !!postId && !!commentText.trim() && !submitting;
 
   async function handleSend() {
@@ -436,15 +437,18 @@ export default function PostCommentsScreen() {
           // Replying to a reply - mention the reply author
           const reply = commentReplies[commentId]?.find(r => r.reply_id === replyingToReply.replyId);
           if (reply) {
+            // Use a safe token (no spaces) for the underlying mention so it matches backend/web parsing
             const replyAuthorName = formatUserFullName(reply.user);
-            mentionText = `@${replyAuthorName} `;
+            const replyAuthorToken = replyAuthorName.trim().replace(/\s+/g, '');
+            mentionText = `@${replyAuthorToken} `;
           }
         } else {
           // Replying to a comment - mention the comment author
           const comment = comments.find(c => c.comment_id === commentId);
           if (comment) {
             const commentAuthorName = formatUserFullName(comment.user);
-            mentionText = `@${commentAuthorName} `;
+            const commentAuthorToken = commentAuthorName.trim().replace(/\s+/g, '');
+            mentionText = `@${commentAuthorToken} `;
           } else {
             mentionText = '';
           }
@@ -536,8 +540,15 @@ export default function PostCommentsScreen() {
   }
 
   const renderComment = ({ item: c }: { item: CommentItem }) => {
-    const isMine = c.user.user_id === meId;
-    const isPostOwner = post?.user?.user_id === meId || post?.user?.id === meId;
+    const commentUserId = c.user?.user_id ?? (c.user as any)?.id;
+    const postUserId = post?.user?.user_id ?? (post?.user as any)?.id;
+    // Fall back to name match if IDs are missing or don't line up (handles some OJT edge cases)
+    const meName = me ? formatUserFullName(me as any).trim().toLowerCase() : '';
+    const commentUserName = formatUserFullName(c.user as any).trim().toLowerCase();
+    const isMineById = !!meId && !!commentUserId && commentUserId === meId;
+    const isMineByName = !!meName && meName === commentUserName;
+    const isMine = isMineById || isMineByName;
+    const isPostOwner = !!meId && !!postUserId && postUserId === meId;
     const canManage = isMine || isPostOwner;
     const isEditing = editingId === c.comment_id;
     return (
@@ -561,16 +572,16 @@ export default function PostCommentsScreen() {
               <View style={{ flex: 1 }}>
                 <TouchableOpacity 
                   onPress={() => {
-                    if (c.user?.user_id && c.user.user_id !== meId) {
-                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: c.user.user_id } });
+                        if (commentUserId && commentUserId !== meId) {
+                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: commentUserId } });
                     }
                   }}
-                  disabled={!c.user?.user_id || c.user.user_id === meId}
+                  disabled={!commentUserId || commentUserId === meId}
                   style={highlightedCommentId === c.comment_id ? styles.highlightedNameContainer : null}
                 >
                   <Text style={[
                     styles.cName,
-                    (c.user?.user_id && c.user.user_id !== meId) ? styles.clickableName : null
+                    (commentUserId && commentUserId !== meId) ? styles.clickableName : null
                   ]}>
                     {formatUserFullName(c.user)}
                   </Text>
@@ -609,7 +620,12 @@ export default function PostCommentsScreen() {
             ) : (
               <View style={styles.bubble}>
                 {renderTextWithMentions(c.comment_content, [], (userId) => {
-                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                  if (!userId) return;
+                  if (userId === meId) {
+                    router.push('/profile/profilepage');
+                  } else {
+                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                  }
                 })}
 
                 {/* Comment Images - Swipeable and Centered */}
@@ -686,8 +702,10 @@ export default function PostCommentsScreen() {
                       // Start replying to comment
                       setReplyingTo(c.comment_id);
                       setReplyingToReply(null);
+                      // Prefill with safe mention token (no spaces) so it behaves like other @mentions
                       const commentAuthorName = formatUserFullName(c.user);
-                      setReplyText(`@${commentAuthorName} `);
+                      const commentAuthorToken = commentAuthorName.trim().replace(/\s+/g, '');
+                      setReplyText(`@${commentAuthorToken} `);
                     }
                   }}
                 >
@@ -778,7 +796,11 @@ export default function PostCommentsScreen() {
                 {showReplies[c.comment_id] && commentReplies[c.comment_id] && (
                   <View style={styles.repliesContainer}>
                     {commentReplies[c.comment_id].map((reply, replyIndex) => {
-                      const isMyReply = reply.user?.user_id === meId;
+                      const replyUserId = reply.user?.user_id ?? (reply.user as any)?.id;
+                      const replyUserName = formatUserFullName(reply.user as any).trim().toLowerCase();
+                      const isMyReplyById = !!meId && !!replyUserId && replyUserId === meId;
+                      const isMyReplyByName = !!meName && meName === replyUserName;
+                      const isMyReply = isMyReplyById || isMyReplyByName;
                       const isEditingReply = editingReplyId === reply.reply_id;
 
                       return (
@@ -804,16 +826,16 @@ export default function PostCommentsScreen() {
                               <View style={{ flex: 1 }}>
                                 <TouchableOpacity 
                                   onPress={() => {
-                                    if (reply.user?.user_id && reply.user.user_id !== meId) {
-                                      router.push(`/otheruser/otheruser?userId=${reply.user.user_id}`);
+                                    if (replyUserId && replyUserId !== meId) {
+                                      router.push(`/otheruser/otheruser?userId=${replyUserId}`);
                                     }
                                   }}
-                                  disabled={!reply.user?.user_id || reply.user.user_id === meId}
+                                  disabled={!replyUserId || replyUserId === meId}
                                   style={highlightedReplyId === reply.reply_id ? styles.highlightedNameContainer : null}
                                 >
                                   <Text style={[
                                     styles.replyName,
-                                    (reply.user?.user_id && reply.user.user_id !== meId) ? styles.clickableName : null
+                                    (replyUserId && replyUserId !== meId) ? styles.clickableName : null
                                   ]}>
                                     {formatUserFullName(reply.user)}
                                   </Text>
@@ -858,7 +880,12 @@ export default function PostCommentsScreen() {
                             ) : (
                               <View>
                                 {renderTextWithMentions(reply.reply_content, [], (userId) => {
-                                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                  if (!userId) return;
+                                  if (userId === meId) {
+                                    router.push('/profile/profilepage');
+                                  } else {
+                                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                  }
                                 })}
                                 
                                 {/* Reply Images - Swipeable and Centered */}
@@ -933,8 +960,10 @@ export default function PostCommentsScreen() {
                                       // Start replying to this reply
                                       setReplyingToReply({ replyId: reply.reply_id, commentId: c.comment_id });
                                       setReplyingTo(c.comment_id);
+                                      // Prefill with safe mention token (no spaces) for reply author
                                       const replyAuthorName = formatUserFullName(reply.user);
-                                      setReplyText(`@${replyAuthorName} `);
+                                      const replyAuthorToken = replyAuthorName.trim().replace(/\s+/g, '');
+                                      setReplyText(`@${replyAuthorToken} `);
                                     }
                                   }}
                                   style={{ paddingHorizontal: 4 }}
@@ -964,7 +993,12 @@ export default function PostCommentsScreen() {
                                   </TouchableOpacity>
                                     <View style={{ paddingRight: 24 }}>
                                       {renderTextWithMentions(`@${formatUserFullName(reply.user)}`, [], (userId) => {
-                                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                        if (!userId) return;
+                                        if (userId === meId) {
+                                          router.push('/profile/profilepage');
+                                        } else {
+                                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                        }
                                       }, styles.replyPreviewText)}
                                     </View>
                                   </View>
@@ -1070,7 +1104,12 @@ export default function PostCommentsScreen() {
 
                   <View>
                     {renderTextWithMentions(post.post_content, [], (userId) => {
-                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                      if (!userId) return;
+                      if (userId === meId) {
+                        router.push('/profile/profilepage');
+                      } else {
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                      }
                     }, styles.postContent)}
                   </View>
                 )}
@@ -1188,63 +1227,69 @@ export default function PostCommentsScreen() {
 
 
       {/* Popup Modal */}
-      {actionFor && (
-      <View style={styles.popupOverlay}>
-        <View style={styles.popupBox}>
-          <Text style={styles.popupTitle}>Comment Actions</Text>
+      {actionFor && (() => {
+        const actionUserId = (actionFor.user as any)?.user_id ?? (actionFor.user as any)?.id;
+        const popupPostUserId = post?.user?.user_id ?? (post?.user as any)?.id;
+        const isMineAction = !!meId && !!actionUserId && actionUserId === meId;
+        const isPostOwnerAction = !!meId && !!popupPostUserId && popupPostUserId === meId;
+        return (
+          <View style={styles.popupOverlay}>
+            <View style={styles.popupBox}>
+              <Text style={styles.popupTitle}>Comment Actions</Text>
 
-          {/* Edit: only show if comment is mine */}
+              {/* Edit: only show if comment is mine */}
 
-          {actionFor.user?.user_id === meId && (
-            <TouchableOpacity
-              style={styles.popupButton}
-              onPress={() => {
-                setEditingId(actionFor.comment_id);
-                setEditText(actionFor.comment_content);
-                setActionFor(null);
-              }}
-            >
-              <Text style={styles.popupButtonText}>✏️ Edit</Text>
-            </TouchableOpacity>
-          )}
-
-
-          {/* Delete: show if comment is mine OR I am the post owner */}
-
-          {(actionFor.user?.user_id === meId || post?.user?.user_id === meId || post?.user?.id === meId) && (
-            <TouchableOpacity
-              style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
-              onPress={() => {
-                Alert.alert(
-                  'Delete Comment',
-                  'Are you sure you want to delete this comment? This action cannot be undone.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete',
-                      style: 'destructive',
-                      onPress: () => handleDelete(actionFor.comment_id),
-                    },
-                  ]
-                );
-                setActionFor(null);
-              }}
-            >
-              <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
-            </TouchableOpacity>
-          )}
+              {isMineAction && (
+                <TouchableOpacity
+                  style={styles.popupButton}
+                  onPress={() => {
+                    setEditingId(actionFor.comment_id);
+                    setEditText(actionFor.comment_content);
+                    setActionFor(null);
+                  }}
+                >
+                  <Text style={styles.popupButtonText}>✏️ Edit</Text>
+                </TouchableOpacity>
+              )}
 
 
-          {/* Cancel: always show */}
-          <TouchableOpacity
-            style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
-            onPress={() => setActionFor(null)}
-          >
-            <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    )}
+              {/* Delete: show if comment is mine OR I am the post owner */}
+
+              {(isMineAction || isPostOwnerAction) && (
+                <TouchableOpacity
+                  style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
+                  onPress={() => {
+                    Alert.alert(
+                      'Delete Comment',
+                      'Are you sure you want to delete this comment? This action cannot be undone.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: () => handleDelete(actionFor.comment_id),
+                        },
+                      ]
+                    );
+                    setActionFor(null);
+                  }}
+                >
+                  <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
+                </TouchableOpacity>
+              )}
+
+
+              {/* Cancel: always show */}
+              <TouchableOpacity
+                style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
+                onPress={() => setActionFor(null)}
+              >
+                <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+      })()}
 
       {/* Reply Action Sheet Modal */}
       {actionForReply && (
@@ -1253,7 +1298,7 @@ export default function PostCommentsScreen() {
             <Text style={styles.popupTitle}>Reply Actions</Text>
 
             {/* Edit: only show if reply is mine */}
-            {actionForReply.reply.user?.user_id === meId && (
+            {((actionForReply.reply.user as any)?.user_id ?? (actionForReply.reply.user as any)?.id) === meId && (
               <TouchableOpacity
                 style={styles.popupButton}
                 onPress={() => {
@@ -1267,7 +1312,7 @@ export default function PostCommentsScreen() {
             )}
 
             {/* Delete: show if reply is mine */}
-            {actionForReply.reply.user?.user_id === meId && (
+            {((actionForReply.reply.user as any)?.user_id ?? (actionForReply.reply.user as any)?.id) === meId && (
               <TouchableOpacity
                 style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
                 onPress={() => {

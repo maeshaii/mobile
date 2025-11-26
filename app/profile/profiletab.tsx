@@ -48,48 +48,50 @@ export default function ProfileTab() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [menuItems, setMenuItems] = useState(allMenuItems);
+  // Keep this false so we render immediately and refresh quietly in the background
+  const [menuLoading, setMenuLoading] = useState(false);
   const [adminProfile, setAdminProfile] = useState<AdminPesoProfile | null>(null);
   const [pesoProfile, setPesoProfile] = useState<AdminPesoProfile | null>(null);
 
-  const loadAdminProfile = useCallback(async () => {
+  /**
+   * Load admin + PESO profiles with a single getAdminPesoUsers() call.
+   * This avoids extra network round‑trips every time you open the Profile tab.
+   */
+  const loadAdminAndPesoProfiles = useCallback(async () => {
     try {
-      const adminUsersData = await getAdminPesoUsers();
-      const adminUserIds = adminUsersData.admin_user_ids || [];
-      
-      if (adminUserIds.length > 0) {
-        const adminUserId = adminUserIds[0];
-        const adminDetailsResponse = await getAlumniDetails(adminUserId);
-        const adminDetails = adminDetailsResponse?.alumni || adminDetailsResponse || {};
-        
+      const adminPesoUsersData = await getAdminPesoUsers();
+
+      const adminUserIds = adminPesoUsersData.admin_user_ids || [];
+      const pesoUserIds = adminPesoUsersData.peso_user_ids || [];
+
+      const adminUserId = adminUserIds[0];
+      const pesoUserId = pesoUserIds[0];
+
+      const [adminDetailsResponse, pesoDetailsResponse] = await Promise.all([
+        adminUserId ? getAlumniDetails(adminUserId) : Promise.resolve(null),
+        pesoUserId ? getAlumniDetails(pesoUserId) : Promise.resolve(null),
+      ]);
+
+      const adminDetails = (adminDetailsResponse as any)?.alumni || adminDetailsResponse || {};
+      const pesoDetails = (pesoDetailsResponse as any)?.alumni || pesoDetailsResponse || {};
+
+      if (adminUserId && adminDetails) {
         setAdminProfile({
-          profile_pic: adminDetails?.profile_pic 
+          profile_pic: adminDetails?.profile_pic
             ? (String(adminDetails.profile_pic).startsWith('http') || String(adminDetails.profile_pic).startsWith('data:'))
-              ? adminDetails.profile_pic 
+              ? adminDetails.profile_pic
               : `${API_BASE_URL}${adminDetails.profile_pic}`
             : null,
           f_name: adminDetails?.first_name || adminDetails?.f_name || '',
           l_name: adminDetails?.last_name || adminDetails?.l_name || '',
         });
       }
-    } catch (error) {
-      console.error('ProfileTab - Error loading admin profile:', error);
-    }
-  }, []);
 
-  const loadPesoProfile = useCallback(async () => {
-    try {
-      const pesoUsersData = await getAdminPesoUsers();
-      const pesoUserIds = pesoUsersData.peso_user_ids || [];
-      
-      if (pesoUserIds.length > 0) {
-        const pesoUserId = pesoUserIds[0];
-        const pesoDetailsResponse = await getAlumniDetails(pesoUserId);
-        const pesoDetails = pesoDetailsResponse?.alumni || pesoDetailsResponse || {};
-        
+      if (pesoUserId && pesoDetails) {
         setPesoProfile({
-          profile_pic: pesoDetails?.profile_pic 
+          profile_pic: pesoDetails?.profile_pic
             ? (String(pesoDetails.profile_pic).startsWith('http') || String(pesoDetails.profile_pic).startsWith('data:'))
-              ? pesoDetails.profile_pic 
+              ? pesoDetails.profile_pic
               : `${API_BASE_URL}${pesoDetails.profile_pic}`
             : null,
           f_name: pesoDetails?.first_name || pesoDetails?.f_name || '',
@@ -97,39 +99,50 @@ export default function ProfileTab() {
         });
       }
     } catch (error) {
-      console.error('ProfileTab - Error loading peso profile:', error);
+      console.error('ProfileTab - Error loading admin/PESO profiles:', error);
     }
   }, []);
 
   const fetchUser = useCallback(async () => {
     try {
+      // Don't block initial render; just refresh quietly.
+      setMenuLoading(true);
       const userInfo = await getUserInfo();
       setUser(userInfo);
       
       // Load admin and PESO profiles
-      await Promise.all([loadAdminProfile(), loadPesoProfile()]);
+      await loadAdminAndPesoProfiles();
       
-      // Filter menu items based on user type
-      const isOJT = userInfo?.account_type?.ojt || userInfo?.role === 'ojt' || userInfo?.user_type === 'ojt';
+      // Determine account type flags
+      const isOjt = !!(
+        userInfo?.account_type?.ojt ||
+        userInfo?.role === 'ojt' ||
+        userInfo?.user_type === 'ojt'
+      );
+      const isAlumni = !!userInfo?.account_type?.user && !isOjt;
       
-      if (isOJT) {
-        // Hide Forum and Donation for OJT users
-        const filteredItems = allMenuItems.filter(item => 
-          item.label !== 'Forum' && item.label !== 'Donation'
-        );
-        setMenuItems(filteredItems);
-      } else {
-        // Show all items for non-OJT users
-        setMenuItems(allMenuItems);
-      }
+      // Forum and Donation are **only** for pure alumni accounts (never for OJT)
+      const filteredItems = isAlumni
+        ? allMenuItems
+        : allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation');
+      
+      setMenuItems(filteredItems);
     } catch (e) {
       console.error('ProfileTab - Error fetching user info:', e);
       setUser(null);
-      setMenuItems(allMenuItems);
+      // Safe default: hide Forum & Donation if we can't identify the account type
+      setMenuItems(allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation'));
+    } finally {
+      setMenuLoading(false);
     }
-  }, [loadAdminProfile, loadPesoProfile]);
+  }, [loadAdminAndPesoProfiles]);
 
-  useEffect(() => { fetchUser(); }, [fetchUser]);
+  // Load once on mount so the first visit is fast and cached
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
+
+  // On focus, refresh in the background but keep existing UI visible
   useFocusEffect(
     useCallback(() => {
       fetchUser();

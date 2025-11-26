@@ -405,11 +405,14 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
             <Text style={styles.countText}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
           </TouchableOpacity>
         )}
-        {repostCount > 0 && (
-          <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
-            <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          onPress={() => onOpenViewer?.(post, 'reposts')}
+          disabled={!onOpenViewer}
+        >
+          <Text style={styles.countText}>
+            {repostCount || 0} {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Actions */}

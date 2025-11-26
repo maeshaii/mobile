@@ -83,12 +83,16 @@ export default function OJTDonationPage() {
   const loadDonationPosts = async () => {
     try {
       setLoading(true);
-      const response = await getDonationPosts();
-      if (response.success) {
-        setPosts(response.posts || []);
-      } else {
-        Alert.alert('Error', response.error || 'Failed to load donation posts');
-      }
+      const raw = await getDonationPosts();
+      // `getDonationPosts` returns an array or a shape with `.donations`
+      const list = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as any)?.donations)
+          ? (raw as any).donations
+          : Array.isArray((raw as any)?.posts)
+            ? (raw as any).posts
+            : [];
+      setPosts(list);
     } catch (error) {
       console.error('Error loading donation posts:', error);
       Alert.alert('Error', 'Failed to load donation posts');

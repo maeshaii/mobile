@@ -46,12 +46,16 @@ export default function OJTForumPage() {
   const loadForumPosts = async () => {
     try {
       setLoading(true);
-      const response = await getForumPosts();
-      if (response.success) {
-        setPosts(response.posts || []);
-      } else {
-        Alert.alert('Error', response.error || 'Failed to load forum posts');
-      }
+      const raw = await getForumPosts();
+      // `getForumPosts` returns an array of forums or a shape with `.forums`
+      const list = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as any)?.forums)
+          ? (raw as any).forums
+          : Array.isArray((raw as any)?.posts)
+            ? (raw as any).posts
+            : [];
+      setPosts(list);
     } catch (error) {
       console.error('Error loading forum posts:', error);
       Alert.alert('Error', 'Failed to load forum posts');

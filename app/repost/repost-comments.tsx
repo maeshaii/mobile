@@ -112,22 +112,20 @@ export default function RepostCommentsScreen() {
       }, 150);
     }
   };
-  // Load replies for comments that have replies when comments change
+  // Load replies for comments when comments change
+  // and automatically show replies for comments that actually have replies.
   useEffect(() => {
     if (comments.length > 0) {
-      console.log('Comments loaded, checking for replies...');
       comments.forEach(comment => {
-        console.log(`Comment ${comment.comment_id} has ${comment.replies_count || 0} replies`);
-        if ((comment.replies_count || 0) > 0) {
-          console.log(`Loading replies for comment ${comment.comment_id}`);
-          loadReplies(comment.comment_id);
-          // Automatically show replies when they exist
-          setShowReplies(prev => {
-            const newState = { ...prev, [comment.comment_id]: true };
-            console.log('Setting showReplies to:', newState);
-            return newState;
-          });
-        }
+        loadReplies(comment.comment_id).then((replies) => {
+          // Only auto-show if this comment actually has replies
+          if (replies.length > 0) {
+            setShowReplies(prev => ({
+              ...prev,
+              [comment.comment_id]: true,
+            }));
+          }
+        });
       });
     }
   }, [comments]);
@@ -420,7 +418,7 @@ export default function RepostCommentsScreen() {
     }
   }
   // Reply functions
-  async function loadReplies(commentId: number) {
+  async function loadReplies(commentId: number): Promise<ReplyItem[]> {
     try {
       console.log('=== LOADING REPLIES ===');
       console.log('Loading replies for comment:', commentId);
@@ -428,6 +426,7 @@ export default function RepostCommentsScreen() {
       console.log('Replies response:', response);
       console.log('Number of replies received:', response.replies?.length || 0);
       console.log('Replies data:', response.replies);
+      const replies: ReplyItem[] = response.replies || [];
       setCommentReplies(prev => {
         const newReplies = { ...prev, [commentId]: response.replies || [] };
         console.log('Updated commentReplies state:', newReplies);
@@ -435,8 +434,10 @@ export default function RepostCommentsScreen() {
         console.log('=== REPLIES LOADED ===');
         return newReplies;
       });
+      return replies;
     } catch (error) {
       console.error('Error loading replies:', error);
+      return [];
     }
   }
   async function handleReplySubmit(commentId: number) {
@@ -455,14 +456,16 @@ export default function RepostCommentsScreen() {
           const reply = commentReplies[commentId]?.find(r => r.reply_id === replyingToReply.replyId);
           if (reply) {
             const replyAuthorName = formatUserFullName(reply.user);
-            mentionText = `@${replyAuthorName} `;
+            const replyAuthorToken = replyAuthorName.trim().replace(/\s+/g, '');
+            mentionText = `@${replyAuthorToken} `;
           }
         } else {
           // Replying to a comment - mention the comment author
           const comment = comments.find(c => c.comment_id === commentId);
           if (comment) {
             const commentAuthorName = formatUserFullName(comment.user);
-            mentionText = `@${commentAuthorName} `;
+            const commentAuthorToken = commentAuthorName.trim().replace(/\s+/g, '');
+            mentionText = `@${commentAuthorToken} `;
           } else {
             mentionText = '';
           }
@@ -595,7 +598,12 @@ export default function RepostCommentsScreen() {
               <View style={styles.bubble}>
                 <Text style={styles.cBody}>
                   {renderTextWithMentions(c.comment_content, [], (userId) => {
-                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                    if (!userId) return;
+                    if (userId === meId) {
+                      router.push('/profile/profilepage');
+                    } else {
+                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                    }
                   })}
                 </Text>
                 {/* Comment Images - Swipeable and Centered */}
@@ -670,7 +678,8 @@ export default function RepostCommentsScreen() {
                       setReplyingTo(c.comment_id);
                       setReplyingToReply(null);
                       const commentAuthorName = formatUserFullName(c.user);
-                      setReplyText(`@${commentAuthorName} `);
+                      const commentAuthorToken = commentAuthorName.trim().replace(/\s+/g, '');
+                      setReplyText(`@${commentAuthorToken} `);
                     }
                   }}
                 >
@@ -839,7 +848,12 @@ export default function RepostCommentsScreen() {
                             ) : (
                               <View>
                                 {renderTextWithMentions(reply.reply_content, [], (userId) => {
-                                  router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                  if (!userId) return;
+                                  if (userId === meId) {
+                                    router.push('/profile/profilepage');
+                                  } else {
+                                    router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                  }
                                 })}
                                 {/* Reply Images - Swipeable and Centered */}
                                 {(() => {
@@ -909,8 +923,9 @@ export default function RepostCommentsScreen() {
                                       // Start replying to this reply
                                       setReplyingToReply({ replyId: reply.reply_id, commentId: c.comment_id });
                                       setReplyingTo(c.comment_id);
-                                      const replyAuthorName = formatUserFullName(reply.user);
-                                      setReplyText(`@${replyAuthorName} `);
+                                    const replyAuthorName = formatUserFullName(reply.user);
+                                    const replyAuthorToken = replyAuthorName.trim().replace(/\s+/g, '');
+                                    setReplyText(`@${replyAuthorToken} `);
                                     }
                                   }}
                                   style={{ paddingHorizontal: 4 }}
@@ -939,7 +954,12 @@ export default function RepostCommentsScreen() {
                                   </TouchableOpacity>
                                     <View style={{ paddingRight: 24 }}>
                                       {renderTextWithMentions(`@${formatUserFullName(reply.user)}`, [], (userId) => {
-                                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                        if (!userId) return;
+                                        if (userId === meId) {
+                                          router.push('/profile/profilepage');
+                                        } else {
+                                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                                        }
                                       }, styles.replyPreviewText)}
                                     </View>
                                   </View>
@@ -1127,7 +1147,12 @@ export default function RepostCommentsScreen() {
                   repost.caption && repost.caption.trim() ? (
                     <Text style={styles.postContent}>
                       {renderTextWithMentions(repost.caption, [], (userId) => {
-                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        if (!userId) return;
+                        if (userId === meId) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
                       })}
                     </Text>
                   ) : null
@@ -1194,7 +1219,12 @@ export default function RepostCommentsScreen() {
                 return content ? (
                   <Text style={styles.postContent}>
                     {renderTextWithMentions(original?.content || original?.post_content, [], (userId) => {
-                      router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                      if (!userId) return;
+                      if (userId === meId) {
+                        router.push('/profile/profilepage');
+                      } else {
+                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                      }
                     })}
                   </Text>
                 ) : (

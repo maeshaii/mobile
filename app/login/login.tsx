@@ -48,6 +48,19 @@ export default function LoginScreen() {
       });
       
       if (data.success && data.user && data.user.account_type) {
+        // Persist first-time login flag so NavigationGuard and dashboards can react consistently
+        try {
+          const { Storage } = await import('../../services/api');
+          if (data.must_change_password) {
+            await Storage.setItem('must_change_password', 'true');
+          } else {
+            // Clear any stale flag if backend no longer requires password change
+            await Storage.deleteItem('must_change_password');
+          }
+        } catch (storageError) {
+          console.warn('[Login] Failed to persist must_change_password flag:', storageError);
+        }
+
         // 🔒 CRITICAL FIX: Invalidate AuthService session cache and update UserContext
         // This ensures the session is properly initialized after tokens are saved
         console.log('[Login] 🔄 Invalidating session cache and updating user context...');

@@ -626,8 +626,8 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
             <Text style={styles.countText}>{repost.comments_count || 0} {(repost.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
           </TouchableOpacity>
         )}
-        {repostCount > 0 && (
-          <TouchableOpacity onPress={async () => {
+        <TouchableOpacity
+          onPress={async () => {
           // When viewing reposts, show the original post's reposts, not the repost's own reposts
           if (onOpenViewer && repost.original_post) {
             const original = repost.original_post;
@@ -704,9 +704,10 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
             }
           }
         }}>
-          <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
+          <Text style={styles.countText}>
+            {repostCount || 0} {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
+          </Text>
         </TouchableOpacity>
-        )}
       </View>
 
       {/* Repost Actions */}

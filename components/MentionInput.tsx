@@ -187,12 +187,24 @@ const MentionInput: React.FC<MentionInputProps> = ({
 
   // Handle suggestion selection
   const selectSuggestion = (user: User) => {
-    if (mentionStart === -1) return;
+    // In some edge cases (focus/blur, fallback search) mentionStart can be -1
+    // even though the suggestions list is visible. Recover by finding the last
+    // "@" before the caret so tapping a suggestion still works.
+    let effectiveMentionStart = mentionStart;
+    if (effectiveMentionStart === -1) {
+      const caret = selection?.start ?? value.length;
+      const lastAtIndex = value.lastIndexOf('@', Math.max(0, caret - 1));
+      if (lastAtIndex === -1) {
+        return; // No valid "@" token to replace
+      }
+      effectiveMentionStart = lastAtIndex;
+    }
+
     const caretStart = selection?.start ?? value.length;
     const caretEnd = selection?.end ?? caretStart;
 
     // Replace the mention token from '@' to caret with selected user name
-    const beforeMention = value.substring(0, mentionStart);
+    const beforeMention = value.substring(0, effectiveMentionStart);
     const afterCaret = value.substring(caretEnd);
     // Build mention token without spaces to match backend regex (@FirstLast)
     // The backend regex r'@([^@\s]+)' doesn't support spaces, so we use @FirstLast format
@@ -287,7 +299,6 @@ const MentionInput: React.FC<MentionInputProps> = ({
         ref={textInputRef}
         value={value}
         onChangeText={handleTextChange}
-        selection={selection}
         onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
         onKeyPress={handleKeyPress}
         placeholder={placeholder}

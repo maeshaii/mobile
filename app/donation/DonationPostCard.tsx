@@ -282,11 +282,14 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
             <Text style={styles.countText}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
           </TouchableOpacity>
         )}
-        {repostCount > 0 && (
-          <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'reposts')}>
-            <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          onPress={() => onOpenViewer?.(post as any, 'reposts')}
+          disabled={!onOpenViewer}
+        >
+          <Text style={styles.countText}>
+            {repostCount || 0} {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Actions */}

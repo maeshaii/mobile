@@ -180,6 +180,8 @@ export default function DonationPage() {
             likes_count: d.likes_count ?? (Array.isArray(d.likes) ? d.likes.length : 0),
             comments_count: d.comments_count ?? (Array.isArray(d.comments) ? d.comments.length : 0),
             reposts_count: d.reposts_count ?? (Array.isArray(d.reposts) ? d.reposts.length : 0),
+            // Attach full likes array so DonationPostCard can render
+            likes: Array.isArray(d.likes) ? d.likes : [],
             // Backend is_liked is the source of truth; local storage is only a fallback
             is_liked: backendIsLiked || localIsLiked,
             user: d.user || { user_id: 0, f_name: 'Unknown', l_name: 'User', profile_pic: null },
