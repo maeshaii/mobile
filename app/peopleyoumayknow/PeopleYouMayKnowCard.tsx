@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { fetchSuggestedUsers, followUser, checkFollowStatus, getUserInfo } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { wp, hp, getPercentageWidth, getResponsiveFontSize, getResponsivePadding } from '../../utils/responsive';
+import { formatUserFullName } from '../../utils/nameUtils';
 
 interface SuggestedUser {
   id: number;
@@ -79,8 +80,14 @@ export default function PeopleYouMayKnowCard() {
           .filter(user => !user.isFollowing)
           .filter(user => currentUserId ? Number(user.id) !== Number(currentUserId) : true);
         
+        // Normalize name to include middle name when available
+        const normalizedUsers = unfollowedUsers.slice(0, 10).map((u: any) => {
+          const fullName = u.name || formatUserFullName(u);
+          return { ...u, name: fullName };
+        });
+
         // Show up to 10 users
-        setSuggestedUsers(unfollowedUsers.slice(0, 10));
+        setSuggestedUsers(normalizedUsers);
       }
     } catch (error) {
       console.error('Error loading suggested users:', error);

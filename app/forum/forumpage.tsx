@@ -682,7 +682,16 @@ export default function CCICTPage() {
                       </View>
                       <View style={styles.commentBubble}>
                         {renderTextWithMentions(comment.comment_content, [], (userId) => {
-                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                          if (!userId) return;
+
+                          const meId = currentUserId;
+                          if (meId && userId === meId) {
+                            // If the mention refers to the current user, go to own profile
+                            router.push('/profile/profilepage');
+                          } else {
+                            // Otherwise, go to the other user's profile
+                            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                          }
                         })}
                         {/* Comment Images - Swipeable and Centered */}
                         {(() => {

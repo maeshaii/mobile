@@ -83,11 +83,15 @@ const devDefault = Platform.select({
   ios: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
   default: lanHost ? `http://${lanHost}:8000` : 'http://localhost:8000',
 });
-// Production fallback (override with expo.extra.API_BASE_URL for real deployments)
-const ngrokUrl = 'https://carlos-unripening-henley.ngrok-free.dev';
+// Production/dev fallback (can be overridden by expo.extra.API_BASE_URL or env)
+// IMPORTANT: Update this ngrok URL when you start a new tunnel
+const ngrokUrl = 'https://footed-reese-prognosticatively.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
-// Use explicit config from Expo extra or env, otherwise fall back to default
-export const API_BASE_URL = normalizeBaseUrl('https://precontributive-nonatomic-tandra.ngrok-free.dev');
+
+// Prefer explicit config from Expo extra / env; otherwise fall back to ngrok/default
+export const API_BASE_URL = normalizeBaseUrl(
+  rawFromExpo || rawFromEnv || ngrokUrl || (defaultUrl as string),
+);
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
