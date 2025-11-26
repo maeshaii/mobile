@@ -23,7 +23,7 @@ const NavBar = () => {
   };
 
   // Use real-time messages hook
-  const { unreadCount: messageUnreadCount } = useRealTimeMessages({
+  const { unreadCount: messageUnreadCount, messageRequestCount } = useRealTimeMessages({
     enablePolling: true,
     pollingInterval: 30000,
     autoConnect: true
@@ -112,10 +112,10 @@ const NavBar = () => {
             {isActive(['/messages']) && <View style={styles.activeIndicator} />}
             <MaterialIcons name="email" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
             <Text style={[styles.label, isActive(['/messages']) && styles.activeLabel]}>Messages</Text>
-            {messageUnreadCount > 0 && (
+            {(messageUnreadCount > 0 || messageRequestCount > 0) && (
               <View style={styles.messageBadge}>
                 <Text style={styles.messageBadgeText}>
-                  {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                  {(messageUnreadCount + messageRequestCount) > 99 ? '99+' : (messageUnreadCount + messageRequestCount)}
                 </Text>
               </View>
             )}

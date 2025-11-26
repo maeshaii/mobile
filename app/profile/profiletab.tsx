@@ -47,7 +47,7 @@ export default function ProfileTab() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [menuItems, setMenuItems] = useState(allMenuItems);
+  const [menuItems, setMenuItems] = useState<typeof allMenuItems>([]);
   const [adminProfile, setAdminProfile] = useState<AdminPesoProfile | null>(null);
   const [pesoProfile, setPesoProfile] = useState<AdminPesoProfile | null>(null);
 
@@ -125,6 +125,7 @@ export default function ProfileTab() {
     } catch (e) {
       console.error('ProfileTab - Error fetching user info:', e);
       setUser(null);
+      // Default to showing all items if we can't determine user type
       setMenuItems(allMenuItems);
     }
   }, [loadAdminProfile, loadPesoProfile]);

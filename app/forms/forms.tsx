@@ -39,7 +39,7 @@ export default function TrackerForm() {
   const [hasSubmitted, setHasSubmitted] = useState<boolean | null>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
 
-  // Existing static form (fallback)
+  // Static form (fallback when dynamic categories don't load)
   const [form, setForm] = useState({
     email: '',
     yearGraduated: '',
@@ -78,8 +78,6 @@ export default function TrackerForm() {
     file: null as FileAsset | null,
   });
 
-  // Keep original questions array for compatibility
-  const [questions, setQuestions] = useState<any>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -399,7 +397,6 @@ export default function TrackerForm() {
         // 2) Fetch dynamic questions
         const qs = await getTrackerQuestions();
         const cats = qs?.categories ?? qs ?? [];
-        setQuestions(qs);
         if (Array.isArray(cats)) {
           // Sort questions within each category by order
           const sortedCategories = cats.map(cat => ({
@@ -836,11 +833,10 @@ export default function TrackerForm() {
                 if (!hasActualFiles) {
                   missingRequiredQuestions.push(question.text + (hasFileMarker ? ' (Files were uploaded but need to be re-uploaded after page refresh)' : ''));
                 }
-              } else if ((lowerText.includes('supporting document') && !lowerText.includes('award')) || 
-                         (lowerText.includes('file upload') && !lowerText.includes('award')) || 
-                         (lowerText.includes('document') && !lowerText.includes('award'))) {
-                // For single file upload questions, require ACTUAL file for submission (not just markers)
-                // File markers are only for draft persistence after refresh
+              } else if (question.type === 'file' || 
+                         (answer && typeof answer === 'object' && !Array.isArray(answer) && 'type' in answer && answer.type === 'file')) {
+                // 🔧 FIX: For ALL single file upload questions (check by type instead of text matching)
+                // This ensures Question 20, 33, and any other file questions are properly validated
                 const file = fileAnswers[String(question.id)];
                 const hasActualFile = file && file.uri;
                 
@@ -898,19 +894,30 @@ export default function TrackerForm() {
           const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
                                          (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
           
-          if (isAwardSupportingDocs && Array.isArray(answer)) {
-            processedAnswers[questionId] = { type: 'file', multiple: true, count: answer.length };
+          // 🔧 FIX: Check for both array answers AND file markers with multiple: true
+          const isMultipleFileUpload = isAwardSupportingDocs && (
+            Array.isArray(answer) || 
+            (answer && typeof answer === 'object' && 'multiple' in answer && answer.multiple === true)
+          );
+          
+          if (isMultipleFileUpload) {
+            // Handle multiple file uploads (award documents)
             const files = multipleFileAnswers[questionId] || [];
-            files.forEach((file, index) => {
-              if (file && file.uri && file.name) {
-                fd.append(`file_${questionId}_${index}`, {
-                  uri: file.uri,
-                  name: file.name,
-                  type: file.mimeType || 'application/octet-stream',
-                } as any);
-              }
+            const validFiles = files.filter(f => f && f.uri && f.name);
+            
+            processedAnswers[questionId] = { type: 'file', multiple: true, count: validFiles.length };
+            
+            validFiles.forEach((file, index) => {
+              fd.append(`file_${questionId}_${index}`, {
+                uri: file.uri,
+                name: file.name,
+                type: file.mimeType || 'application/octet-stream',
+              } as any);
             });
+            
+            console.log(`📤 Uploading ${validFiles.length} file(s) for question ${questionId} (${question?.text})`);
           } else if (answer && typeof answer === 'object' && 'type' in answer && answer.type === 'file') {
+            // Handle single file uploads
             processedAnswers[questionId] = { type: 'file' };
             const file = fileAnswers[questionId];
             if (file && file.uri && file.name) {
@@ -919,6 +926,7 @@ export default function TrackerForm() {
                 name: file.name,
                 type: file.mimeType || 'application/octet-stream',
               } as any);
+              console.log(`📤 Uploading file for question ${questionId} (${question?.text}): ${file.name}`);
             }
           } else {
             processedAnswers[questionId] = answer;
