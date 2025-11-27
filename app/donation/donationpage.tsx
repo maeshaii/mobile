@@ -13,6 +13,7 @@ import MentionInput from '../../components/MentionInput';
 import { convertImageToBase64 } from '../../utils/imageUtils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { formatUserFullName } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 const ctuLogo = require('../../assets/images/ctu_logo.png');
 
@@ -32,12 +33,19 @@ interface PostItem {
 
 interface UserProfile {
   profile_pic?: string;
+  // support multiple possible name field shapes
   f_name?: string;
+  first_name?: string;
+  m_name?: string | null;
+  middle_name?: string | null;
   l_name?: string;
+  last_name?: string;
+  name?: string;
 }
 
 export default function DonationPage() {
   const router = useRouter();
+  const { showAlert } = useAlert();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,6 +63,14 @@ export default function DonationPage() {
   const swipeableCardRef = useRef<ScrollView>(null);
   const screenWidth = Dimensions.get('window').width;
   const [persistedLikedPostIds, setPersistedLikedPostIds] = useState<Set<number>>(new Set());
+
+  const currentUserDisplayName = user
+    ? formatUserFullName({
+        f_name: user.f_name || user.first_name,
+        m_name: user.m_name || user.middle_name,
+        l_name: user.l_name || user.last_name,
+      } as any)
+    : '';
 
   const storageKeyForUser = useCallback((userId?: number | null) => {
     return `DONATION_LIKED_POST_IDS_${userId ?? 'anon'}`;
@@ -320,7 +336,15 @@ export default function DonationPage() {
       
       // Show progress for image uploads
       if (selectedImages.length > 0) {
-        Alert.alert('Processing', 'Compressing images and preparing upload...', [], { cancelable: false });
+        showAlert({
+          title: 'Processing',
+          message: 'Compressing images and preparing upload...',
+          type: 'info',
+          variant: 'success',
+          buttons: [
+            { text: 'OK' }
+          ],
+        });
       }
       
       // Process images - compress and convert to base64 like the post creation page
@@ -371,7 +395,12 @@ export default function DonationPage() {
       });
       
       if (response.success) {
-        Alert.alert('Success', 'Your donation request has been posted!');
+        showAlert({
+          title: 'Success',
+          message: 'Your donation request has been posted!',
+          type: 'success',
+          variant: 'success',
+        });
         setDonationMessage('');
         setSelectedImages([]);
         setShowDonationCreate(false);
@@ -548,8 +577,8 @@ export default function DonationPage() {
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <UserAvatar 
               profilePic={user?.profile_pic}
-              firstName={user?.f_name}
-              lastName={user?.l_name}
+              firstName={user?.f_name || user?.first_name}
+              lastName={user?.l_name || user?.last_name}
               size={48}
               style={styles.avatar}
             />
@@ -773,14 +802,16 @@ export default function DonationPage() {
               style={styles.topBarButtonLeft} 
               onPress={() => setShowDonationCreate(false)}
               disabled={isSubmitting}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
-            <Text style={styles.title}>REQUEST HELP</Text>
+            <Text style={styles.title}>CREATE A POST</Text>
             <TouchableOpacity 
               style={[styles.topBarButtonRight, isSubmitting && styles.disabledButton]} 
               onPress={handleDonationSubmit}
               disabled={isSubmitting}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               {isSubmitting ? (
                 <ActivityIndicator size="small" color="#222" />
@@ -797,22 +828,23 @@ export default function DonationPage() {
             <View style={styles.userRow}>
               <UserAvatar 
                 profilePic={user?.profile_pic}
-                firstName={user?.f_name}
-                lastName={user?.l_name}
+                firstName={user?.f_name || user?.first_name}
+                lastName={user?.l_name || user?.last_name}
                 size={40}
                 style={styles.avatar}
               />
-              <Text style={styles.userName}>{formatUserFullName(user)}</Text>
+              <Text style={styles.userName}>{currentUserDisplayName}</Text>
             </View>
 
             {/* Post Input */}
             <MentionInput
               value={donationMessage}
               onChange={setDonationMessage}
-              placeholder="Describe your situation and how donations would help..."
+              placeholder="Start a post..."
               style={styles.input}
               multiline
               onSuggestionsChange={handleSuggestionsChange}
+              textInputStyle={styles.mentionTextInput}
             />
 
             {/* Character Count */}
@@ -825,7 +857,9 @@ export default function DonationPage() {
               style={styles.addImageRow} 
               onPress={pickImages}
             >
-              <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
+            <View style={styles.addImageIconContainer}>
+              <FontAwesome name="image" size={22} color="#059669" />
+            </View>
               <Text style={styles.addImageText}>
                 {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Image(s)'}
               </Text>
@@ -867,7 +901,7 @@ const styles = StyleSheet.create({
   },
   headerBg: {
     height: 160,
-    backgroundColor: '#c62828',
+    backgroundColor: '#059669',
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     width: '100%',
@@ -971,7 +1005,7 @@ const styles = StyleSheet.create({
   },
   paginationDotActive: {
     width: 18,
-    backgroundColor: '#c62828',
+    backgroundColor: '#059669',
   },
   modalOverlay: {
     flex: 1,
@@ -1027,7 +1061,7 @@ const styles = StyleSheet.create({
   },
   topBarButtonLeft: {
     position: 'absolute',
-    left: 0,
+    left: 12,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
@@ -1035,7 +1069,7 @@ const styles = StyleSheet.create({
   },
   topBarButtonRight: {
     position: 'absolute',
-    right: 0,
+    right: 12,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
@@ -1070,14 +1104,13 @@ const styles = StyleSheet.create({
   userRow: { 
     flexDirection: 'row', 
     alignItems: 'center', 
-    marginBottom: 12,
-    marginTop: 10,
+    marginBottom: 16,
+    marginTop: 16,
   },
   userName: { 
     fontWeight: 'bold', 
     fontSize: 15, 
     color: '#222',
-    marginTop: -15,
   },
   input: {
     backgroundColor: '#fff',
@@ -1090,6 +1123,15 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlignVertical: 'top',
     color: '#D9D9D9',
+  },
+  mentionTextInput: {
+    borderWidth: 0,
+    borderColor: 'transparent',
+    borderRadius: 8,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
   charCount: {
     fontSize: 12,
@@ -1119,13 +1161,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  addImageIcon: {
-    width: 32,
+  addImageIconContainer: {
+    width: 44,
     height: 32,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#059669',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   addImageText: {
-    color: '#4B944D',
+    color: '#059669',
     fontWeight: 'bold',
     fontSize: 16,
   },

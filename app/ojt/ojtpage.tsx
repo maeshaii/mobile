@@ -457,10 +457,17 @@ export default function OJTPage() {
             <Text style={styles.loadingText}>Loading posts...</Text>
           </View>
         ) : posts.length === 0 ? (
-          <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
-            <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
-          </View>
+          <>
+            {/* Show People You May Know even when there are no posts */}
+            <View key="people-you-may-know">
+              <PeopleYouMayKnowCard />
+            </View>
+            
+            <View style={styles.noPostsContainer}>
+              <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
+              <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
+            </View>
+          </>
         ) : (
           <>
             {renderPostsWithSuggestions()}

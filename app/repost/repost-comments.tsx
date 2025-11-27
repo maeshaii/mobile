@@ -12,6 +12,7 @@ import { getImagesFromContent } from '../../utils/imageUtils';
 import { formatUserFullName } from '../../utils/nameUtils';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { useAlert } from '../../contexts/AlertContext';
 dayjs.extend(relativeTime);
 type CommentItem = {
   comment_id: number;
@@ -43,6 +44,7 @@ export default function RepostCommentsScreen() {
   const highlightCommentId = params.highlightCommentId ? Number(params.highlightCommentId) : null;
   const highlightReplyId = params.highlightReplyId ? Number(params.highlightReplyId) : null;
   const insets = useSafeAreaInsets();
+  const { showAlert, showConfirm } = useAlert();
   console.log('RepostCommentsScreen - repostId from params:', repostId);
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,8 +162,8 @@ export default function RepostCommentsScreen() {
       const extractedImages = originalContent ? getImagesFromContent(originalContent) : [];
       console.log('Extracted images:', extractedImages);
       setOriginalImages(extractedImages);
-      // Highlight specific comment if provided
-      if (highlightCommentId && commentsArray.length > 0) {
+      // Highlight specific comment if provided (only when we are NOT also highlighting a reply)
+      if (highlightCommentId && !highlightReplyId && commentsArray.length > 0) {
         const commentExists = commentsArray.some((c: CommentItem) => c.comment_id === Number(highlightCommentId));
         if (commentExists) {
           setHighlightedCommentId(Number(highlightCommentId));
@@ -359,7 +361,12 @@ export default function RepostCommentsScreen() {
       setInputHeight(44);
       await onRefresh();
       // Show success feedback
-      Alert.alert('Success', 'Comment added successfully');
+      showAlert({
+        title: 'Success',
+        message: 'Comment added successfully',
+        type: 'success',
+        variant: 'success',
+      });
     } catch (err: any) {
       console.error('[repost comments] send failed', err);
       // Handle specific error cases
@@ -384,7 +391,12 @@ export default function RepostCommentsScreen() {
       setEditingId(null);
       setEditText('');
       await onRefresh();
-      Alert.alert('Success', 'Comment updated successfully');
+      showAlert({
+        title: 'Success',
+        message: 'Comment updated successfully',
+        type: 'success',
+        variant: 'success',
+      });
     } catch (err: any) {
       console.error('[repost comments] update failed', err);
       // Handle specific error cases
@@ -404,7 +416,12 @@ export default function RepostCommentsScreen() {
       console.log('Deleting comment:', commentId);
       await deleteRepostComment(Number(repostId), commentId);
       await onRefresh();
-      Alert.alert('Success', 'Comment deleted successfully');
+      showAlert({
+        title: 'Success',
+        message: 'Comment deleted successfully',
+        type: 'success',
+        variant: 'success',
+      });
     } catch (err: any) {
       console.error('[repost comments] delete failed', err);
       // Handle specific error cases
@@ -536,6 +553,10 @@ export default function RepostCommentsScreen() {
           const { y } = event.nativeEvent.layout;
           commentPositionsRef.current[c.comment_id] = y;
         }}
+        style={[
+          styles.commentRowContainer,
+          highlightedCommentId === c.comment_id && styles.highlightedCommentRow,
+        ]}
       >
         <View style={styles.commentRow}>
           <UserAvatar 
@@ -555,7 +576,6 @@ export default function RepostCommentsScreen() {
                     }
                   }}
                   disabled={!c.user?.user_id || c.user.user_id === meId}
-                  style={highlightedCommentId === c.comment_id ? styles.highlightedNameContainer : null}
                 >
                   <Text style={[
                     styles.cName,
@@ -779,7 +799,10 @@ export default function RepostCommentsScreen() {
                       return (
                         <View 
                           key={replyIndex} 
-                          style={styles.replyItem}
+                          style={[
+                            styles.replyItem,
+                            highlightedReplyId === reply.reply_id && styles.highlightedReplyRow,
+                          ]}
                           onLayout={(event) => {
                             const { y } = event.nativeEvent.layout;
                             replyPositionsRef.current[reply.reply_id] = { commentId: c.comment_id, y };
@@ -801,7 +824,6 @@ export default function RepostCommentsScreen() {
                                   }
                                 }}
                                 disabled={!reply.user?.user_id || reply.user.user_id === meId}
-                                style={highlightedReplyId === reply.reply_id ? styles.highlightedNameContainer : null}
                               >
                                 <Text style={[
                                   styles.replyName,
@@ -1130,7 +1152,12 @@ export default function RepostCommentsScreen() {
                               ...prev,
                               caption: editRepostCaptionText.trim()
                             }));
-                            Alert.alert('Success', 'Caption updated successfully!');
+                            showAlert({
+                              title: 'Success',
+                              message: 'Caption updated successfully!',
+                              type: 'success',
+                              variant: 'success',
+                            });
                             setEditingRepostCaption(false);
                             setEditRepostCaptionText('');
                           } catch (error) {
@@ -1389,29 +1416,24 @@ export default function RepostCommentsScreen() {
             )}
             {/* Delete: show if comment is mine OR I am the repost owner */}
             {(actionFor?.user?.user_id === meId || repost?.user?.user_id === meId || repost?.user?.id === meId) && (
-                      <TouchableOpacity
+              <TouchableOpacity
                 style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
                 onPress={() => {
-                  Alert.alert(
-                    'Delete Comment',
-                    'Are you sure you want to delete this comment? This action cannot be undone.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: () => {
-                          handleDelete(actionFor.comment_id);
-                          setActionFor(null);
-                        },
-                      },
-                    ]
-                  );
-                  setActionFor(null);
+                  showConfirm({
+                    title: 'Delete Comment',
+                    message: 'Are you sure you want to delete this comment? This action cannot be undone.',
+                    confirmText: 'Delete',
+                    type: 'warning',
+                    destructive: true,
+                    onConfirm: () => {
+                      handleDelete(actionFor.comment_id);
+                      setActionFor(null);
+                    },
+                  });
                 }}
               >
                 <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
-                      </TouchableOpacity>
+              </TouchableOpacity>
             )}
             {/* Cancel: always show */}
         <TouchableOpacity
@@ -1446,22 +1468,17 @@ export default function RepostCommentsScreen() {
               <TouchableOpacity
                 style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
                 onPress={() => {
-                  Alert.alert(
-                    'Delete Reply',
-                    'Are you sure you want to delete this reply? This action cannot be undone.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: () => {
-                          handleReplyDelete(actionForReply.commentId, actionForReply.reply.reply_id);
-                          setActionForReply(null);
-                        },
-                      },
-                    ]
-                  );
-                  setActionForReply(null);
+                  showConfirm({
+                    title: 'Delete Reply',
+                    message: 'Are you sure you want to delete this reply? This action cannot be undone.',
+                    confirmText: 'Delete',
+                    type: 'warning',
+                    destructive: true,
+                    onConfirm: () => {
+                      handleReplyDelete(actionForReply.commentId, actionForReply.reply.reply_id);
+                      setActionForReply(null);
+                    },
+                  });
                 }}
               >
                 <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
@@ -1610,20 +1627,57 @@ export default function RepostCommentsScreen() {
         </Modal>
       )}
       {/* Repost Action Sheet Modal */}
-      <Modal visible={!!actionForRepost && !!repost} transparent animationType="fade" onRequestClose={() => setActionForRepost(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.sheet}>
-              <TouchableOpacity
-                style={styles.sheetRow}
-                onPress={() => {
-                  setEditRepostCaptionText(repost.caption || '');
-                  setEditingRepostCaption(true);
-                  setActionForRepost(false);
-                }}
-              >
-                <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
-                <Text style={styles.sheetRowText}>Edit Caption</Text>
-              </TouchableOpacity>
+      <Modal
+        visible={!!actionForRepost && !!repost}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActionForRepost(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.sheet}>
+            <TouchableOpacity
+              style={styles.sheetRow}
+              onPress={() => {
+                // Close the action sheet first
+                setActionForRepost(false);
+
+                if (!repost?.repost_id) {
+                  return;
+                }
+
+                // Navigate to the dedicated Edit Repost screen so the UI
+                // matches the main "Edit Repost" design (header X / Save,
+                // avatar row, caption box, and original post preview).
+                const params: any = {
+                  postId: String(repost.repost_id),
+                  mode: 'edit',
+                  repostId: String(repost.repost_id),
+                };
+
+                if (repost.caption) {
+                  params.initialCaption = repost.caption;
+                }
+
+                // Preserve forum posts when editing from a forum repost
+                const original: any = repost.original || (repost as any).original_post;
+                const isForum =
+                  original?.type === 'forum' ||
+                  !!original?.forum_id ||
+                  !!original?.is_forum_post;
+
+                if (isForum) {
+                  params.isForumPost = 'true';
+                }
+
+                router.push({
+                  pathname: '/repost/repost',
+                  params,
+                });
+              }}
+            >
+              <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+              <Text style={styles.sheetRowText}>Edit Caption</Text>
+            </TouchableOpacity>
               <View style={styles.sheetDivider} />
               <TouchableOpacity
                 style={styles.sheetRow}
@@ -1641,7 +1695,12 @@ export default function RepostCommentsScreen() {
                           try {
                             console.log('Deleting repost:', repost.repost_id);
                             await deleteRepost(repost.repost_id);
-                            Alert.alert('Success', 'Repost deleted successfully!');
+                            showAlert({
+                              title: 'Success',
+                              message: 'Repost deleted successfully!',
+                              type: 'success',
+                              variant: 'success',
+                            });
                             router.back();
                           } catch (error) {
                             console.error('Error deleting repost:', error);
@@ -1755,6 +1814,14 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   // Comment row
+  commentRowContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+  },
+  highlightedCommentRow: {
+    backgroundColor: '#e5e7eb',
+  },
   commentRow: {
     flexDirection: 'row',
     gap: 10,
@@ -1786,12 +1853,12 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   highlightedNameContainer: {
-    backgroundColor: '#fef3c7',
+    backgroundColor: '#e5e7eb',
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#f59e0b',
+    borderColor: '#9ca3af',
     alignSelf: 'flex-start',
   },
   cBody: { color: '#111827' },
@@ -2120,6 +2187,12 @@ const styles = StyleSheet.create({
   replyItem: {
     flexDirection: 'row',
     marginBottom: 8,
+    borderRadius: 10,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  highlightedReplyRow: {
+    backgroundColor: '#e5e7eb',
   },
   replyAvatar: {
     width: 24,

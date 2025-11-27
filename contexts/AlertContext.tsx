@@ -12,10 +12,25 @@ export interface AlertOptions {
   message?: string;
   buttons?: AlertButton[];
   type?: 'default' | 'error' | 'success' | 'info' | 'warning';
+  variant?: 'default' | 'confirm' | 'success';
+}
+
+// Convenience options for the common "confirm" style alert
+interface ConfirmOptions {
+  title: string;
+  message?: string;
+  confirmText?: string;
+  cancelText?: string;
+  type?: 'default' | 'error' | 'success' | 'info' | 'warning';
+  // Callback when user presses the confirm button
+  onConfirm?: () => void;
+  // Whether confirm button should use destructive styling (default true)
+  destructive?: boolean;
 }
 
 interface AlertContextType {
   showAlert: (options: AlertOptions) => void;
+  showConfirm: (options: ConfirmOptions) => void;
 }
 
 const AlertContext = createContext<AlertContextType | undefined>(undefined);
@@ -32,6 +47,37 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setAlert(options);
     setVisible(true);
   }, []);
+
+  // Unified confirm-style alert, matching the shared UI you've been using
+  const showConfirm = useCallback(
+    (options: ConfirmOptions) => {
+      const {
+        title,
+        message,
+        confirmText = 'OK',
+        cancelText = 'Cancel',
+        type = 'warning',
+        destructive = true,
+        onConfirm,
+      } = options;
+
+      showAlert({
+        title,
+        message,
+        type,
+        variant: 'confirm',
+        buttons: [
+          { text: cancelText, style: 'cancel' },
+          {
+            text: confirmText,
+            style: destructive ? 'destructive' : 'default',
+            onPress: onConfirm,
+          },
+        ],
+      });
+    },
+    [showAlert]
+  );
 
   const handleClose = useCallback(() => {
     setVisible(false);
@@ -52,7 +98,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [handleClose]);
 
   return (
-    <AlertContext.Provider value={{ showAlert }}>
+    <AlertContext.Provider value={{ showAlert, showConfirm }}>
       {children}
       {alert && (
         <AlertModal
@@ -61,6 +107,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           message={alert.message}
           buttons={alert.buttons || []}
           type={alert.type || 'default'}
+          variant={alert.variant || 'default'}
           onClose={handleClose}
           onButtonPress={handleButtonPress}
         />

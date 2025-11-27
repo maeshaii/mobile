@@ -546,7 +546,6 @@ export default function ProfilePage() {
         </View>
 
         <Text style={styles.profileName}>{user.name}</Text>
-        <Text style={styles.profileUsername}>{user.username}</Text>
 
         <View style={styles.bioRow}>
           {user.bio && user.bio.trim() ? (
@@ -1431,14 +1430,16 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 10,
+    marginTop: 16,      // more space above the name
+    marginBottom: 4,    // slight space below the name
     color: '#222',
     textAlign: 'center',
   },
   profileUsername: {
     fontSize: 14,
     color: '#888',
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 12,   // extra space between username and bio
     textAlign: 'center',
   },
   bioRow: {
@@ -1446,7 +1447,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '90%',
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 16,   // more space below the bio
   },
   bioText: {
     fontSize: 14,
@@ -1581,7 +1583,8 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
-    marginBottom: 20,
+    marginTop: 12,      // space above the buttons (below the bio)
+    marginBottom: 24,   // space below the buttons (above the stats)
     gap: 12,
   },
   actionButton: {

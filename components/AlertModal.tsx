@@ -16,6 +16,7 @@ interface AlertModalProps {
   message?: string;
   buttons: AlertButton[];
   type?: 'default' | 'error' | 'success' | 'info' | 'warning';
+  variant?: 'default' | 'confirm' | 'success';
   onClose: () => void;
   onButtonPress: (button: AlertButton) => void;
 }
@@ -26,6 +27,7 @@ const AlertModal: React.FC<AlertModalProps> = ({
   message,
   buttons,
   type = 'default',
+  variant = 'default',
   onClose,
   onButtonPress,
 }) => {
@@ -70,6 +72,104 @@ const AlertModal: React.FC<AlertModalProps> = ({
       onButtonPress(button);
     }
   };
+
+  // Special simplified success layout (matches image design)
+  // Works for both success and processing/info types
+  if (variant === 'success' && (type === 'success' || type === 'info' || type === 'default')) {
+    return (
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={onClose}
+      >
+        <TouchableOpacity
+          style={styles.overlay}
+          activeOpacity={1}
+          onPress={onClose}
+        >
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <View style={styles.successContainer}>
+              <Text style={styles.successTitle}>{title}</Text>
+              {message && (
+                <Text style={styles.successMessage}>{message}</Text>
+              )}
+              {buttons.length > 0 && (
+                <View style={styles.successButtonContainer}>
+                  {buttons.map((button, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.successButton}
+                      onPress={() => handleButtonPress(button)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.successButtonText}>{button.text}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
+      </Modal>
+    );
+  }
+
+  // Special simplified confirm layout (matches screenshot-style UI)
+  if (variant === 'confirm') {
+    return (
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={onClose}
+      >
+        <TouchableOpacity
+          style={styles.confirmOverlay}
+          activeOpacity={1}
+          onPress={onClose}
+        >
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <View style={styles.confirmContainer}>
+              <Text style={styles.confirmTitle}>{title}</Text>
+              {message && (
+                <Text style={styles.confirmMessage}>{message}</Text>
+              )}
+
+              <View style={styles.confirmButtonsRow}>
+                {buttons.map((button, index) => {
+                  const isCancel = button.style === 'cancel';
+                  const isDestructive = button.style === 'destructive';
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.confirmButton,
+                        isCancel && styles.confirmCancelButton,
+                        isDestructive && styles.confirmContinueButton,
+                      ]}
+                      onPress={() => handleButtonPress(button)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.confirmButtonText,
+                          isCancel && styles.confirmCancelText,
+                          isDestructive && styles.confirmContinueText,
+                        ]}
+                      >
+                        {button.text}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -143,6 +243,64 @@ const AlertModal: React.FC<AlertModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  // Confirm-style (simple) modal styles
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  confirmContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    width: '100%',
+    maxWidth: 420,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1C4E80',
+    marginBottom: 8,
+  },
+  confirmMessage: {
+    fontSize: 14,
+    color: '#4b5563',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    columnGap: 12,
+  },
+  confirmButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minWidth: 96,
+    alignItems: 'center',
+  },
+  confirmCancelButton: {
+    backgroundColor: '#e5e7eb',
+  },
+  confirmContinueButton: {
+    backgroundColor: '#1C4E80',
+  },
+  confirmButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  confirmCancelText: {
+    color: '#111827',
+  },
+  confirmContinueText: {
+    color: '#ffffff',
+  },
+
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -231,6 +389,46 @@ const styles = StyleSheet.create({
   },
   buttonDestructiveText: {
     color: '#fff',
+  },
+  // Success variant styles (matches image design)
+  successContainer: {
+    backgroundColor: '#4b5563', // Dark gray background
+    borderRadius: 12,
+    width: '100%',
+    maxWidth: 420,
+    padding: 20,
+  },
+  successTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#ffffff', // White text
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  successMessage: {
+    fontSize: 14,
+    color: '#ffffff', // White text
+    lineHeight: 20,
+    marginTop: 4,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  successButtonContainer: {
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  successButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#6b7280', // Lighter gray button
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  successButtonText: {
+    color: '#ffffff', // White text
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 

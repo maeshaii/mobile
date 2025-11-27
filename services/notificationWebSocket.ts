@@ -5,6 +5,7 @@ export type NotificationWsEvent =
   | { type: 'notification_count'; count: number; user_id: number }
   | { type: 'notification_count_update'; count: number }
   | { type: 'points_update'; points: { user_id: number; total_points: number; rank: number | null; points_breakdown: any } }
+  | { type: 'message_request_count'; count: number }
   | { type: 'connection_established'; user_id: number; timestamp: string }
   | { type: 'pong'; timestamp: string }
   | { type: 'error'; message: string };

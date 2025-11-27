@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions, Animated } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Image, Dimensions, Animated, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CachedImage from '../components/CachedImage';
 import { FontAwesome } from '@expo/vector-icons';
@@ -37,6 +37,7 @@ export default function DashboardScreen() {
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [viewerImages, setViewerImages] = useState<any[]>([]);
   const [viewerIndex, setViewerIndex] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
   const imageScrollRef = useRef<ScrollView>(null);
@@ -341,6 +342,19 @@ export default function DashboardScreen() {
     }
   };
 
+  const handleRefresh = async () => {
+    console.log('Dashboard pull-to-refresh triggered');
+    setRefreshing(true);
+    try {
+      // Reload both user info and posts to mimic a full dashboard refresh
+      await loadUserInfo();
+    } catch (err) {
+      console.error('Dashboard refresh error:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const loadUserInfo = async () => {
     try {
       setLoading(true);
@@ -599,7 +613,20 @@ export default function DashboardScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#1e3a8a"
+            colors={['#1e3a8a']}
+          />
+        }
       >
+      <View style={styles.refreshHintContainer}>
+        <Text style={styles.refreshHintText}>
+          {refreshing ? 'Refreshing…' : 'Pull down to refresh'}
+        </Text>
+      </View>
       {user && (
         <View style={styles.profileCard}>
           <Image
@@ -1387,8 +1414,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingTop: 85,
     paddingBottom: 20,
+  },
+  refreshHintContainer: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  refreshHintText: {
+    fontSize: 12,
+    color: '#6b7280',
   },
   postCard: {
     backgroundColor: 'white',

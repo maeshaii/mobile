@@ -19,6 +19,7 @@ import UserAvatar from '../../components/UserAvatar';
 import PeopleYouMayKnowCard from '../peopleyoumayknow/PeopleYouMayKnowCard';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import { formatUserFullName } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 interface Post {
   post_id: number;
   post_title?: string;
@@ -114,6 +115,7 @@ const HomeScreen = () => {
   const [selectedPost, setSelectedPost] = useState<FeedItem | null>(null);
   const [viewPostId, setViewPostId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [isPullingDown, setIsPullingDown] = useState(false);
   const [showPostActionSheet, setShowPostActionSheet] = useState(false);
   const [postActionForId, setPostActionForId] = useState<number | null>(null);
   const [editingPostId, setEditingPostId] = useState<number | null>(null);
@@ -292,9 +294,14 @@ const HomeScreen = () => {
   );
   // Add refresh functionality
   const onRefresh = async () => {
+    console.log('🏠 HomeScreen pull-to-refresh triggered');
     setRefreshing(true);
     try {
+      // Reload user + posts to mimic full home reload
+      await loadUserInfo();
       await loadPosts();
+    } catch (err) {
+      console.error('🏠 HomeScreen refresh error:', err);
     } finally {
       setRefreshing(false);
     }
@@ -777,7 +784,12 @@ const HomeScreen = () => {
   const handleRepost = async (postId: number) => {
     try {
       await repostPost(postId);
-      Alert.alert('Success', 'Post reposted successfully!');
+      showAlert({
+        title: 'Success',
+        message: 'Post reposted successfully!',
+        type: 'success',
+        variant: 'success',
+      });
       // Refresh posts to get updated repost status
       await loadPosts();
     } catch (error) {
@@ -799,7 +811,12 @@ const HomeScreen = () => {
       setCommentText('');
       setCommentModalVisible(false);
       setSelectedPostId(null);
-      Alert.alert('Success', 'Comment added successfully!');
+      showAlert({
+        title: 'Success',
+        message: 'Comment added successfully!',
+        type: 'success',
+        variant: 'success',
+      });
       // Refresh posts to get updated comment count
       await loadPosts();
     } catch (error) {
@@ -855,6 +872,11 @@ const HomeScreen = () => {
   // Handle scroll events to show/hide header and navbar
   const handleScroll = (event: any) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
+
+    // Detect pull-down gesture (negative offset at top)
+    if (!refreshing) {
+      setIsPullingDown(currentScrollY < -5);
+    }
     const scrollingDown = currentScrollY > lastScrollY.current;
     const scrollingUp = currentScrollY < lastScrollY.current;
     // Only hide/show if scrolled more than 10 pixels to avoid jitter
@@ -974,6 +996,8 @@ const HomeScreen = () => {
         contentContainerStyle={[styles.scrollContent, { paddingTop: 60 + insets.top }]}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        alwaysBounceVertical
+        bounces
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -983,6 +1007,13 @@ const HomeScreen = () => {
           />
         }
       >
+      {(isPullingDown || refreshing) && (
+        <View style={styles.refreshHintContainer}>
+          <Text style={styles.refreshHintText}>
+            {refreshing ? 'Refreshing…' : 'Pull down to refresh'}
+          </Text>
+        </View>
+      )}
       {/* Start a Post */}
       <View style={styles.postCard}>
         <View style={styles.postRow}>
@@ -1009,10 +1040,17 @@ const HomeScreen = () => {
             <Text style={styles.loadingText}>Loading posts...</Text>
           </View>
         ) : posts.length === 0 ? (
-          <View style={styles.noPostsContainer}>
-            <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
-            <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
-          </View>
+          <>
+            {/* Show People You May Know even when there are no posts */}
+            <View key="people-you-may-know">
+              <PeopleYouMayKnowCard />
+            </View>
+            
+            <View style={styles.noPostsContainer}>
+              <Text style={styles.noPostsText}>No posts yet. Start following users or create your first post.</Text>
+              <Text style={styles.pullToRefreshText}>Pull down to refresh</Text>
+            </View>
+          </>
         ) : (
           <>
             {renderPostsWithSuggestions()}
@@ -1366,7 +1404,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: 20,
+  },
+  refreshHintContainer: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  refreshHintText: {
+    fontSize: 12,
+    color: '#6b7280',
   },
   avatar: {
     width: 40,

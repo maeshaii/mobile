@@ -1029,14 +1029,9 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 10,
+    marginTop: 16,      // more space above the name
+    marginBottom: 4,    // slight space below the name
     color: '#222',
-    textAlign: 'center',
-  },
-  profileUsername: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 8,
     textAlign: 'center',
   },
   bioRow: {
@@ -1044,7 +1039,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '90%',
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 10,   // slightly less space below the bio so buttons sit higher
   },
   bioText: {
     fontSize: 14,
@@ -1092,7 +1088,8 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
-    marginBottom: 20,
+    marginTop: 4,       // reduced so buttons are closer to the bio (moved upward)
+    marginBottom: 24,   // space below the buttons (above the stats/details)
     gap: 12,
   },
   actionButton: {

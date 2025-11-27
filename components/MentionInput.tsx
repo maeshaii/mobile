@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Dimensions, findNodeHandle, UIManager, Keyboard, Platform } from 'react-native';
-import { getFollowingForMentions } from '../services/api';
+import { getFollowingForMentions, getUserInfo, getCurrentUserId } from '../services/api';
 import UserAvatar from './UserAvatar';
 import { formatUserFullName } from '../utils/nameUtils';
 
@@ -39,6 +39,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
   textInputStyle = {}
 }) => {
   const [following, setFollowing] = useState<User[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState<User[]>([]);
   const [mentionStart, setMentionStart] = useState(-1);
@@ -51,11 +52,19 @@ const MentionInput: React.FC<MentionInputProps> = ({
   const [inputPosition, setInputPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  // Load following users on component mount
+  // Load following users and current user on component mount
   useEffect(() => {
     const loadFollowing = async () => {
       try {
-        const response = await getFollowingForMentions();
+        const [response, me] = await Promise.all([
+          getFollowingForMentions(),
+          getUserInfo(),
+        ]);
+
+        // Set current user id so we can avoid suggesting self in mentions
+        const meId = getCurrentUserId(me);
+        setCurrentUserId(meId);
+
         if (response && typeof response === 'object' && 'success' in response) {
           if ((response as any).success) {
             setFollowing((response as any).following || []);
@@ -115,11 +124,16 @@ const MentionInput: React.FC<MentionInputProps> = ({
         }
       }, 100);
       const queryLower = textFromAtToCaret.toLowerCase();
-      const filteredSuggestions = following.filter(user =>
-        (user.name || '').toLowerCase().includes(queryLower) ||
-        (user.f_name || '').toLowerCase().includes(queryLower) ||
-        (user.l_name || '').toLowerCase().includes(queryLower)
-      );
+      const filteredSuggestions = following.filter(user => {
+        const id = (user as any)?.user_id ?? (user as any)?.id;
+        const matches =
+          (user.name || '').toLowerCase().includes(queryLower) ||
+          (user.f_name || '').toLowerCase().includes(queryLower) ||
+          (user.l_name || '').toLowerCase().includes(queryLower);
+        // Do not suggest the current user themself
+        const isSelf = !!currentUserId && !!id && id === currentUserId;
+        return matches && !isSelf;
+      });
       setSuggestions(filteredSuggestions);
       setSelectedIndex(0);
     } else {
@@ -183,7 +197,7 @@ const MentionInput: React.FC<MentionInputProps> = ({
         setDropdownAbove(true);
       }
     }
-  }, [showSuggestions, isKeyboardVisible]);
+  }, [showSuggestions, isKeyboardVisible, currentUserId]);
 
   // Handle suggestion selection
   const selectSuggestion = (user: User) => {
@@ -206,11 +220,10 @@ const MentionInput: React.FC<MentionInputProps> = ({
     // Replace the mention token from '@' to caret with selected user name
     const beforeMention = value.substring(0, effectiveMentionStart);
     const afterCaret = value.substring(caretEnd);
-    // Build mention token without spaces to match backend regex (@FirstLast)
-    // The backend regex r'@([^@\s]+)' doesn't support spaces, so we use @FirstLast format
+    // Build mention token using the full display name with spaces (e.g. "@Harley Dave Chavez ")
+    // The rendering helper will detect the mention and only highlight the name portion.
     const displayName = (user.name || formatUserFullName(user)).trim();
-    const token = displayName.replace(/\s+/g, '');
-    const insert = `@${token} `;
+    const insert = `@${displayName} `;
     const newValue = beforeMention + insert + afterCaret;
     onChange(newValue);
 
@@ -252,13 +265,18 @@ const MentionInput: React.FC<MentionInputProps> = ({
             l_name: u.l_name || u.last_name || '',
             profile_pic: u.profile_pic || u.avatar_url || ''
           })) as User[];
-          setSuggestions(mapped);
+          const filtered = mapped.filter((user) => {
+            const id = (user as any)?.user_id ?? (user as any)?.id;
+            const isSelf = !!currentUserId && !!id && id === currentUserId;
+            return !isSelf;
+          });
+          setSuggestions(filtered);
         }
       } catch {}
     };
     runFallbackSearch();
     return () => { cancelled = true; };
-  }, [showSuggestions, mentionQuery, suggestions.length]);
+  }, [showSuggestions, mentionQuery, suggestions.length, currentUserId]);
 
   // Handle keyboard navigation
   const handleKeyPress = (e: any) => {
@@ -333,11 +351,15 @@ const MentionInput: React.FC<MentionInputProps> = ({
                   onSuggestionsChange?.(true, inputPosition);
                 }
               }, 100);
-              const filteredSuggestions = following.filter(user =>
-                user.name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-                user.f_name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-                user.l_name.toLowerCase().includes(textAfterAt.toLowerCase())
-              );
+              const filteredSuggestions = following.filter(user => {
+                const id = (user as any)?.user_id ?? (user as any)?.id;
+                const matches =
+                  (user.name || '').toLowerCase().includes(textAfterAt.toLowerCase()) ||
+                  (user.f_name || '').toLowerCase().includes(textAfterAt.toLowerCase()) ||
+                  (user.l_name || '').toLowerCase().includes(textAfterAt.toLowerCase());
+                const isSelf = !!currentUserId && !!id && id === currentUserId;
+                return matches && !isSelf;
+              });
               setSuggestions(filteredSuggestions);
               setSelectedIndex(0);
             }
@@ -345,11 +367,10 @@ const MentionInput: React.FC<MentionInputProps> = ({
           updateDropdownPosition();
         }}
         onBlur={() => {
-          // Delay hiding suggestions to allow selection
-          setTimeout(() => {
-            setShowSuggestions(false);
-            onSuggestionsChange?.(false);
-          }, 150);
+          // Do not immediately hide suggestions on blur; they will be closed
+          // explicitly when a suggestion is selected or when typing cancels
+          // the mention token. This avoids a race where the blur fires before
+          // the suggestion onPress handler on some devices.
         }}
       />
       

@@ -78,12 +78,30 @@ export const formatLikeCountText = (
     m_name?: string | null;
     l_name?: string | null;
   }> | null,
-  likesCount?: number
+  likesCount?: number,
+  currentUserId?: number | string,
+  likedByMeOverride?: boolean
 ): string => {
-  // If no likes array, fall back to count
+  const numericCurrentId = currentUserId != null ? Number(currentUserId) : undefined;
+
+  const likedByMeComputed =
+    numericCurrentId != null &&
+    Array.isArray(likes) &&
+    likes.some((like: any) => {
+      const user = (like && (like.user || like)) || {};
+      const rawId = (user as any).user_id ?? (user as any).id;
+      if (rawId == null) return false;
+      const likeUserId = Number(rawId);
+      return !Number.isNaN(likeUserId) && likeUserId === numericCurrentId;
+    });
+
+  const likedByMe = Boolean(likedByMeOverride || likedByMeComputed);
+
+  // If no likes array, fall back to count (numeric-only), but still honor "You liked this post" when we know it's you
   if (!likes || likes.length === 0) {
     const count = likesCount || 0;
     if (count === 0) return '';
+    if (count === 1 && likedByMe) return 'You liked this post';
     if (count === 1) return '1 like';
     return `${count} likes`;
   }
@@ -91,6 +109,9 @@ export const formatLikeCountText = (
   const count = likes.length;
 
   if (count === 1) {
+    if (likedByMe) {
+      return 'You liked this post';
+    }
     const like = likes[0];
     const user = like.user || like;
     const name = formatUserFullName({
@@ -98,18 +119,39 @@ export const formatLikeCountText = (
       m_name: user.m_name,
       l_name: user.l_name,
     });
-    return `${name} liked this`;
-  } else {
-    // For 2+ likes, always show "Name and X others liked this" format
-    const like = likes[0];
-    const user = like.user || like;
-    const name = formatUserFullName({
-      f_name: user.f_name,
-      m_name: user.m_name,
-      l_name: user.l_name,
-    });
-    const othersCount = count - 1;
-    return `${name} and ${othersCount} ${othersCount === 1 ? 'other' : 'others'} liked this`;
+    return `${name} liked this post`;
   }
+
+  if (count === 2) {
+    const firstLike = likes[0];
+    const secondLike = likes[1];
+    const firstUser = firstLike.user || firstLike;
+    const secondUser = secondLike.user || secondLike;
+
+    const firstName = formatUserFullName({
+      f_name: firstUser.f_name,
+      m_name: firstUser.m_name,
+      l_name: firstUser.l_name,
+    });
+
+    const secondName = formatUserFullName({
+      f_name: secondUser.f_name,
+      m_name: secondUser.m_name,
+      l_name: secondUser.l_name,
+    });
+
+    return `${firstName} and ${secondName} liked this post`;
+  }
+
+  // 3+ likes: "Name and X others liked this post"
+  const like = likes[0];
+  const user = like.user || like;
+  const name = formatUserFullName({
+    f_name: user.f_name,
+    m_name: user.m_name,
+    l_name: user.l_name,
+  });
+  const othersCount = count - 1;
+  return `${name} and ${othersCount} ${othersCount === 1 ? 'other' : 'others'} liked this post`;
 };
 

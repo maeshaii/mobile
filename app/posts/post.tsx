@@ -4,11 +4,13 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL, createPost, createForumPost, getUserInfo } from '../../services/api';
+import { API_BASE_URL, createPost, createForumPost, getUserInfo, editPost, getPostDetail, editForumPost, getForumDetail } from '../../services/api';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 import UserAvatar from '../../components/UserAvatar';
 import { formatUserFullName } from '../../utils/nameUtils';
+import { getImagesFromContent } from '../../utils/imageUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 interface UserInfo {
   name?: string;
@@ -21,6 +23,13 @@ interface UserInfo {
 export default function PostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { showAlert } = useAlert();
+  const rawPostId = typeof params.postId === 'string' ? params.postId : undefined;
+  const isEditMode = typeof params.mode === 'string' && params.mode === 'edit';
+  const numericPostId = rawPostId ? Number(rawPostId) : undefined;
+  const isForumPost =
+    (typeof params.type === 'string' && params.type === 'forum') ||
+    params.isForumPost === 'true';
   const [user, setUser] = useState<UserInfo | null>(null);
   // Removed title as requested
   const [postContent, setPostContent] = useState('');
@@ -28,17 +37,64 @@ export default function PostScreen() {
   const [selectedImages, setSelectedImages] = useState<string[]>([]); // Multiple images
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [existingImages, setExistingImages] = useState<string[]>(() => {
+    if (!isEditMode) return [];
+    const imagesParam = params.images;
+    if (typeof imagesParam !== 'string') return [];
+    try {
+      const parsed = JSON.parse(imagesParam);
+      return Array.isArray(parsed) ? parsed.filter((u: any) => typeof u === 'string' && u.length > 0) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Fetch user info on component mount
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const userInfo = await getUserInfo();
+        const [userInfo, postDetail] = await Promise.all([
+          getUserInfo(),
+          isEditMode && numericPostId
+            ? (isForumPost ? getForumDetail(numericPostId) : getPostDetail(numericPostId))
+            : Promise.resolve(null),
+        ]);
         setUser(userInfo);
-      } catch (error) {
+
+        if (postDetail) {
+          const detail: any = postDetail;
+
+          // Prefill content from backend if available
+          if (typeof detail.post_content === 'string' && detail.post_content.length > 0) {
+            setPostContent(detail.post_content);
+          }
+
+          // If we don't already have images from navigation params, derive them using shared image utils
+          if (existingImages.length === 0) {
+            const contentImages = getImagesFromContent(detail) || [];
+            const urls: string[] = contentImages
+              .map((img: any) => {
+                let url = img?.image_url || img?.url || img;
+                if (typeof url !== 'string' || !url) return '';
+                if (!url.startsWith('http') && !url.startsWith('data:')) {
+                  url = `${API_BASE_URL}${url}`;
+                }
+                return url;
+              })
+              .filter((u: string) => !!u);
+
+            if (urls.length > 0) {
+              setExistingImages(urls);
+            }
+          }
+        }
+      } catch (error: any) {
         console.error('Error fetching user data:', error);
-        Alert.alert('Error', 'Failed to load user data');
+        // If the post itself is missing (404), don't crash the screen; just stay in create mode
+        if (error?.response?.status !== 404) {
+          Alert.alert('Error', 'Failed to load user data');
+        }
       } finally {
         setLoading(false);
       }
@@ -46,6 +102,16 @@ export default function PostScreen() {
 
     fetchData();
   }, []);
+
+  // Prefill content when editing
+  useEffect(() => {
+    if (isEditMode) {
+      const initialContent = typeof params.initialContent === 'string' ? params.initialContent : '';
+      if (initialContent && !postContent) {
+        setPostContent(initialContent);
+      }
+    }
+  }, [isEditMode, params.initialContent, postContent]);
 
   const pickImage = async () => {
     try {
@@ -114,7 +180,38 @@ export default function PostScreen() {
       return;
     }
 
-    const postType = (typeof params.type === 'string' && params.type) ? params.type : 'personal';
+    const postType =
+      (typeof params.type === 'string' && params.type)
+        ? params.type
+        : (isForumPost ? 'forum' : 'personal');
+
+    // Edit mode: only update text, keep existing images untouched
+    if (isEditMode && numericPostId) {
+      try {
+        setSubmitting(true);
+        if (isForumPost) {
+          // Use forum edit API for forum posts so the behavior matches dashboard/forum UI
+          await editForumPost(numericPostId, { post_content: postContent.trim() });
+        } else {
+          await editPost(numericPostId, { post_content: postContent.trim() });
+        }
+        showAlert({
+          title: 'Success',
+          message: 'Post updated successfully.',
+          type: 'success',
+          variant: 'success',
+          buttons: [
+            { text: 'OK', onPress: () => router.back() }
+          ],
+        });
+      } catch (error) {
+        console.error('Error updating post:', error);
+        Alert.alert('Error', 'Could not update post. Please try again.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -124,7 +221,15 @@ export default function PostScreen() {
       
       // Show progress for image uploads
       if (selectedImages.length > 0 || selectedImage) {
-        Alert.alert('Processing', 'Compressing images and preparing upload...', [], { cancelable: false });
+        showAlert({
+          title: 'Processing',
+          message: 'Compressing images and preparing upload...',
+          type: 'info',
+          variant: 'success',
+          buttons: [
+            { text: 'OK' }
+          ],
+        });
       }
       
       // Handle images - use multiple images if available, fallback to single image
@@ -225,9 +330,27 @@ export default function PostScreen() {
       }
       
       console.log('Post created successfully!');
-      Alert.alert('Success', 'Post created successfully!', [
-        { text: 'OK', onPress: () => router.back() }
-      ]);
+      // Check if this is a forum post to redirect appropriately
+      const isForumPost = postType === 'forum' || params.isForumPost === 'true';
+      showAlert({
+        title: 'Success!',
+        message: 'Post created successfully!',
+        type: 'success',
+        variant: 'success',
+        buttons: [
+          { 
+            text: 'OK', 
+            onPress: () => {
+              // Redirect to forum page if posting from forum, otherwise go to home
+              if (isForumPost) {
+                router.replace('/forum/forumpage');
+              } else {
+                router.replace('/homepage/home');
+              }
+            }
+          }
+        ],
+      });
     } catch (error) {
       console.error('Error creating post:', error);
       
@@ -285,7 +408,7 @@ export default function PostScreen() {
         >
           <Text style={styles.closeIcon}>✕</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>CREATE A POST</Text>
+        <Text style={styles.title}>{isEditMode ? 'EDIT POST' : 'CREATE A POST'}</Text>
         <TouchableOpacity 
           style={[styles.topBarButtonRight, submitting && styles.disabledButton]} 
           onPress={handleSubmit}
@@ -294,7 +417,7 @@ export default function PostScreen() {
           {submitting ? (
             <ActivityIndicator size="small" color="#222" />
           ) : (
-            <Text style={styles.postButton}>POST</Text>
+            <Text style={styles.postButton}>{isEditMode ? 'Save' : 'POST'}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -320,6 +443,7 @@ export default function PostScreen() {
         <TextInput
           style={styles.input}
           placeholder="Start a post..."
+          placeholderTextColor="#888"
           multiline
           numberOfLines={6}
           value={postContent}
@@ -331,49 +455,71 @@ export default function PostScreen() {
         <Text style={styles.charCount}>{postContent.length}/1000</Text>
       </View> 
 
-        {/* Add Image Section */}
+        {/* Add Image / Attached Images Section */}
         <View style={styles.addImageContainer}>
-          <TouchableOpacity 
-            style={styles.addImageRow} 
-            onPress={() => {
-              console.log('Image button pressed!');
-              pickImage();
-            }}
-          >
-            <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
-            <Text style={styles.addImageText}>
-              {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Image(s)'}
-            </Text>
-          </TouchableOpacity>
-          
-          {/* Display multiple selected images */}
-          {selectedImages.length > 0 && (
-            <ScrollView horizontal style={styles.imagesContainer}>
-              {selectedImages.map((image, index) => (
-                <View key={index} style={styles.selectedImageContainer}>
-                  <Image source={{ uri: image }} style={styles.selectedImage} />
+          {isEditMode ? (
+            <>
+              {/* Editing: show existing images only (no "X attached images" label) */}
+              {existingImages.length > 0 ? (
+                <ScrollView horizontal style={styles.imagesContainer}>
+                  {existingImages.map((image, index) => (
+                    <View key={index} style={styles.selectedImageContainer}>
+                      <Image source={{ uri: image }} style={styles.selectedImage} />
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <View style={styles.addImageRow}>
+                  <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
+                  <Text style={styles.addImageText}>No images attached</Text>
+                </View>
+              )}
+            </>
+          ) : (
+            <>
+              <TouchableOpacity 
+                style={styles.addImageRow} 
+                onPress={() => {
+                  console.log('Image button pressed!');
+                  pickImage();
+                }}
+              >
+                <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
+                <Text style={styles.addImageText}>
+                  {selectedImages.length > 0 ? `${selectedImages.length} Image${selectedImages.length > 1 ? 's' : ''} Selected` : 'Add Image(s)'}
+                </Text>
+              </TouchableOpacity>
+              
+              {/* Display multiple selected images */}
+              {selectedImages.length > 0 && (
+                <ScrollView horizontal style={styles.imagesContainer}>
+                  {selectedImages.map((image, index) => (
+                    <View key={index} style={styles.selectedImageContainer}>
+                      <Image source={{ uri: image }} style={styles.selectedImage} />
+                      <TouchableOpacity 
+                        style={styles.removeImageButton}
+                        onPress={() => removeImage(index)}
+                      >
+                        <Text style={styles.removeImageText}>Remove</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+              
+              {/* Fallback for single image (backward compatibility) */}
+              {selectedImages.length === 0 && selectedImage && (
+                <View style={styles.selectedImageContainer}>
+                  <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
                   <TouchableOpacity 
                     style={styles.removeImageButton}
-                    onPress={() => removeImage(index)}
+                    onPress={() => setSelectedImage(null)}
                   >
                     <Text style={styles.removeImageText}>Remove</Text>
                   </TouchableOpacity>
                 </View>
-              ))}
-            </ScrollView>
-          )}
-          
-          {/* Fallback for single image (backward compatibility) */}
-          {selectedImages.length === 0 && selectedImage && (
-            <View style={styles.selectedImageContainer}>
-              <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
-              <TouchableOpacity 
-                style={styles.removeImageButton}
-                onPress={() => setSelectedImage(null)}
-              >
-                <Text style={styles.removeImageText}>Remove</Text>
-              </TouchableOpacity>
-            </View>
+              )}
+            </>
           )}
         </View>
       
@@ -457,7 +603,7 @@ topBarButtonRight: {
     minHeight: 100,
     marginBottom: 16,
     textAlignVertical: 'top',
-    color: '#D9D9D9',
+    color: '#000000',
   },
   addImageContainer: {
     backgroundColor: '#fff',

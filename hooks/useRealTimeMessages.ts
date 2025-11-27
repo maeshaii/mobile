@@ -4,8 +4,9 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listConversations } from '../services/api';
+import { listConversations, getUserInfo, API_BASE_URL, getAccessToken } from '../services/api';
 import { AppState, AppStateStatus } from 'react-native';
+import { NotificationWebSocket, NotificationWsEvent } from '../services/notificationWebSocket';
 
 interface UseRealTimeMessagesOptions {
   enablePolling?: boolean;
@@ -15,6 +16,7 @@ interface UseRealTimeMessagesOptions {
 
 interface UseRealTimeMessagesReturn {
   unreadCount: number;
+  messageRequestCount: number;
   totalConversations: number;
   isLoading: boolean;
   error: string | null;
@@ -31,12 +33,14 @@ export function useRealTimeMessages(
   } = options;
 
   const [unreadCount, setUnreadCount] = useState(0);
+  const [messageRequestCount, setMessageRequestCount] = useState(0);
   const [totalConversations, setTotalConversations] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isInitializedRef = useRef(false);
+  const wsRef = useRef<NotificationWebSocket | null>(null);
 
   // Calculate unread count from conversations - count unique conversations with unread messages (people who messaged)
   const calculateUnreadCount = useCallback((conversations: any[]) => {
@@ -44,9 +48,17 @@ export function useRealTimeMessages(
     const peopleWithUnread = conversations.filter((conv) => {
       return (conv.unread_count || 0) > 0;
     }).length;
+    
+    // Count message requests (conversations that are marked as message requests)
+    const messageRequests = conversations.filter((conv) => {
+      return conv.is_message_request === true;
+    }).length;
+    
     setUnreadCount(peopleWithUnread);
+    setMessageRequestCount(messageRequests);
     setTotalConversations(conversations.length);
     console.log('📨 Mobile: Updated message unread count:', peopleWithUnread, 'people with unread messages from', conversations.length, 'conversations');
+    console.log('📬 Mobile: Updated message request count:', messageRequests, 'pending message requests');
   }, []);
 
   // Fetch conversations from API
@@ -105,6 +117,50 @@ export function useRealTimeMessages(
     }, pollingInterval);
   }, [enablePolling, pollingInterval, fetchConversations]);
 
+  // Setup WebSocket for real-time message request count updates
+  const setupWebSocket = useCallback(async () => {
+    try {
+      const user = await getUserInfo();
+      if (!user?.user_id) return;
+
+      const token = await getAccessToken();
+      if (!token) return;
+
+      // Create WebSocket connection
+      const ws = new NotificationWebSocket(user.user_id, API_BASE_URL, token);
+      
+      ws.onNotification((event: NotificationWsEvent) => {
+        console.log('📬 useRealTimeMessages: Received WebSocket event:', event.type);
+        
+        if (event.type === 'message_request_count') {
+          setMessageRequestCount(event.count);
+          console.log('📬 Mobile: Updated message request count from WebSocket:', event.count);
+        }
+      });
+
+      ws.onStatus((status) => {
+        console.log('📬 useRealTimeMessages: WebSocket status:', status);
+      });
+
+      await ws.connect();
+      wsRef.current = ws;
+      
+      console.log('📬 Mobile: WebSocket connected for real-time message request updates');
+    } catch (error) {
+      console.error('📬 Mobile: Failed to setup WebSocket for message requests:', error);
+    }
+  }, []);
+
+  // Cleanup WebSocket on unmount
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.disconnect();
+        wsRef.current = null;
+      }
+    };
+  }, []);
+
   // Handle app state changes (foreground/background)
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -139,6 +195,9 @@ export function useRealTimeMessages(
     
     // Setup polling
     setupPolling();
+    
+    // Setup WebSocket for real-time updates
+    setupWebSocket();
 
     return () => {
       // Cleanup
@@ -147,10 +206,11 @@ export function useRealTimeMessages(
         intervalRef.current = null;
       }
     };
-  }, [autoConnect, setupPolling, fetchConversations]);
+  }, [autoConnect, setupPolling, fetchConversations, setupWebSocket]);
 
   return {
     unreadCount,
+    messageRequestCount,
     totalConversations,
     isLoading,
     error,

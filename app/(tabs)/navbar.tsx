@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import { View, TextInput, StyleSheet, TouchableOpacity, Text, Image } from 'react-native';
 import { usePathname } from 'expo-router';
 import { FontAwesome, MaterialIcons, Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router'; // ✅ Use useRouter from expo-router
 import { getUserInfo } from '../../services/api';
 import { useRealTimeMessages } from '../../hooks/useRealTimeMessages';
 import { useRealTimeNotifications } from '../../hooks/useRealTimeNotifications';
+import WnyLogo from '../../assets/images/wny-logo.png';
 
-const NAV_ICON_SIZE = 24;
+const NAV_ICON_SIZE = 20;
 const LABEL_FONT_SIZE = 12;
 const ACTIVE_COLOR = '#FFFFFF';
 const INACTIVE_COLOR = '#FFFFFF';
@@ -23,7 +24,7 @@ const NavBar = () => {
   };
 
   // Use real-time messages hook
-  const { unreadCount: messageUnreadCount } = useRealTimeMessages({
+  const { unreadCount: messageUnreadCount, messageRequestCount } = useRealTimeMessages({
     enablePolling: true,
     pollingInterval: 30000,
     autoConnect: true
@@ -112,10 +113,10 @@ const NavBar = () => {
             {isActive(['/messages']) && <View style={styles.activeIndicator} />}
             <MaterialIcons name="email" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
             <Text style={[styles.label, isActive(['/messages']) && styles.activeLabel]}>Messages</Text>
-            {messageUnreadCount > 0 && (
+            {(messageUnreadCount > 0 || messageRequestCount > 0) && (
               <View style={styles.messageBadge}>
                 <Text style={styles.messageBadgeText}>
-                  {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                  {(messageUnreadCount + messageRequestCount) > 99 ? '99+' : (messageUnreadCount + messageRequestCount)}
                 </Text>
               </View>
             )}
@@ -125,9 +126,8 @@ const NavBar = () => {
         <TouchableOpacity onPress={() => router.push('/profile/profiletab')}>
           <View style={styles.iconWithLabel}>
             {isActive(['/profile']) && <View style={styles.activeIndicator} />}
-            <Feather name="user" size={NAV_ICON_SIZE} color={INACTIVE_COLOR} />
+            <Image source={WnyLogo} style={styles.profileIcon} />
             <Text style={[styles.label, isActive(['/profile']) && styles.activeLabel]}>Profile</Text>
-            <View style={styles.badge} />
           </View>
         </TouchableOpacity>
       </View>
@@ -160,6 +160,11 @@ const styles = StyleSheet.create({
   iconWithLabel: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  profileIcon: {
+    width: NAV_ICON_SIZE,
+    height: NAV_ICON_SIZE,
+    resizeMode: 'contain',
   },
   label: {
     color: INACTIVE_COLOR,

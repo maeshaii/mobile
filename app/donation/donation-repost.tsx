@@ -2,19 +2,21 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { API_BASE_URL, getDonationDetail, getUserInfo, repostDonationPost, likeDonationPost, unlikeDonationPost, commentOnDonationPost, getDonationComments } from '../../services/api';
+import { API_BASE_URL, getDonationDetail, getUserInfo, repostDonationPost, likeDonationPost, unlikeDonationPost, commentOnDonationPost, getDonationComments, getAlumniDetails } from '../../services/api';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import UserAvatar from '../../components/UserAvatar';
 import { formatUserFullName } from '../../utils/nameUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 dayjs.extend(relativeTime);
 
 export default function DonationRepostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { showAlert } = useAlert();
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
   
   console.log('DonationRepostScreen - params:', params);
@@ -45,7 +47,21 @@ export default function DonationRepostScreen() {
         ]);
         console.log('DonationRepostScreen - getUserInfo result:', u);
         console.log('DonationRepostScreen - getDonationDetail result:', detail);
-        setMe(u);
+
+        // Try to enrich current user data with full alumni details so middle name is available
+        let enrichedUser: any = u;
+        try {
+          const meId = (u as any)?.id || (u as any)?.user_id;
+          if (meId) {
+            const alumniRes: any = await getAlumniDetails(meId);
+            const alumni = (alumniRes && (alumniRes.alumni || alumniRes)) || {};
+            enrichedUser = { ...u, ...alumni };
+          }
+        } catch (e) {
+          console.warn('DonationRepostScreen - Failed to enrich user with alumni details:', e);
+        }
+
+        setMe(enrichedUser);
         setOriginal(detail);
       } catch (error) {
         console.error('DonationRepostScreen - Error loading data:', error);
@@ -70,9 +86,15 @@ export default function DonationRepostScreen() {
       console.log('DonationRepostScreen - Repost response:', response);
       
       if (response.success !== false) {
-        Alert.alert('Success', 'Donation post reposted successfully!', [
-          { text: 'OK', onPress: () => router.back() }
-        ]);
+        showAlert({
+          title: 'Success',
+          message: 'Donation post reposted successfully!',
+          type: 'success',
+          variant: 'success',
+          buttons: [
+            { text: 'OK', onPress: () => router.replace('/homepage/home') }
+          ],
+        });
       } else {
         Alert.alert('Error', response.message || 'Failed to repost');
       }
@@ -116,7 +138,12 @@ export default function DonationRepostScreen() {
       await commentOnDonationPost(original.post_id, commentText.trim());
       setCommentText('');
       setCommentModalVisible(false);
-      Alert.alert('Success', 'Comment added successfully!');
+      showAlert({
+        title: 'Success',
+        message: 'Comment added successfully!',
+        type: 'success',
+        variant: 'success',
+      });
     } catch (error) {
       console.error('Error adding comment:', error);
       Alert.alert('Error', 'Failed to add comment');
@@ -204,16 +231,17 @@ export default function DonationRepostScreen() {
         </TouchableOpacity>
       </View>
 
-        {/* Caption Input */}
-        <View style={styles.captionSection}>
-          <TextInput
-            style={styles.captionInput}
+      {/* Caption Input */}
+      <View style={styles.captionSection}>
+        <TextInput
+          style={styles.captionInput}
           placeholder="Say something about this..."
-            value={caption}
-            onChangeText={setCaption}
-            multiline
-            maxLength={280}
-          />
+          placeholderTextColor="#888"
+          value={caption}
+          onChangeText={setCaption}
+          multiline
+          maxLength={280}
+        />
       </View>
 
       {/* Original Post */}
@@ -272,9 +300,14 @@ export default function DonationRepostScreen() {
         </View>
 
         <View style={styles.originalPostContent}>
-          {renderTextWithMentions(original.post_content, [], (userId) => {
-            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
-          }, styles.originalPostContent)}
+          {renderTextWithMentions(
+            (original.description as string) || (original.post_content as string) || '',
+            [],
+            (userId) => {
+              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+            },
+            styles.originalPostContent
+          )}
         </View>
         
         {/* Images - Facebook-style grid layout like dashboard */}
@@ -402,7 +435,7 @@ const styles = StyleSheet.create({
   },
   topBarButtonLeft: {
     position: 'absolute',
-    left: 0,
+    left: 12,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
@@ -413,7 +446,7 @@ const styles = StyleSheet.create({
   },
   topBarButtonRight: {
     position: 'absolute',
-    right: 0,
+    right: 12,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
@@ -476,7 +509,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 100,
     textAlignVertical: 'top',
-    color: '#D9D9D9',
+    color: '#000',
   },
   originalPostCard: {
     backgroundColor: '#f8f9fa',

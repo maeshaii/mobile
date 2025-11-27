@@ -50,7 +50,7 @@ interface Props {
 
 const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
-  const { showAlert } = useAlert();
+  const { showAlert, showConfirm } = useAlert();
 
   // Local state
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
@@ -179,44 +179,39 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
 
   const handleDelete = async () => {
     setShowActions(false);
-    showAlert({
+    showConfirm({
       title: 'Delete Post',
       message: 'Are you sure you want to delete this post?',
+      confirmText: 'Delete',
       type: 'warning',
-      buttons: [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await deletePost(post.post_id);
-              if (response.success !== false) {
-                showAlert({
-                  title: 'Success',
-                  message: 'Post deleted successfully.',
-                  type: 'success',
-                });
-                setShowActions(false);
-                onDeleted?.(post.post_id);
-              } else {
-                showAlert({
-                  title: 'Error',
-                  message: response.message || 'Failed to delete post.',
-                  type: 'error',
-                });
-              }
-            } catch (error: any) {
-              console.error('Delete post error:', error);
-              showAlert({
-                title: 'Error',
-                message: error?.response?.data?.error || error?.message || 'Could not delete post.',
-                type: 'error',
-              });
-            }
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const response = await deletePost(post.post_id);
+          if (response.success !== false) {
+            showAlert({
+              title: 'Success',
+              message: 'Post deleted successfully.',
+              type: 'success',
+            });
+            setShowActions(false);
+            onDeleted?.(post.post_id);
+          } else {
+            showAlert({
+              title: 'Error',
+              message: response.message || 'Failed to delete post.',
+              type: 'error',
+            });
           }
+        } catch (error: any) {
+          console.error('Delete post error:', error);
+          showAlert({
+            title: 'Error',
+            message: error?.response?.data?.error || error?.message || 'Could not delete post.',
+            type: 'error',
+          });
         }
-      ]
+      },
     });
   };
 
@@ -393,26 +388,43 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
 
       {/* Stats */}
       <View style={styles.actionsCountsRow}>
-        {likeCount > 0 && (
-          <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
-            <Text style={styles.countText}>
-              {formatLikeCountText((post as any).likes, likeCount)}
-            </Text>
-          </TouchableOpacity>
-        )}
-        {(post.comments_count || 0) > 0 && (
-          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
-            <Text style={styles.countText}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          onPress={() => onOpenViewer?.(post, 'reposts')}
-          disabled={!onOpenViewer}
-        >
-          <Text style={styles.countText}>
-            {repostCount || 0} {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
-          </Text>
-        </TouchableOpacity>
+        {/* Like count column */}
+        <View style={styles.countItem}>
+          {likeCount > 0 && (
+            <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
+              <Text style={styles.countText}>
+                {formatLikeCountText((post as any).likes, likeCount, currentUserId, isLiked)}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Comment count column */}
+        <View style={styles.countItem}>
+          {(post.comments_count || 0) > 0 && (
+            <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}`)}>
+              <Text style={styles.countText}>
+                {post.comments_count || 0}{' '}
+                {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Repost count column */}
+        <View style={styles.countItem}>
+          {(repostCount || 0) > 0 && (
+            <TouchableOpacity
+              onPress={() => onOpenViewer?.(post, 'reposts')}
+              disabled={!onOpenViewer}
+            >
+              <Text style={styles.countText}>
+                {repostCount || 0}{' '}
+                {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Actions */}
@@ -447,8 +459,28 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
             <TouchableOpacity
               style={styles.sheetRow}
               onPress={() => {
-                setEditModal(true);
                 setShowActions(false);
+                // Navigate to full-screen edit screen that reuses create-post UI
+                router.push({
+                  pathname: '/posts/post',
+                  params: {
+                    mode: 'edit',
+                    postId: String(post.post_id),
+                    initialContent: post.post_content,
+                    images: JSON.stringify(
+                      Array.isArray(post.post_images)
+                        ? post.post_images.map((img: any) => {
+                            const url = img?.image_url || img?.url || '';
+                            return String(url).startsWith('http')
+                              ? url
+                              : url
+                              ? `${API_BASE_URL}${url}`
+                              : '';
+                          }).filter((u: string) => !!u)
+                        : []
+                    ),
+                  },
+                });
               }}
             >
               <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
@@ -678,11 +710,15 @@ const styles = StyleSheet.create({
   },
   actionsCountsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingHorizontal: wp(8),
     marginTop: hp(8),
   },
-  countText: { fontSize: getResponsiveFontSize(12), color: '#666' },
+  countItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  countText: { fontSize: getResponsiveFontSize(12), color: '#666', textAlign: 'center' },
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-around',

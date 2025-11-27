@@ -11,6 +11,7 @@ import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 dayjs.extend(relativeTime);
 
@@ -75,6 +76,7 @@ interface Props {
 
 const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onOriginalPostReposted, origin }) => {
   const router = useRouter();
+  const { showAlert, showConfirm } = useAlert();
 
   console.log('RepostCard - repost data:', repost);
   console.log('RepostCard - repost caption:', repost.repost_caption);
@@ -279,31 +281,32 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   };
 
   const handleDelete = async () => {
-    Alert.alert(
-      'Delete Repost',
-      'Are you sure you want to delete this repost?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await deleteRepost(repost.repost_id);
-              if (response.success !== false) {
-                Alert.alert('Success', 'Repost deleted successfully.');
-                onDeleted?.(repost.repost_id);
-              } else {
-                Alert.alert('Error', response.message || 'Failed to delete repost.');
-              }
-            } catch (error: any) {
-              console.error('Delete repost error:', error);
-              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to delete repost.');
-            }
-          },
-        },
-      ]
-    );
+    showConfirm({
+      title: 'Delete Repost',
+      message: 'Are you sure you want to delete this repost?',
+      confirmText: 'Delete',
+      type: 'warning',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const response = await deleteRepost(repost.repost_id);
+          if (response.success !== false) {
+            showAlert({
+              title: 'Success',
+              message: 'Repost deleted successfully.',
+              type: 'success',
+              variant: 'success',
+            });
+            onDeleted?.(repost.repost_id);
+          } else {
+            Alert.alert('Error', response.message || 'Failed to delete repost.');
+          }
+        } catch (error: any) {
+          console.error('Delete repost error:', error);
+          Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to delete repost.');
+        }
+      },
+    });
   };
 
   const handleEdit = async () => {
@@ -314,7 +317,12 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       await updateRepost(repost.repost_id, editCaption.trim());
       onEdited?.(repost.repost_id, editCaption.trim());
       setEditModal(false);
-      Alert.alert('Success', 'Repost caption updated successfully!');
+      showAlert({
+        title: 'Success',
+        message: 'Repost caption updated successfully!',
+        type: 'success',
+        variant: 'success',
+      });
     } catch (error) {
       console.error('Error editing repost:', error);
       Alert.alert('Error', 'Failed to edit repost caption.');
@@ -381,7 +389,12 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       await commentOnRepost(repost.repost_id, commentText.trim());
       setCommentText('');
       await loadComments(); // Reload comments
-      Alert.alert('Success', 'Comment added successfully');
+      showAlert({
+        title: 'Success',
+        message: 'Comment added successfully',
+        type: 'success',
+        variant: 'success',
+      });
     } catch (error) {
       console.error('Error adding comment:', error);
       Alert.alert('Error', 'Failed to add comment');
@@ -402,7 +415,12 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       setEditingComment(prev => ({ ...prev, [commentId]: false }));
       setEditCommentText(prev => ({ ...prev, [commentId]: '' }));
       await loadComments(); // Reload comments
-      Alert.alert('Success', 'Comment updated successfully');
+      showAlert({
+        title: 'Success',
+        message: 'Comment updated successfully',
+        type: 'success',
+        variant: 'success',
+      });
     } catch (error) {
       console.error('Error editing comment:', error);
       Alert.alert('Error', 'Failed to update comment');
@@ -422,7 +440,12 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
             try {
               await deleteRepostComment(repost.repost_id, commentId);
               await loadComments(); // Reload comments
-              Alert.alert('Success', 'Comment deleted successfully');
+              showAlert({
+                title: 'Success',
+                message: 'Comment deleted successfully',
+                type: 'success',
+                variant: 'success',
+              });
             } catch (error) {
               console.error('Error deleting comment:', error);
               Alert.alert('Error', 'Failed to delete comment');
@@ -614,19 +637,33 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
       {/* Repost Stats */}
       <View style={styles.actionsCountsRow}>
-        {likeCount > 0 && (
-          <TouchableOpacity onPress={openLikes}>
-            <Text style={styles.countText}>
-              {formatLikeCountText(repost.likes, likeCount)}
-            </Text>
-          </TouchableOpacity>
-        )}
-        {(repost.comments_count || 0) > 0 && (
-          <TouchableOpacity onPress={openCommentModal}>
-            <Text style={styles.countText}>{repost.comments_count || 0} {(repost.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
+        {/* Like count column */}
+        <View style={styles.countItem}>
+          {likeCount > 0 && (
+            <TouchableOpacity onPress={openLikes}>
+              <Text style={styles.countText}>
+                {formatLikeCountText(repost.likes, likeCount, currentUserId, isLiked)}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Comment count column */}
+        <View style={styles.countItem}>
+          {(repost.comments_count || 0) > 0 && (
+            <TouchableOpacity onPress={openCommentModal}>
+              <Text style={styles.countText}>
+                {repost.comments_count || 0}{' '}
+                {(repost.comments_count || 0) === 1 ? 'comment' : 'comments'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Repost count column */}
+        <View style={styles.countItem}>
+          {(repostCount || 0) > 0 && (
+          <TouchableOpacity
           onPress={async () => {
           // When viewing reposts, show the original post's reposts, not the repost's own reposts
           if (onOpenViewer && repost.original_post) {
@@ -703,11 +740,14 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
               onOpenViewer(originalPostWithReposts as any, 'reposts');
             }
           }
-        }}>
-          <Text style={styles.countText}>
-            {repostCount || 0} {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
-          </Text>
-        </TouchableOpacity>
+          }}>
+            <Text style={styles.countText}>
+              {repostCount || 0}{' '}
+              {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
+            </Text>
+          </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Repost Actions */}
@@ -745,8 +785,16 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
             <TouchableOpacity
               style={styles.sheetRow}
               onPress={() => {
-                setEditModal(true);
                 setShowActions(false);
+                // Navigate to full-screen repost screen in edit mode so UI matches create repost
+                router.push({
+                  pathname: '/repost/repost',
+                  params: {
+                    mode: 'edit',
+                    repostId: String(repost.repost_id),
+                    initialCaption: repost.repost_caption || '',
+                  },
+                });
               }}
             >
               <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
@@ -796,6 +844,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
               value={editCaption}
               onChangeText={setEditCaption}
               placeholder="Add a caption..."
+              placeholderTextColor="#888"
               multiline
               maxLength={500}
             />
@@ -1047,13 +1096,18 @@ const styles = StyleSheet.create({
   },
   actionsCountsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingHorizontal: 8,
     marginBottom: 8,
+  },
+  countItem: {
+    flex: 1,
+    alignItems: 'center',
   },
   countText: {
     fontSize: 12,
     color: '#666',
+    textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',

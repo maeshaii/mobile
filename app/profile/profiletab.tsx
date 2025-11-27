@@ -130,10 +130,8 @@ export default function ProfileTab() {
     } catch (e) {
       console.error('ProfileTab - Error fetching user info:', e);
       setUser(null);
-      // Safe default: hide Forum & Donation if we can't identify the account type
-      setMenuItems(allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation'));
-    } finally {
-      setMenuLoading(false);
+      // Default to showing all items if we can't determine user type
+      setMenuItems(allMenuItems);
     }
   }, [loadAdminAndPesoProfiles]);
 

@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 dayjs.extend(relativeTime);
 
@@ -78,6 +79,7 @@ export default function PostDetailScreen() {
   const [commentImageIndex, setCommentImageIndex] = useState(0);
   const [commentImages, setCommentImages] = useState<Array<{ image_url: string; order?: number }>>([]);
   const commentImageScrollRef = useRef<ScrollView>(null);
+  const { showConfirm } = useAlert();
 
   // Hide/disable composer in certain edit states for consistency
   const hideComposer = !!actionFor || editingId !== null || editingReplyId !== null || editingPost;
@@ -288,7 +290,12 @@ export default function PostDetailScreen() {
         caption: editPostContent.trim()
       }));
       
-      Alert.alert('Success', 'Post updated successfully!');
+      showAlert({
+        title: 'Success',
+        message: 'Post updated successfully!',
+        type: 'success',
+        variant: 'success',
+      });
       setEditingPost(false);
       setEditPostContent('');
       
@@ -307,7 +314,12 @@ export default function PostDetailScreen() {
     try {
       setActionLoading(true);
       await deletePost(postId); // This should cascade delete all reposts
-      Alert.alert('Success', 'Post and all its reposts have been deleted successfully!');
+      showAlert({
+        title: 'Success',
+        message: 'Post and all its reposts have been deleted successfully!',
+        type: 'success',
+        variant: 'success',
+      });
       router.back();
     } catch (error) {
       console.error('Error deleting post:', error);
@@ -746,6 +758,7 @@ export default function PostDetailScreen() {
 
         {/* Stats */}
         <View style={styles.actionsCountsRow}>
+          <View style={styles.actionsCountItem}>
           {(post.likes_count || 0) > 0 && (
             <TouchableOpacity onPress={async () => {
               try {
@@ -769,10 +782,24 @@ export default function PostDetailScreen() {
               }
             }}>
               <Text style={styles.countText}>
-                {formatLikeCountText(post.likes, post.likes_count || 0)}
+                {(() => {
+                  const likesCount = post.likes_count || 0;
+                  const likesArray = Array.isArray(post.likes) ? post.likes : [];
+                  const currentUserId = me?.id || me?.user_id;
+                  const likedByMe = currentUserId
+                    ? likesArray.some((like: any) => (like.user_id || like.user?.user_id) === currentUserId)
+                    : false;
+                  if (likedByMe && likesCount === 1) {
+                    return 'You liked this post';
+                  }
+                  return formatLikeCountText(post.likes, likesCount);
+                })()}
               </Text>
             </TouchableOpacity>
           )}
+          </View>
+
+          <View style={styles.actionsCountItem}>
           {comments.length > 0 && (
             <TouchableOpacity onPress={() => {
               // Scroll to comments section
@@ -780,6 +807,9 @@ export default function PostDetailScreen() {
               <Text style={styles.countText}>{comments.length} comments</Text>
             </TouchableOpacity>
           )}
+          </View>
+
+          <View style={styles.actionsCountItem}>
           {(post.reposts_count || 0) > 0 && (
             <TouchableOpacity onPress={async () => {
               try {
@@ -808,6 +838,7 @@ export default function PostDetailScreen() {
               <Text style={styles.countText}>{post.reposts_count || 0} {(post.reposts_count || 0) === 1 ? 'repost' : 'reposts'}</Text>
             </TouchableOpacity>
           )}
+          </View>
         </View>
 
         {/* Actions */}
@@ -863,7 +894,12 @@ export default function PostDetailScreen() {
               try {
                 setActionLoading(true);
                 await repostPost(postId);
-                Alert.alert('Success', 'Post shared successfully!');
+                showAlert({
+                  title: 'Success',
+                  message: 'Post shared successfully!',
+                  type: 'success',
+                  variant: 'success',
+                });
                 // Update post data
                 const updatedPost = await getPostDetail(postId);
                 setPost(updatedPost);
@@ -1564,18 +1600,14 @@ export default function PostDetailScreen() {
                       style={styles.sheetRow}
                       onPress={() => {
                         setActionFor(null);
-                        Alert.alert(
-                          'Delete Comment',
-                          'Are you sure you want to delete this comment?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            {
-                              text: 'Delete',
-                              style: 'destructive',
-                              onPress: () => handleDeleteComment(actionFor.comment_id),
-                            },
-                          ]
-                        );
+                        showConfirm({
+                          title: 'Delete Comment',
+                          message: 'Are you sure you want to delete this comment? This action cannot be undone.',
+                          confirmText: 'Delete',
+                          type: 'warning',
+                          destructive: true,
+                          onConfirm: () => handleDeleteComment(actionFor.comment_id),
+                        });
                       }}
                     >
                       <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
@@ -1615,18 +1647,14 @@ export default function PostDetailScreen() {
                       style={styles.sheetRow}
                       onPress={() => {
                         setActionFor(null);
-                        Alert.alert(
-                          'Delete Reply',
-                          'Are you sure you want to delete this reply?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            {
-                              text: 'Delete',
-                              style: 'destructive',
-                              onPress: () => handleReplyDelete(actionFor.comment_id, actionFor.reply_id),
-                            },
-                          ]
-                        );
+                        showConfirm({
+                          title: 'Delete Reply',
+                          message: 'Are you sure you want to delete this reply? This action cannot be undone.',
+                          confirmText: 'Delete',
+                          type: 'warning',
+                          destructive: true,
+                          onConfirm: () => handleReplyDelete(actionFor.comment_id, actionFor.reply_id),
+                        });
                       }}
                     >
                       <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
@@ -1899,8 +1927,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
   },
   authorInfo: {
     flexDirection: 'row',
@@ -1973,12 +1999,16 @@ const styles = StyleSheet.create({
   // Stats and Actions Styles (matching postCard.tsx)
   actionsCountsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingHorizontal: 8,
     marginTop: 8,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
-    paddingBottom: 8,
+  },
+  actionsCountItem: {
+    flex: 1,
+    alignItems: 'center',
   },
   countText: { 
     fontSize: 12, 
@@ -1988,8 +2018,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
     paddingTop: 10,
   },
   actionIcon: { 
@@ -2082,21 +2110,11 @@ const styles = StyleSheet.create({
   // Comment Input Styles
   commentInputContainer: {
     backgroundColor: '#fff',
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#e5e7eb',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  commentInputContainer: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   commentInputRow: {
     flexDirection: 'row',

@@ -768,6 +768,30 @@ const NotificationScreen = () => {
       return;
     }
 
+    // Admin / PESO post notifications → go directly to post detail screen
+    if (type === 'admin_peso_post') {
+      const params: any = {};
+
+      if (item.post_id) {
+        params.postId = item.post_id.toString();
+      } else if (item.forum_id) {
+        params.postId = item.forum_id.toString();
+        params.isForumPost = 'true';
+      } else if (item.donation_id) {
+        params.postId = item.donation_id.toString();
+        params.isDonationPost = 'true';
+      }
+
+      if (params.postId) {
+        router.push({
+          pathname: '/posts/detail',
+          params,
+        });
+        return;
+      }
+      // If we don't have a valid post id, fall through to generic admin/PESO handling below
+    }
+
     // Handle CCICT/admin notifications - show modal first (like web)
     const isCCICTNotification = 
       type === 'ccict' || 

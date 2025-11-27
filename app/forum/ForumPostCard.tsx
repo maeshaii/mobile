@@ -3,11 +3,12 @@ import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInpu
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
-import { API_BASE_URL, likeForumPost, unlikeForumPost, repostForumPost, deleteForumPost, editForumPost, commentOnForumPost } from '../../services/api';
+import { API_BASE_URL, likeForumPost, unlikeForumPost, repostForumPost, deleteForumPost, commentOnForumPost } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 interface Post {
   post_id: number;
@@ -48,6 +49,7 @@ interface Props {
 
 const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
+  const { showAlert } = useAlert();
 
   // Local state
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
@@ -55,9 +57,6 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
   const [commentCount, setCommentCount] = useState(post.comments_count || 0);
   const [showActions, setShowActions] = useState(false);
-  const [editModal, setEditModal] = useState(false);
-  const [editContent, setEditContent] = useState(post.post_content);
-  const [editLoading, setEditLoading] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const screenWidth = Dimensions.get('window').width;
@@ -162,7 +161,12 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             try {
               const response = await deleteForumPost(post.post_id);
               if (response.success !== false) {
-                Alert.alert('Success', 'Post deleted successfully.');
+                showAlert({
+                  title: 'Success',
+                  message: 'Post deleted successfully.',
+                  type: 'success',
+                  variant: 'success',
+                });
                 onDeleted?.(post.post_id);
               } else {
                 Alert.alert('Error', response.message || 'Failed to delete post.');
@@ -174,32 +178,6 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
         }
       ]
     );
-  };
-
-
-  const handleEdit = async () => {
-    if (!editContent.trim()) {
-      Alert.alert('Error', 'Post content cannot be empty.');
-      return;
-    }
-
-
-    setEditLoading(true);
-
-    try {
-      const response = await editForumPost(post.post_id, { post_content: editContent.trim() });
-      if (response.success !== false) {
-        Alert.alert('Success', 'Post updated successfully.');
-        setEditModal(false);
-        onEdited?.(post.post_id, editContent.trim());
-      } else {
-        Alert.alert('Error', response.message || 'Failed to update post.');
-      }
-    } catch (error: any) {
-      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not update post.');
-    } finally {
-      setEditLoading(false);
-    }
   };
 
 
@@ -269,7 +247,16 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
         {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
         <Text style={styles.content}>
           {renderTextWithMentions(post.post_content, [], (userId) => {
-            router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+            if (!userId) return;
+
+            // Match comment mention behavior:
+            // - If the mention is the current user, go to own profile
+            // - Otherwise, go to the mentioned user's profile page
+            if (currentUserId && userId === currentUserId) {
+              router.push('/profile/profilepage');
+            } else {
+              router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+            }
           })}
         </Text>
 
@@ -342,25 +329,38 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
         {/* Stats */}
         <View style={styles.actionsCountsRow}>
-          {likeCount > 0 && (
-            <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
-              <Text style={styles.countText}>
-                {formatLikeCountText((post as any).likes, likeCount)}
-              </Text>
-            </TouchableOpacity>
-          )}
+          {/* Like count column */}
+          <View style={styles.countItem}>
+            {likeCount > 0 && (
+              <TouchableOpacity onPress={() => onOpenViewer?.(post, 'likes')}>
+                <Text style={styles.countText}>
+                  {formatLikeCountText((post as any).likes, likeCount, currentUserId, isLiked)}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-          {commentCount > 0 && (
-            <TouchableOpacity onPress={() => onOpenViewer?.(post, 'comments')}>
-              <Text style={styles.countText}>{commentCount} {commentCount === 1 ? 'comment' : 'comments'}</Text>
-            </TouchableOpacity>
-          )}
+          {/* Comment count column */}
+          <View style={styles.countItem}>
+            {commentCount > 0 && (
+              <TouchableOpacity onPress={() => onOpenViewer?.(post, 'comments')}>
+                <Text style={styles.countText}>
+                  {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-          {repostCount > 0 && (
-            <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
-              <Text style={styles.countText}>{repostCount} {repostCount === 1 ? 'repost' : 'reposts'}</Text>
-            </TouchableOpacity>
-          )}
+          {/* Repost count column */}
+          <View style={styles.countItem}>
+            {repostCount > 0 && (
+              <TouchableOpacity onPress={() => onOpenViewer?.(post, 'reposts')}>
+                <Text style={styles.countText}>
+                  {repostCount} {repostCount === 1 ? 'repost' : 'reposts'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
 
@@ -398,8 +398,32 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             <TouchableOpacity
               style={styles.sheetRow}
               onPress={() => {
-                setEditModal(true);
                 setShowActions(false);
+                // Navigate to full-screen edit screen that reuses create-post UI,
+                // matching the Home/Dashboard edit post experience
+                router.push({
+                  pathname: '/posts/post',
+                  params: {
+                    mode: 'edit',
+                    postId: String(post.post_id),
+                    initialContent: post.post_content,
+                    type: 'forum',
+                    isForumPost: 'true',
+                    images: JSON.stringify(
+                      Array.isArray(post.post_images)
+                        ? post.post_images
+                            .map((img: any) => {
+                              const url = img?.image_url || img?.url || '';
+                              if (!url) return '';
+                              return String(url).startsWith('http')
+                                ? url
+                                : `${API_BASE_URL}${url}`;
+                            })
+                            .filter((u: string) => !!u)
+                        : []
+                    ),
+                  },
+                });
               }}
             >
               <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
@@ -421,39 +445,6 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
             <Text style={styles.sheetCancelText}>Cancel</Text>
           </TouchableOpacity>
         </TouchableOpacity>
-      </Modal>
-
-      {/* Edit Modal */}
-      <Modal visible={editModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.editModalContent}>
-            <View style={styles.editModalHeader}>
-              <TouchableOpacity onPress={() => setEditModal(false)} style={styles.editModalCloseButton}>
-                <FontAwesome name="times" size={20} color="#666" />
-              </TouchableOpacity>
-              <Text style={styles.editModalTitle}>Edit Post</Text>
-              <TouchableOpacity 
-                onPress={handleEdit}
-                disabled={editLoading}
-                style={[styles.editModalSaveButton, editLoading && styles.editModalSaveButtonDisabled]}
-              >
-                {editLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.editModalSaveText}>Save</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              style={styles.editModalInput}
-              value={editContent}
-              onChangeText={setEditContent}
-              placeholder="What's on your mind?"
-              multiline
-              numberOfLines={4}
-            />
-          </View>
-        </View>
       </Modal>
 
 
@@ -672,10 +663,14 @@ const styles = StyleSheet.create({
   },
   actionsCountsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingHorizontal: 8,
     marginTop: 8,
     marginBottom: 8,
+  },
+  countItem: {
+    flex: 1,
+    alignItems: 'center',
   },
   countText: {
     fontSize: 12,

@@ -202,7 +202,6 @@ export default function FollowModal({ visible, onClose, type, userId }: FollowMo
                           <Text style={styles.userName} numberOfLines={1}>
                             {user.name || formatUserFullName(user)}
                           </Text>
-                          <Text style={styles.userHandle}>@{user.ctu_id}</Text>
                         </View>
                       </TouchableOpacity>
                       {currentUserId !== user.user_id && (

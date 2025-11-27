@@ -8,6 +8,7 @@ import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 interface Post {
   post_id: number;
@@ -36,6 +37,7 @@ interface Props {
 
 const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
+  const { showAlert } = useAlert();
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
@@ -112,7 +114,12 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
             try {
               const response = await deleteDonationPost(post.post_id);
               if (response.success !== false) {
-                Alert.alert('Success', 'Post deleted successfully.');
+                showAlert({
+                  title: 'Success',
+                  message: 'Post deleted successfully.',
+                  type: 'success',
+                  variant: 'success',
+                });
                 onDeleted?.(post.post_id);
               } else {
                 Alert.alert('Error', response.message || 'Failed to delete post.');
@@ -136,7 +143,12 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     try {
       const response = await editDonationPost(post.post_id, { description: editContent.trim() });
       if (response.success !== false) {
-        Alert.alert('Success', 'Post updated successfully.');
+        showAlert({
+          title: 'Success',
+          message: 'Post updated successfully.',
+          type: 'success',
+          variant: 'success',
+        });
         setEditModal(false);
         onEdited?.(post.post_id, editContent.trim());
       } else {
@@ -270,26 +282,43 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
 
       {/* Stats */}
       <View style={styles.actionsCountsRow}>
-        {likeCount > 0 && (
-          <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
-            <Text style={styles.countText}>
-              {formatLikeCountText((post as any).likes, likeCount)}
-            </Text>
-          </TouchableOpacity>
-        )}
-        {(post.comments_count || 0) > 0 && (
-          <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
-            <Text style={styles.countText}>{post.comments_count || 0} {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          onPress={() => onOpenViewer?.(post as any, 'reposts')}
-          disabled={!onOpenViewer}
-        >
-          <Text style={styles.countText}>
-            {repostCount || 0} {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
-          </Text>
-        </TouchableOpacity>
+        {/* Like count column */}
+        <View style={styles.countItem}>
+          {likeCount > 0 && (
+            <TouchableOpacity onPress={() => onOpenViewer?.(post as any, 'likes')}>
+              <Text style={styles.countText}>
+                {formatLikeCountText((post as any).likes, likeCount, currentUserId, isLiked)}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Comment count column */}
+        <View style={styles.countItem}>
+          {(post.comments_count || 0) > 0 && (
+            <TouchableOpacity onPress={() => router.push(`/posts/comments?postId=${post.post_id}&isDonationPost=true`)}>
+              <Text style={styles.countText}>
+                {post.comments_count || 0}{' '}
+                {(post.comments_count || 0) === 1 ? 'comment' : 'comments'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Repost count column */}
+        <View style={styles.countItem}>
+          {(repostCount || 0) > 0 && (
+            <TouchableOpacity
+              onPress={() => onOpenViewer?.(post as any, 'reposts')}
+              disabled={!onOpenViewer}
+            >
+              <Text style={styles.countText}>
+                {repostCount || 0}{' '}
+                {(repostCount || 0) === 1 ? 'repost' : 'reposts'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Actions */}
@@ -317,32 +346,31 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
         </TouchableOpacity>
       </View>
 
-      {/* Edit Modal */}
-      <Modal visible={editModal} transparent animationType="slide">
+      {/* Edit Modal - match home/dashboard UI */}
+      <Modal visible={editModal} transparent animationType="slide" onRequestClose={() => setEditModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.editModalContent}>
-            <View style={styles.editModalHeader}>
-              <TouchableOpacity onPress={() => setEditModal(false)} style={styles.editModalCloseButton}>
-                <FontAwesome name="times" size={20} color="#666" />
+          <View style={[styles.viewerModal, { paddingTop: 0 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 }}>
+              <TouchableOpacity onPress={() => setEditModal(false)} style={{ padding: 6 }}>
+                <FontAwesome name="close" size={20} color="#333" />
               </TouchableOpacity>
-              <Text style={styles.editModalTitle}>Edit Post</Text>
-              <TouchableOpacity 
+              <Text style={[styles.modalTitle, { marginBottom: 0 }]}>EDIT POST</Text>
+              <TouchableOpacity
                 onPress={handleEdit}
                 disabled={editLoading}
-                style={[styles.editModalSaveButton, editLoading && { opacity: 0.7 }]}
               >
                 {editLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color="#1e3a8a" />
                 ) : (
-                  <Text style={styles.editModalSaveText}>Save</Text>
+                  <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>SAVE</Text>
                 )}
               </TouchableOpacity>
             </View>
             <TextInput
-              style={styles.editModalInput}
+              style={[styles.modalInput, { minHeight: 160 }]}
               value={editContent}
               onChangeText={setEditContent}
-              placeholder="What's happening?"
+              placeholder="Update your post..."
               multiline
               maxLength={500}
             />
@@ -351,20 +379,35 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
       </Modal>
 
 
-      {/* Actions Modal */}
+      {/* Actions Sheet - match donation repost UI */}
       <Modal visible={showActions} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.actionsModal}>
-            <TouchableOpacity style={styles.actionOption} onPress={() => { setShowActions(false); setEditModal(true); }}>
-              <FontAwesome name="edit" size={20} color="#666" />
-              <Text style={styles.actionOptionText}>Edit Post</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionOption, styles.deleteOption]} onPress={() => { setShowActions(false); handleDelete(); }}>
-              <FontAwesome name="trash" size={20} color="#e74c3c" />
-              <Text style={[styles.actionOptionText, styles.deleteText]}>Delete Post</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelOption} onPress={() => setShowActions(false)}>
-              <Text style={styles.cancelOptionText}>Cancel</Text>
+          <View style={styles.sheetContainer}>
+            <View style={styles.sheet}>
+              <TouchableOpacity
+                style={styles.sheetRow}
+                onPress={() => {
+                  setShowActions(false);
+                  setEditModal(true);
+                }}
+              >
+                <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+                <Text style={styles.sheetRowText}>Edit Post</Text>
+              </TouchableOpacity>
+              <View style={styles.sheetDivider} />
+              <TouchableOpacity
+                style={styles.sheetRow}
+                onPress={() => {
+                  setShowActions(false);
+                  handleDelete();
+                }}
+              >
+                <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete Post</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.sheetCancel} onPress={() => setShowActions(false)}>
+              <Text style={styles.sheetCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -501,11 +544,15 @@ const styles = StyleSheet.create({
   },
   actionsCountsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingHorizontal: 8,
     marginTop: 8,
   },
-  countText: { fontSize: 12, color: '#666' },
+  countItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  countText: { fontSize: 12, color: '#666', textAlign: 'center' },
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -574,17 +621,27 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: 'top',
   },
-  actionsModal: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    width: '80%',
-  },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 16,
+  },
+  viewerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: '92%',
+    alignSelf: 'center',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   editInput: {
     borderWidth: 1,
@@ -625,32 +682,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  actionOption: {
+  // Unified Action Sheet styles (match RepostCard)
+  sheetContainer: {
+    width: '88%',
+    alignItems: 'center',
+  },
+  sheet: {
+    backgroundColor: '#fff',
+    width: '100%',
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  sheetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  deleteOption: {
-    borderBottomWidth: 0,
-  },
-  actionOptionText: {
-    marginLeft: 12,
+  sheetRowText: {
     fontSize: 16,
-    color: '#333',
+    color: '#111827',
   },
-  deleteText: {
-    color: '#e74c3c',
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
   },
-  cancelOption: {
-    paddingVertical: 16,
+  sheetCancel: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '100%',
+    paddingVertical: 14,
     alignItems: 'center',
   },
-  cancelOptionText: {
+  sheetCancelText: {
     fontSize: 16,
-    color: '#666',
-    fontWeight: '600',
+    color: '#6b7280',
+    fontWeight: '500',
   },
   // Image Viewer Styles
   imageViewerOverlay: {

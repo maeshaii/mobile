@@ -75,10 +75,10 @@ export const renderTextWithMentions = (
               if (canOpen) {
                 await Linking.openURL(url);
               } else {
-                console.error('Cannot open URL:', url);
+                console.warn('Cannot open URL:', url);
               }
             } catch (error) {
-              console.error('Error opening URL:', error);
+              console.warn('Error opening URL:', error);
             }
           }}
           style={[baseStyle, { color: '#007bff', textDecorationLine: 'underline' }]}
@@ -157,13 +157,13 @@ export const renderTextWithMentions = (
                   if (userId) {
                     onMentionPress(userId);
                   } else {
-                    console.error('User ID not found in search result:', foundUser);
+                    console.warn('User ID not found in search result:', foundUser);
                   }
                 } else {
-                  console.error('No users found for mention:', cleanUsername);
+                  console.log('No users found for mention:', cleanUsername);
                 }
               } catch (error) {
-                console.error('Error searching for user:', error);
+                console.warn('Error searching for user:', error);
               }
             }
           }}

@@ -17,6 +17,7 @@ import MentionInput from '../../components/MentionInput';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { formatUserFullName } from '../../utils/nameUtils';
+import { useAlert } from '../../contexts/AlertContext';
 
 dayjs.extend(relativeTime);
 
@@ -54,6 +55,7 @@ export default function PostCommentsScreen() {
   const highlightCommentId = params.highlightCommentId ? Number(params.highlightCommentId) : null;
   const highlightReplyId = params.highlightReplyId ? Number(params.highlightReplyId) : null;
   const insets = useSafeAreaInsets();
+  const { showAlert, showConfirm } = useAlert();
 
   const [loading, setLoading] = useState(true);
   const [post, setPost] = useState<any | null>(null);
@@ -191,8 +193,8 @@ export default function PostCommentsScreen() {
       const data = isForumPost ? await getForumComments(postId) : isDonationPost ? await getDonationComments(postId) : await getPostComments(postId);
       setComments(Array.isArray(data?.comments) ? data.comments : []);
 
-      // Highlight specific comment if provided
-      if (highlightCommentId && data?.comments) {
+      // Highlight specific comment if provided (only when we are NOT also highlighting a reply)
+      if (highlightCommentId && !highlightReplyId && data?.comments) {
         const commentExists = data.comments.some((c: CommentItem) => c.comment_id === highlightCommentId);
         if (commentExists) {
           setHighlightedCommentId(highlightCommentId);
@@ -437,18 +439,21 @@ export default function PostCommentsScreen() {
           // Replying to a reply - mention the reply author
           const reply = commentReplies[commentId]?.find(r => r.reply_id === replyingToReply.replyId);
           if (reply) {
-            // Use a safe token (no spaces) for the underlying mention so it matches backend/web parsing
             const replyAuthorName = formatUserFullName(reply.user);
-            const replyAuthorToken = replyAuthorName.trim().replace(/\s+/g, '');
-            mentionText = `@${replyAuthorToken} `;
+            const replyAuthorId = (reply.user as any)?.user_id ?? (reply.user as any)?.id;
+            const isReplyAuthorMe = !!meId && !!replyAuthorId && replyAuthorId === meId;
+            // Do not mention yourself when replying to your own reply
+            mentionText = isReplyAuthorMe ? '' : `@${replyAuthorName} `;
           }
         } else {
           // Replying to a comment - mention the comment author
           const comment = comments.find(c => c.comment_id === commentId);
           if (comment) {
             const commentAuthorName = formatUserFullName(comment.user);
-            const commentAuthorToken = commentAuthorName.trim().replace(/\s+/g, '');
-            mentionText = `@${commentAuthorToken} `;
+            const commentAuthorId = (comment.user as any)?.user_id ?? (comment.user as any)?.id;
+            const isCommentAuthorMe = !!meId && !!commentAuthorId && commentAuthorId === meId;
+            // Do not mention yourself when replying to your own comment
+            mentionText = isCommentAuthorMe ? '' : `@${commentAuthorName} `;
           } else {
             mentionText = '';
           }
@@ -558,6 +563,10 @@ export default function PostCommentsScreen() {
           const { y } = event.nativeEvent.layout;
           commentPositionsRef.current[c.comment_id] = y;
         }}
+        style={[
+          styles.commentRowContainer,
+          highlightedCommentId === c.comment_id && styles.highlightedCommentRow,
+        ]}
       >
         <View style={styles.commentRow}>
           <UserAvatar 
@@ -577,7 +586,6 @@ export default function PostCommentsScreen() {
                     }
                   }}
                   disabled={!commentUserId || commentUserId === meId}
-                  style={highlightedCommentId === c.comment_id ? styles.highlightedNameContainer : null}
                 >
                   <Text style={[
                     styles.cName,
@@ -609,11 +617,11 @@ export default function PostCommentsScreen() {
                   maxLength={500}
                 />
                 <View style={styles.editActions}>
-                  <TouchableOpacity onPress={() => handleUpdate(c.comment_id)} style={styles.sendBtn}>
-                    <Text style={styles.sendBtnText}>Update</Text>
+                  <TouchableOpacity onPress={() => handleUpdate(c.comment_id)} style={styles.editSaveButton}>
+                    <Text style={styles.editSaveButtonText}>Save</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setEditingId(null)} style={styles.backBtn}>
-                    <Text style={styles.backText}>Cancel</Text>
+                  <TouchableOpacity onPress={() => setEditingId(null)} style={styles.editCancelButton}>
+                    <Text style={styles.editCancelButtonText}>Cancel</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -702,10 +710,17 @@ export default function PostCommentsScreen() {
                       // Start replying to comment
                       setReplyingTo(c.comment_id);
                       setReplyingToReply(null);
-                      // Prefill with safe mention token (no spaces) so it behaves like other @mentions
-                      const commentAuthorName = formatUserFullName(c.user);
-                      const commentAuthorToken = commentAuthorName.trim().replace(/\s+/g, '');
-                      setReplyText(`@${commentAuthorToken} `);
+                      // Prefill with safe mention token (no spaces) so it behaves like other @mentions,
+                      // but never mention yourself when replying to your own comment
+                      const commentAuthorId = (c.user as any)?.user_id ?? (c.user as any)?.id;
+                      const isCommentAuthorMe = !!meId && !!commentAuthorId && commentAuthorId === meId;
+                      if (isCommentAuthorMe) {
+                        setReplyText('');
+                      } else {
+                        const commentAuthorName = formatUserFullName(c.user);
+                        const commentAuthorToken = commentAuthorName.trim().replace(/\s+/g, '');
+                        setReplyText(`@${commentAuthorToken} `);
+                      }
                     }
                   }}
                 >
@@ -806,7 +821,10 @@ export default function PostCommentsScreen() {
                       return (
                         <View 
                           key={replyIndex} 
-                          style={styles.replyItem}
+                          style={[
+                            styles.replyItem,
+                            highlightedReplyId === reply.reply_id && styles.highlightedReplyRow,
+                          ]}
                           onLayout={(event) => {
                             const { y } = event.nativeEvent.layout;
                             replyPositionsRef.current[reply.reply_id] = { commentId: c.comment_id, y };
@@ -831,7 +849,6 @@ export default function PostCommentsScreen() {
                                     }
                                   }}
                                   disabled={!replyUserId || replyUserId === meId}
-                                  style={highlightedReplyId === reply.reply_id ? styles.highlightedNameContainer : null}
                                 >
                                   <Text style={[
                                     styles.replyName,
@@ -867,7 +884,7 @@ export default function PostCommentsScreen() {
                                     style={styles.editReplyButton}
                                     onPress={() => handleReplyUpdate(c.comment_id, reply.reply_id)}
                                   >
-                                    <Text style={styles.editReplyButtonText}>Update</Text>
+                                    <Text style={styles.editReplyButtonText}>Save</Text>
                                   </TouchableOpacity>
                                   <TouchableOpacity
                                     style={styles.cancelReplyButton}
@@ -878,7 +895,7 @@ export default function PostCommentsScreen() {
                                 </View>
                               </KeyboardAvoidingView>
                             ) : (
-                              <View>
+                              <View style={styles.replyBubble}>
                                 {renderTextWithMentions(reply.reply_content, [], (userId) => {
                                   if (!userId) return;
                                   if (userId === meId) {
@@ -886,7 +903,7 @@ export default function PostCommentsScreen() {
                                   } else {
                                     router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                                   }
-                                })}
+                                }, styles.replyText)}
                                 
                                 {/* Reply Images - Swipeable and Centered */}
                                 {(() => {
@@ -960,10 +977,16 @@ export default function PostCommentsScreen() {
                                       // Start replying to this reply
                                       setReplyingToReply({ replyId: reply.reply_id, commentId: c.comment_id });
                                       setReplyingTo(c.comment_id);
-                                      // Prefill with safe mention token (no spaces) for reply author
-                                      const replyAuthorName = formatUserFullName(reply.user);
-                                      const replyAuthorToken = replyAuthorName.trim().replace(/\s+/g, '');
-                                      setReplyText(`@${replyAuthorToken} `);
+                                      // Prefill with mention using full display name (with spaces),
+                                      // but never mention yourself when replying to your own reply
+                                      const replyAuthorId = (reply.user as any)?.user_id ?? (reply.user as any)?.id;
+                                      const isReplyAuthorMe = !!meId && !!replyAuthorId && replyAuthorId === meId;
+                                      if (isReplyAuthorMe) {
+                                        setReplyText('');
+                                      } else {
+                                        const replyAuthorName = formatUserFullName(reply.user);
+                                        setReplyText(`@${replyAuthorName} `);
+                                      }
                                     }
                                   }}
                                   style={{ paddingHorizontal: 4 }}
@@ -1080,101 +1103,103 @@ export default function PostCommentsScreen() {
           }}
           ListHeaderComponent={
             post ? (
-              <View style={styles.postCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <UserAvatar 
-                    profilePic={post.user?.profile_pic}
-                    firstName={post.user?.f_name}
-                    lastName={post.user?.l_name}
-                    size={40}
-                    style={styles.avatar}
-                  />
-                  <View>
-                    <Text style={styles.name}>
-                      {formatUserFullName(post.user)}
-                    </Text>
+              <View>
+                <View style={styles.postCard}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                    <UserAvatar 
+                      profilePic={post.user?.profile_pic}
+                      firstName={post.user?.f_name}
+                      lastName={post.user?.l_name}
+                      size={40}
+                      style={styles.avatar}
+                    />
+                    <View>
+                      <Text style={styles.name}>
+                        {formatUserFullName(post.user)}
+                      </Text>
 
-                    {!!post.created_at && (
-                      <Text style={styles.subtle}>{dayjs(post.created_at).fromNow()}</Text>
-                    )}
-                  </View>
-                </View>
-                {!!post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
-                {!!post.post_content && (
-
-                  <View>
-                    {renderTextWithMentions(post.post_content, [], (userId) => {
-                      if (!userId) return;
-                      if (userId === meId) {
-                        router.push('/profile/profilepage');
-                      } else {
-                        router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
-                      }
-                    }, styles.postContent)}
-                  </View>
-                )}
-
-                {/* Images - Facebook-style grid layout like dashboard */}
-
-                {(() => {
-
-                  const images = getImagesFromContent(post);
-                  return images.length > 0 && (
-                    <View style={styles.imagesContainer}>
-                      {images.length === 1 ? (
-                        // Single image - full width
-
-                        <TouchableOpacity 
-                          onPress={() => {
-                            setSelectedImageIndex(0);
-                            setImageViewerVisible(true);
-                          }}
-                        >
-                          <Image
-                            source={renderAvatar(images[0].image_url)}
-                            style={styles.singleImage}
-                            resizeMode="contain"
-                            onError={() => {}}
-                          />
-                        </TouchableOpacity>
-                      ) : (
-
-                        // Multiple images - Facebook-style grid layout (2x2 max 4 images)
-
-                        <View style={styles.imagesGrid}>
-                          {images.slice(0, 4).map((image, index) => {
-                            const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
-
-                            return (
-                              <TouchableOpacity 
-                                key={index}
-                                style={styles.fourImagesGrid}
-                                onPress={() => {
-                                  setSelectedImageIndex(index);
-                                  setImageViewerVisible(true);
-                                }}
-                              >
-                                <Image 
-                                  source={renderAvatar(imageUri)} 
-                                  style={styles.gridImage} 
-                                  resizeMode="cover" 
-                                />
-
-                                {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
-
-                                {index === 3 && images.length > 4 && (
-                                  <View style={styles.moreImagesOverlay}>
-                                    <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
-                                  </View>
-                                )}
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
+                      {!!post.created_at && (
+                        <Text style={styles.subtle}>{dayjs(post.created_at).fromNow()}</Text>
                       )}
                     </View>
-                  );
-                })()}
+                  </View>
+                  {!!post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
+                  {!!post.post_content && (
+
+                    <View>
+                      {renderTextWithMentions(post.post_content, [], (userId) => {
+                        if (!userId) return;
+                        if (userId === meId) {
+                          router.push('/profile/profilepage');
+                        } else {
+                          router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
+                        }
+                      }, styles.postContent)}
+                    </View>
+                  )}
+
+                  {/* Images - Facebook-style grid layout like dashboard */}
+
+                  {(() => {
+
+                    const images = getImagesFromContent(post);
+                    return images.length > 0 && (
+                      <View style={styles.imagesContainer}>
+                        {images.length === 1 ? (
+                          // Single image - full width
+
+                          <TouchableOpacity 
+                            onPress={() => {
+                              setSelectedImageIndex(0);
+                              setImageViewerVisible(true);
+                            }}
+                          >
+                            <Image
+                              source={renderAvatar(images[0].image_url)}
+                              style={styles.singleImage}
+                              resizeMode="contain"
+                              onError={() => {}}
+                            />
+                          </TouchableOpacity>
+                        ) : (
+
+                          // Multiple images - Facebook-style grid layout (2x2 max 4 images)
+
+                          <View style={styles.imagesGrid}>
+                            {images.slice(0, 4).map((image, index) => {
+                              const imageUri = String(image.image_url).startsWith('http') ? image.image_url : `${API_BASE_URL}${image.image_url}`;
+
+                              return (
+                                <TouchableOpacity 
+                                  key={index}
+                                  style={styles.fourImagesGrid}
+                                  onPress={() => {
+                                    setSelectedImageIndex(index);
+                                    setImageViewerVisible(true);
+                                  }}
+                                >
+                                  <Image 
+                                    source={renderAvatar(imageUri)} 
+                                    style={styles.gridImage} 
+                                    resizeMode="cover" 
+                                  />
+
+                                  {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+
+                                  {index === 3 && images.length > 4 && (
+                                    <View style={styles.moreImagesOverlay}>
+                                      <Text style={styles.moreImagesText}>+{images.length - 4}</Text>
+                                    </View>
+                                  )}
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
+                </View>
                 <Text style={styles.sectionTitle}>Comments</Text>
               </View>
             ) : null
@@ -1226,126 +1251,110 @@ export default function PostCommentsScreen() {
       </KeyboardAvoidingView>
 
 
-      {/* Popup Modal */}
+      {/* Comment Actions - use same action sheet style as repost */}
       {actionFor && (() => {
         const actionUserId = (actionFor.user as any)?.user_id ?? (actionFor.user as any)?.id;
         const popupPostUserId = post?.user?.user_id ?? (post?.user as any)?.id;
         const isMineAction = !!meId && !!actionUserId && actionUserId === meId;
         const isPostOwnerAction = !!meId && !!popupPostUserId && popupPostUserId === meId;
+        const canDelete = isMineAction || isPostOwnerAction;
+
         return (
-          <View style={styles.popupOverlay}>
-            <View style={styles.popupBox}>
-              <Text style={styles.popupTitle}>Comment Actions</Text>
+          <Modal visible={!!actionFor} transparent animationType="fade">
+            <View style={styles.modalOverlay}>
+              <View style={styles.sheet}>
+                {isMineAction && (
+                  <TouchableOpacity
+                    style={styles.sheetRow}
+                    onPress={() => {
+                      setEditingId(actionFor.comment_id);
+                      setEditText(actionFor.comment_content);
+                      setActionFor(null);
+                    }}
+                  >
+                    <Ionicons name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+                    <Text style={styles.sheetRowText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
 
-              {/* Edit: only show if comment is mine */}
+                {isMineAction && canDelete && <View style={styles.sheetDivider} />}
 
-              {isMineAction && (
-                <TouchableOpacity
-                  style={styles.popupButton}
-                  onPress={() => {
-                    setEditingId(actionFor.comment_id);
-                    setEditText(actionFor.comment_content);
-                    setActionFor(null);
-                  }}
-                >
-                  <Text style={styles.popupButtonText}>✏️ Edit</Text>
-                </TouchableOpacity>
-              )}
-
-
-              {/* Delete: show if comment is mine OR I am the post owner */}
-
-              {(isMineAction || isPostOwnerAction) && (
-                <TouchableOpacity
-                  style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
-                  onPress={() => {
-                    Alert.alert(
-                      'Delete Comment',
-                      'Are you sure you want to delete this comment? This action cannot be undone.',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Delete',
-                          style: 'destructive',
-                          onPress: () => handleDelete(actionFor.comment_id),
-                        },
-                      ]
-                    );
-                    setActionFor(null);
-                  }}
-                >
-                  <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
-                </TouchableOpacity>
-              )}
-
-
-              {/* Cancel: always show */}
-              <TouchableOpacity
-                style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
-                onPress={() => setActionFor(null)}
-              >
-                <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
+                {canDelete && (
+                  <TouchableOpacity
+                    style={styles.sheetRow}
+                    onPress={() => {
+                      setActionFor(null);
+                      showConfirm({
+                        title: 'Delete Comment',
+                        message: 'Are you sure you want to delete this comment? This action cannot be undone.',
+                        confirmText: 'Delete',
+                        type: 'warning',
+                        destructive: true,
+                        onConfirm: () => handleDelete(actionFor.comment_id),
+                      });
+                    }}
+                  >
+                    <Ionicons name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                    <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity style={styles.sheetCancel} onPress={() => setActionFor(null)}>
+                <Text style={styles.sheetCancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </Modal>
         );
       })()}
 
-      {/* Reply Action Sheet Modal */}
+      {/* Reply Actions - use same action sheet style as repost */}
       {actionForReply && (
-        <View style={styles.popupOverlay}>
-          <View style={styles.popupBox}>
-            <Text style={styles.popupTitle}>Reply Actions</Text>
+        <Modal visible={!!actionForReply} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.sheet}>
+              {((actionForReply.reply.user as any)?.user_id ?? (actionForReply.reply.user as any)?.id) === meId && (
+                <>
+                  <TouchableOpacity
+                    style={styles.sheetRow}
+                    onPress={() => {
+                      setEditingReplyId(actionForReply.reply.reply_id);
+                      setEditReplyText(actionForReply.reply.reply_content);
+                      setActionForReply(null);
+                    }}
+                  >
+                    <Ionicons name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
+                    <Text style={styles.sheetRowText}>Edit</Text>
+                  </TouchableOpacity>
 
-            {/* Edit: only show if reply is mine */}
-            {((actionForReply.reply.user as any)?.user_id ?? (actionForReply.reply.user as any)?.id) === meId && (
-              <TouchableOpacity
-                style={styles.popupButton}
-                onPress={() => {
-                  setEditingReplyId(actionForReply.reply.reply_id);
-                  setEditReplyText(actionForReply.reply.reply_content);
-                  setActionForReply(null);
-                }}
-              >
-                <Text style={styles.popupButtonText}>✏️ Edit</Text>
-              </TouchableOpacity>
-            )}
+                  <View style={styles.sheetDivider} />
 
-            {/* Delete: show if reply is mine */}
-            {((actionForReply.reply.user as any)?.user_id ?? (actionForReply.reply.user as any)?.id) === meId && (
-              <TouchableOpacity
-                style={[styles.popupButton, { backgroundColor: '#fee2e2' }]}
-                onPress={() => {
-                  Alert.alert(
-                    'Delete Reply',
-                    'Are you sure you want to delete this reply? This action cannot be undone.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: () => {
+                  <TouchableOpacity
+                    style={styles.sheetRow}
+                    onPress={() => {
+                      setActionForReply(null);
+                      showConfirm({
+                        title: 'Delete Reply',
+                        message: 'Are you sure you want to delete this reply? This action cannot be undone.',
+                        confirmText: 'Delete',
+                        type: 'warning',
+                        destructive: true,
+                        onConfirm: () => {
                           handleReplyDelete(actionForReply.commentId, actionForReply.reply.reply_id);
-                          setActionForReply(null);
                         },
-                      },
-                    ]
-                  );
-                }}
-              >
-                <Text style={[styles.popupButtonText, { color: '#dc2626' }]}>🗑 Delete</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Cancel: always show */}
-            <TouchableOpacity
-              style={[styles.popupButton, { backgroundColor: '#f3f4f6' }]}
-              onPress={() => setActionForReply(null)}
-            >
-              <Text style={[styles.popupButtonText, { color: '#111827' }]}>✖ Cancel</Text>
+                      });
+                    }}
+                  >
+                    <Ionicons name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                    <Text style={[styles.sheetRowText, { color: '#dc2626' }]}>Delete</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+            <TouchableOpacity style={styles.sheetCancel} onPress={() => setActionForReply(null)}>
+              <Text style={styles.sheetCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Modal>
       )}
 
 
@@ -1575,11 +1584,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginTop: 12,
+    marginBottom: 12,
+  },
+  commentRowContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+  },
+  highlightedCommentRow: {
+    backgroundColor: '#e5e7eb',
   },
   commentRow: {
     flexDirection: 'row',
     gap: 10,
-    paddingVertical: 8,
   },
   cAvatar: {
     width: 32,
@@ -1602,12 +1619,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   highlightedNameContainer: {
-    backgroundColor: '#fef3c7',
+    backgroundColor: '#e5e7eb',
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#f59e0b',
+    borderColor: '#9ca3af',
     alignSelf: 'flex-start',
   },
   cBody: { color: '#111827' },
@@ -1625,6 +1642,34 @@ const styles = StyleSheet.create({
     marginTop: 6,
     gap: 8,
     justifyContent: 'flex-end',
+  },
+  editSaveButton: {
+    backgroundColor: '#1e3a8a',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editSaveButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  editCancelButton: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editCancelButtonText: {
+    color: '#111827',
+    fontWeight: '600',
+    fontSize: 14,
   },
   composerWrap: {
     backgroundColor: '#fff',
@@ -1728,47 +1773,45 @@ const styles = StyleSheet.create({
     marginVertical: 6,
   },
   sheetButtonText: { fontSize: 15, color: '#1e3a8a', fontWeight: '600' },
-  popupOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+  // Unified action sheet styles (match repost action sheet)
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
-  popupBox: {
-    width: '85%',
+  sheet: {
+    backgroundColor: '#fff',
+    width: '88%',
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  sheetRowText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  sheetCancel: {
+    marginTop: 10,
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 20,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  popupTitle: {
-    fontWeight: '700',
-    fontSize: 18,
-    color: '#111827',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  popupButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    backgroundColor: '#eef2ff',
-    marginVertical: 6,
+    width: '88%',
+    paddingVertical: 14,
     alignItems: 'center',
   },
-  popupButtonText: {
-    fontSize: 15,
-    color: '#1e3a8a',
-    fontWeight: '600',
+  sheetCancelText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   imagesContainer: {
     marginTop: 10,
@@ -1866,6 +1909,12 @@ const styles = StyleSheet.create({
   replyItem: {
     flexDirection: 'row',
     gap: 8,
+    borderRadius: 10,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  highlightedReplyRow: {
+    backgroundColor: '#e5e7eb',
   },
   replyAvatar: {
     width: 24,
@@ -1906,7 +1955,7 @@ const styles = StyleSheet.create({
   },
   replyText: {
     fontSize: 13,
-    color: '#111827',
+    color: '#000000', // Ensure non-mention text is solid black so blue mentions stand out clearly
     lineHeight: 18,
   },
   replyEditContainer: {
