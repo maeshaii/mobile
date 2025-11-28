@@ -865,7 +865,7 @@ const styles = StyleSheet.create({
   },
   headerBg: {
     height: 160,
-    backgroundColor: '#c62828',
+    backgroundColor: '#2e7d32',
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     width: '100%',

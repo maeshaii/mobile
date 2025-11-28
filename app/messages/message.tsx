@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, TextInput } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, TextInput, Modal, Alert } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { FontAwesome } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import type { Href } from 'expo-router';
-import { listConversations, ConversationSummary, getOnlineUsers, createConversation } from '../../services/api';
+import { listConversations, ConversationSummary, getOnlineUsers, createConversation, deleteConversation } from '../../services/api';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import UserAvatar from '../../components/UserAvatar';
 import ErrorBoundary from '../../components/ErrorBoundary';
@@ -40,6 +41,9 @@ const MessageScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [notificationWs, setNotificationWs] = useState<NotificationWebSocket | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [selectedConversation, setSelectedConversation] = useState<Row | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
 
   // P0 Feature: Debounced search for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -295,6 +299,31 @@ const MessageScreen = () => {
     setRefreshing(false);
   };
 
+  const handleDeleteConversation = async () => {
+    if (!selectedConversation || selectedConversation.id < 0) return;
+    
+    setIsDeletingConversation(true);
+    try {
+      await deleteConversation(selectedConversation.id);
+      
+      // Remove from local state
+      setRows(prev => prev.filter(r => r.id !== selectedConversation.id));
+      
+      setShowDeleteModal(false);
+      setSelectedConversation(null);
+      
+      // Reload conversations to ensure fresh data
+      await load();
+      
+      Alert.alert('Success', 'Conversation deleted successfully!');
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+      Alert.alert('Error', 'Failed to delete conversation. Please try again.');
+    } finally {
+      setIsDeletingConversation(false);
+    }
+  };
+
   return (
     <ErrorBoundary onReset={() => {
       // Reload conversations on error reset
@@ -372,6 +401,14 @@ const MessageScreen = () => {
               }
               router.push({ pathname: '/messages/chatmessage', params: { conversationId: String(item.id), name: item.name } });
             }}
+            onLongPress={() => {
+              // Only allow delete for real conversations (not virtual online users)
+              if (item.id > 0 && activeFilter !== 'online') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setSelectedConversation(item);
+                setShowDeleteModal(true);
+              }
+            }}
           >
             <View style={styles.avatarContainer}>
               <UserAvatar
@@ -419,6 +456,98 @@ const MessageScreen = () => {
       >
         <FontAwesome name="plus" size={24} color="white" />
       </TouchableOpacity>
+
+      {/* Delete Conversation Modal */}
+      <Modal
+        transparent={true}
+        visible={showDeleteModal}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 20
+        }}>
+          <View style={{
+            backgroundColor: '#fff',
+            borderRadius: 12,
+            padding: 24,
+            width: '90%',
+            maxWidth: 400
+          }}>
+            <Text style={{
+              fontSize: 20,
+              fontWeight: '600',
+              color: '#333',
+              marginBottom: 16
+            }}>
+              Delete Conversation?
+            </Text>
+            <Text style={{
+              fontSize: 14,
+              color: '#666',
+              lineHeight: 20,
+              marginBottom: 24
+            }}>
+              Are you sure you want to delete this conversation with <Text style={{ fontWeight: '600' }}>{selectedConversation?.name || 'this user'}</Text>?
+              {'\n\n'}
+              This action cannot be undone.
+            </Text>
+            <View style={{
+              flexDirection: 'row',
+              gap: 12,
+              justifyContent: 'flex-end'
+            }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowDeleteModal(false);
+                  setSelectedConversation(null);
+                }}
+                disabled={isDeletingConversation}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: '#ddd',
+                  backgroundColor: '#fff',
+                  opacity: isDeletingConversation ? 0.6 : 1
+                }}
+              >
+                <Text style={{
+                  color: '#333',
+                  fontSize: 14,
+                  fontWeight: '500'
+                }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleDeleteConversation}
+                disabled={isDeletingConversation}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  borderRadius: 8,
+                  backgroundColor: '#dc3545',
+                  opacity: isDeletingConversation ? 0.6 : 1
+                }}
+              >
+                <Text style={{
+                  color: '#fff',
+                  fontSize: 14,
+                  fontWeight: '600'
+                }}>
+                  {isDeletingConversation ? 'Deleting...' : 'Delete'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       </View>
     </ErrorBoundary>
   );

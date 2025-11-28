@@ -112,7 +112,18 @@ const EarnPointsModal: React.FC<EarnPointsModalProps> = ({ isOpen, onClose }) =>
   };
 
   const removeNumbersFromTitle = (title: string): string => {
-    return title.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+    // Remove numbers and extra spaces from title
+    let cleanedTitle = title.replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+    
+    // Format titles with /s for plural forms
+    cleanedTitle = cleanedTitle.replace(/\bMake posts\b/gi, 'Make post/s');
+    cleanedTitle = cleanedTitle.replace(/\bShare posts\b/gi, 'Share post/s');
+    cleanedTitle = cleanedTitle.replace(/\bLike posts\b/gi, 'Like post/s');
+    cleanedTitle = cleanedTitle.replace(/\bComment on posts\b/gi, 'Comment on post/s');
+    cleanedTitle = cleanedTitle.replace(/\bFollow users\b/gi, 'Follow user/s');
+    cleanedTitle = cleanedTitle.replace(/\bPost with an image\b/gi, 'Post with an image/s');
+    
+    return cleanedTitle;
   };
 
   if (!isOpen) return null;

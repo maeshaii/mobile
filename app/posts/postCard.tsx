@@ -36,6 +36,10 @@ interface Post {
     account_type?: string;
     user_type?: string;
   };
+  // Event fields
+  is_event?: boolean;
+  event_date?: string;
+  event_time?: string;
 }
 
 interface Props {
@@ -81,12 +85,6 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
   }, [post.is_liked, post.likes_count, post.reposts_count, (post as any).likes, currentUserId]);
 
   const userName = formatUserFullName(post.user);
-  
-  // Check if user is admin or peso for priority display
-  const userType = post.user?.account_type || post.user?.user_type || 'user';
-  const isAdmin = userType === 'admin';
-  const isPeso = userType === 'peso';
-  const isPriorityUser = isAdmin || isPeso;
 
   // Use utility functions for image handling
   const images = getImagesFromContent(post);
@@ -293,18 +291,50 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
                 styles.name,
                 (post.user?.user_id && post.user?.user_id !== currentUserId) ? styles.clickableName : null
               ]}>{userName}</Text>
-              {isPriorityUser && (
-                <View style={[
-                  styles.priorityBadge,
-                  isAdmin ? styles.adminBadge : styles.pesoBadge
-                ]}>
-                  <Text style={styles.priorityBadgeText}>
-                    {isAdmin ? 'ADMIN' : 'PESO'}
-                  </Text>
-                </View>
+              {post.is_event && (
+                <>
+                  <View style={[styles.priorityBadge, { backgroundColor: '#3b82f6' }]}>
+                    <Text style={styles.priorityBadgeText}>EVENT</Text>
+                  </View>
+                  {(() => {
+                    if (!post.event_date) return null;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const eventDate = new Date(post.event_date);
+                    eventDate.setHours(0, 0, 0, 0);
+                    const isEventPast = eventDate < today;
+                    
+                    return isEventPast ? (
+                      <View style={[styles.priorityBadge, { backgroundColor: '#9ca3af', marginLeft: wp(4) }]}>
+                        <Text style={styles.priorityBadgeText}>ENDED</Text>
+                      </View>
+                    ) : null;
+                  })()}
+                </>
               )}
             </View>
-            <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+              <Text style={styles.meta}>{dayjs(post.created_at).fromNow()}</Text>
+              {post.is_event && post.event_date && (
+                <>
+                  <Text style={[styles.meta, { marginHorizontal: wp(4) }]}>•</Text>
+                  <Text style={[styles.meta, { color: '#1e40af', fontWeight: '500' }]}>
+                    {new Date(post.event_date).toLocaleDateString('en-US', { 
+                      weekday: 'short',
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric' 
+                    })}
+                  </Text>
+                  {post.event_time && (
+                    <>
+                      <Text style={[styles.meta, { marginHorizontal: wp(4) }]}>•</Text>
+                      <Text style={[styles.meta, { color: '#475569' }]}>🕐 {post.event_time}</Text>
+                    </>
+                  )}
+                </>
+              )}
+            </View>
           </View>
         </TouchableOpacity>
         {currentUserId === post.user?.user_id && (
@@ -320,6 +350,7 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
 
       {/* Content */}
       {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
+      
       <Text style={styles.content}>
         {renderTextWithMentions(post.post_content, [], (userId) => {
           router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
@@ -846,12 +877,6 @@ const styles = StyleSheet.create({
     paddingVertical: hp(2),
     borderRadius: wp(10),
     marginLeft: wp(8),
-  },
-  adminBadge: {
-    backgroundColor: '#dc2626', // Red for admin
-  },
-  pesoBadge: {
-    backgroundColor: '#059669', // Green for peso
   },
   priorityBadgeText: {
     color: '#fff',

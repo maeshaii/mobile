@@ -120,6 +120,13 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
   const isRepostPeso = repostUserType === 'peso';
   const isOriginalAdmin = originalUserType === 'admin';
   const isOriginalPeso = originalUserType === 'peso';
+  
+  // Check if the original post is a donation
+  const isDonationPost = Boolean(
+    repost.original_post?.type === 'donation' ||
+    repost.original_post?.donation_id ||
+    origin === 'donation'
+  );
 
   // Sync like state and repost count when repost data changes
   useEffect(() => {
@@ -482,6 +489,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                   </Text>
                 </View>
               )}
+              {isDonationPost && (
+                <View style={styles.donationBadge}>
+                  <Text style={styles.donationBadgeText}>DONATION</Text>
+                </View>
+              )}
             </View>
             {!!repostTimeFromNow && (
               <Text style={styles.repostMeta}>{repostTimeFromNow}</Text>
@@ -551,6 +563,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                         <Text style={styles.priorityBadgeText}>
                           {isOriginalAdmin ? 'ADMIN' : 'PESO'}
                         </Text>
+                      </View>
+                    )}
+                    {isDonationPost && (
+                      <View style={styles.donationBadge}>
+                        <Text style={styles.donationBadgeText}>DONATION</Text>
                       </View>
                     )}
                   </View>
@@ -1304,6 +1321,18 @@ const styles = StyleSheet.create({
   },
   priorityBadgeText: {
     color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  donationBadge: {
+    backgroundColor: '#059669', // Green color for donation (matching web and dashboard)
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  donationBadgeText: {
+    color: 'white',
     fontSize: 10,
     fontWeight: 'bold',
   },
