@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl, Animated } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getUserInfo, getFeed, fetchFollowing } from '../../services/api';
 import NavBar from '../(tabs)/navbar';
 import UserAvatar from '../../components/UserAvatar';
@@ -73,12 +74,20 @@ const isPost = (item: FeedItem): item is Post => {
 };
 
 export default function OJTPage() {
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [posts, setPosts] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
+  
+  // Scroll behavior state
+  const lastScrollY = useRef(0);
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const navbarTranslateY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const initialize = async () => {
@@ -236,6 +245,83 @@ export default function OJTPage() {
       setRefreshing(false);
     }
   };
+
+  // Handle scroll events to show/hide header and navbar
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const scrollingDown = currentScrollY > lastScrollY.current;
+    const scrollingUp = currentScrollY < lastScrollY.current;
+    
+    // Only hide/show if scrolled more than 10 pixels to avoid jitter
+    if (Math.abs(currentScrollY - lastScrollY.current) > 10) {
+      if (scrollingDown && currentScrollY > 50 && headerVisible) {
+        // Hide header and navbar when scrolling down
+        setHeaderVisible(false);
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: -100,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(navbarTranslateY, {
+            toValue: 100,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      } else if (scrollingUp && !headerVisible) {
+        // Show header and navbar when scrolling up
+        setHeaderVisible(true);
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(navbarTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }
+    
+    lastScrollY.current = currentScrollY;
+    
+    // Clear existing timeout
+    if (scrollTimeout.current) {
+      clearTimeout(scrollTimeout.current);
+    }
+    
+    // Show header/navbar after scrolling stops
+    scrollTimeout.current = setTimeout(() => {
+      if (!headerVisible) {
+        setHeaderVisible(true);
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(navbarTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }, 500); // Show after 500ms of no scrolling
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeout.current) {
+        clearTimeout(scrollTimeout.current);
+      }
+    };
+  }, []);
 
   const renderPostsWithSuggestions = () => {
     const elements: React.ReactNode[] = [];
@@ -413,14 +499,39 @@ export default function OJTPage() {
 
   return (
     <View style={styles.container}>
-      <NavBar />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>OJT Dashboard</Text>
-      </View>
+      <Animated.View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          transform: [{ translateY: navbarTranslateY }],
+        }}
+      >
+        <NavBar />
+      </Animated.View>
+      {/* Header with logout button - Fixed at top */}
+      <Animated.View
+        style={[
+          styles.header,
+          styles.stickyHeader,
+          { paddingTop: insets.top + 12 },
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
+        <Text style={styles.headerTitle}>Home</Text>
+      </Animated.View>
 
       <ScrollView 
         style={styles.scroll} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 60 + insets.top }]}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        alwaysBounceVertical
+        bounces
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -530,13 +641,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingTop: 18,
+    paddingBottom: 10,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
+  stickyHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 27,
     fontWeight: 'bold',
     color: '#333',
   },

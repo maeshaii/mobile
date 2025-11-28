@@ -79,7 +79,7 @@ export default function PostDetailScreen() {
   const [commentImageIndex, setCommentImageIndex] = useState(0);
   const [commentImages, setCommentImages] = useState<Array<{ image_url: string; order?: number }>>([]);
   const commentImageScrollRef = useRef<ScrollView>(null);
-  const { showConfirm } = useAlert();
+  const { showConfirm, showAlert } = useAlert();
 
   // Hide/disable composer in certain edit states for consistency
   const hideComposer = !!actionFor || editingId !== null || editingReplyId !== null || editingPost;
@@ -279,15 +279,26 @@ export default function PostDetailScreen() {
     if (!editPostContent.trim() || !postId) return;
     try {
       setActionLoading(true);
+      // Preserve existing images before editing
+      const existingImages = getImagesFromContent(post);
+      
       // Update the original post content/caption
       await editPost(postId, { post_content: editPostContent.trim() });
       
-      // Update the post state immediately for better UX
+      // Update the post state immediately for better UX, preserving images
       setPost((prev: any) => ({
         ...prev,
         post_content: editPostContent.trim(),
         // Also update caption if it exists
-        caption: editPostContent.trim()
+        caption: editPostContent.trim(),
+        // Preserve existing images - ensure post_images is maintained
+        post_images: prev.post_images || existingImages.map(img => ({
+          image_id: img.image_id,
+          image_url: img.image_url,
+          order: img.order
+        })),
+        // Also preserve post_image for backward compatibility
+        post_image: prev.post_image || (existingImages.length > 0 ? existingImages[0].image_url : null)
       }));
       
       showAlert({
@@ -300,7 +311,26 @@ export default function PostDetailScreen() {
       setEditPostContent('');
       
       // Reload post data to ensure consistency
+      // Use the existing load() function which handles all post types correctly
       await load();
+      
+      // After reload, ensure images are still present (in case backend response format differs)
+      setPost((currentPost: any) => {
+        const currentImages = getImagesFromContent(currentPost);
+        if (currentImages.length === 0 && existingImages.length > 0) {
+          // Images were lost during reload, restore them
+          return {
+            ...currentPost,
+            post_images: existingImages.map(img => ({
+              image_id: img.image_id,
+              image_url: img.image_url,
+              order: img.order
+            })),
+            post_image: existingImages.length > 0 ? existingImages[0].image_url : null
+          };
+        }
+        return currentPost;
+      });
     } catch (error) {
       console.error('Error updating post:', error);
       Alert.alert('Error', 'Failed to update post. Please try again.');
@@ -349,20 +379,56 @@ export default function PostDetailScreen() {
           const reply = commentReplies[replyingTo]?.find(r => r.reply_id === replyingToReply.replyId);
           if (reply) {
             const replyAuthorName = formatUserFullName(reply.user);
-            mentionText = `@${replyAuthorName} `;
+            const replyAuthorId = (reply.user as any)?.user_id ?? (reply.user as any)?.id;
+            const isReplyAuthorMe = !!meId && !!replyAuthorId && replyAuthorId === meId;
+            // Do not mention yourself when replying to your own reply
+            mentionText = isReplyAuthorMe ? '' : `@${replyAuthorName} `;
           }
         } else {
           // Replying to a comment - mention the comment author
           const comment = comments.find(c => c.comment_id === replyingTo);
           if (comment) {
             const commentAuthorName = formatUserFullName(comment.user);
-            mentionText = `@${commentAuthorName} `;
+            const commentAuthorId = (comment.user as any)?.user_id ?? (comment.user as any)?.id;
+            const isCommentAuthorMe = !!meId && !!commentAuthorId && commentAuthorId === meId;
+            // Do not mention yourself when replying to your own comment
+            mentionText = isCommentAuthorMe ? '' : `@${commentAuthorName} `;
           } else {
             mentionText = '';
           }
         }
         
         finalReplyText = `${mentionText}${replyText.trim()}`;
+      }
+      
+      // Remove any self-mentions from the reply text (prevent users from mentioning themselves)
+      if (meId && me) {
+        const myName = formatUserFullName(me);
+        const myNameNormalized = myName.toLowerCase().replace(/\s+/g, '');
+        // Escape special regex characters in the name
+        const escapedName = myName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedNormalized = myNameNormalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        
+        // Remove mentions of yourself (case-insensitive, space-insensitive)
+        // Match @Name or @Name with spaces, followed by optional whitespace
+        finalReplyText = finalReplyText.replace(
+          new RegExp(`@${escapedName}\\s+`, 'gi'),
+          ''
+        );
+        // Also try to match normalized version (without spaces)
+        finalReplyText = finalReplyText.replace(
+          new RegExp(`@${escapedNormalized}\\s+`, 'gi'),
+          ''
+        );
+        // Match @Name at the start of text (no preceding space needed)
+        if (finalReplyText.trim().toLowerCase().startsWith(`@${myNameNormalized}`)) {
+          finalReplyText = finalReplyText.replace(
+            new RegExp(`^@${escapedNormalized}\\s*`, 'i'),
+            ''
+          );
+        }
+        // Clean up any double spaces that might result
+        finalReplyText = finalReplyText.replace(/\s+/g, ' ').trim();
       }
       
       await createCommentReply(replyingTo, finalReplyText);
@@ -1550,18 +1616,36 @@ export default function PostDetailScreen() {
                     style={styles.sheetRow}
                     onPress={() => {
                       setActionFor(null);
-                      Alert.alert(
-                        'Delete Post',
-                        'Are you sure you want to delete this post?',
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          {
-                            text: 'Delete',
-                            style: 'destructive',
-                            onPress: () => handleDeletePost(),
-                          },
-                        ]
-                      );
+                      showConfirm({
+                        title: 'Delete Post',
+                        message: 'Are you sure you want to delete this post?',
+                        confirmText: 'Delete',
+                        type: 'warning',
+                        destructive: true,
+                        onConfirm: async () => {
+                          if (!postId) return;
+                          try {
+                            setActionLoading(true);
+                            await deletePost(postId);
+                            showAlert({
+                              title: 'Success',
+                              message: 'Post and all its reposts have been deleted successfully!',
+                              type: 'success',
+                              variant: 'success',
+                            });
+                            router.back();
+                          } catch (error) {
+                            console.error('Error deleting post:', error);
+                            showAlert({
+                              title: 'Error',
+                              message: 'Failed to delete post. Please try again.',
+                              type: 'error',
+                            });
+                          } finally {
+                            setActionLoading(false);
+                          }
+                        },
+                      });
                     }}
                   >
                     <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />

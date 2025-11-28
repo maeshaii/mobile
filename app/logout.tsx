@@ -15,6 +15,7 @@ export default function LogoutScreen() {
       title: 'Logout',
       message: 'Are you sure you want to logout?',
       type: 'warning',
+      variant: 'confirm',
       buttons: [
         { 
           text: 'Cancel', 

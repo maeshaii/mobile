@@ -76,6 +76,10 @@ const AlertModal: React.FC<AlertModalProps> = ({
   // Special simplified success layout (matches image design)
   // Works for both success and processing/info types
   if (variant === 'success' && (type === 'success' || type === 'info' || type === 'default')) {
+    // Don't show OK button for processing alerts
+    const isProcessing = title === 'Processing';
+    const displayButtons = isProcessing ? [] : buttons;
+    
     return (
       <Modal
         visible={visible}
@@ -86,7 +90,8 @@ const AlertModal: React.FC<AlertModalProps> = ({
         <TouchableOpacity
           style={styles.overlay}
           activeOpacity={1}
-          onPress={onClose}
+          onPress={isProcessing ? undefined : onClose}
+          disabled={isProcessing}
         >
           <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
             <View style={styles.successContainer}>
@@ -94,9 +99,9 @@ const AlertModal: React.FC<AlertModalProps> = ({
               {message && (
                 <Text style={styles.successMessage}>{message}</Text>
               )}
-              {buttons.length > 0 && (
+              {displayButtons.length > 0 && (
                 <View style={styles.successButtonContainer}>
-                  {buttons.map((button, index) => (
+                  {displayButtons.map((button, index) => (
                     <TouchableOpacity
                       key={index}
                       style={styles.successButton}
@@ -264,16 +269,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1C4E80',
     marginBottom: 8,
+    textAlign: 'center',
   },
   confirmMessage: {
     fontSize: 14,
     color: '#4b5563',
     lineHeight: 20,
     marginBottom: 24,
+    textAlign: 'center',
   },
   confirmButtonsRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     alignItems: 'center',
     columnGap: 12,
   },
@@ -293,6 +300,7 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     fontSize: 15,
     fontWeight: '600',
+    textAlign: 'center',
   },
   confirmCancelText: {
     color: '#111827',
@@ -392,22 +400,23 @@ const styles = StyleSheet.create({
   },
   // Success variant styles (matches image design)
   successContainer: {
-    backgroundColor: '#4b5563', // Dark gray background
+    backgroundColor: '#ffffff', // White background
     borderRadius: 12,
     width: '100%',
     maxWidth: 420,
     padding: 20,
+    paddingVertical: 24,
   },
   successTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#ffffff', // White text
+    color: '#1C4E80', // Bold blue text
     marginBottom: 8,
     textAlign: 'center',
   },
   successMessage: {
     fontSize: 14,
-    color: '#ffffff', // White text
+    color: '#4b5563', // Gray text
     lineHeight: 20,
     marginTop: 4,
     marginBottom: 20,
@@ -419,9 +428,9 @@ const styles = StyleSheet.create({
   },
   successButton: {
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: '#6b7280', // Lighter gray button
+    backgroundColor: '#1C4E80', // Dark blue button
     minWidth: 80,
     alignItems: 'center',
   },

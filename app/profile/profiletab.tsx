@@ -47,7 +47,10 @@ export default function ProfileTab() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [menuItems, setMenuItems] = useState(allMenuItems);
+  // Initialize with filtered items (no Forum/Donation) to prevent flash for OJT users
+  const [menuItems, setMenuItems] = useState(
+    allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation')
+  );
   // Keep this false so we render immediately and refresh quietly in the background
   const [menuLoading, setMenuLoading] = useState(false);
   const [adminProfile, setAdminProfile] = useState<AdminPesoProfile | null>(null);

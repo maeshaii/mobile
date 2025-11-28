@@ -341,9 +341,7 @@ export default function DonationPage() {
           message: 'Compressing images and preparing upload...',
           type: 'info',
           variant: 'success',
-          buttons: [
-            { text: 'OK' }
-          ],
+          buttons: [],
         });
       }
       

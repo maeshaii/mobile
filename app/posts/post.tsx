@@ -1,13 +1,14 @@
-import { FontAwesome } from '@expo/vector-icons';
+import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL, createPost, createForumPost, getUserInfo, editPost, getPostDetail, editForumPost, getForumDetail } from '../../services/api';
+import React, { useEffect, useState, useRef } from 'react';
+import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Dimensions } from 'react-native';
+import { API_BASE_URL, createPost, createForumPost, getUserInfo, editPost, getPostDetail, editForumPost, getForumDetail, editDonationPost, getDonationDetail } from '../../services/api';
 // @ts-ignore
 import * as ImagePicker from 'expo-image-picker';
 import UserAvatar from '../../components/UserAvatar';
+import CachedImage from '../../components/CachedImage';
 import { formatUserFullName } from '../../utils/nameUtils';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { useAlert } from '../../contexts/AlertContext';
@@ -24,12 +25,16 @@ export default function PostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { showAlert } = useAlert();
+  const hasNavigatedRef = useRef(false);
   const rawPostId = typeof params.postId === 'string' ? params.postId : undefined;
   const isEditMode = typeof params.mode === 'string' && params.mode === 'edit';
   const numericPostId = rawPostId ? Number(rawPostId) : undefined;
   const isForumPost =
     (typeof params.type === 'string' && params.type === 'forum') ||
     params.isForumPost === 'true';
+  const isDonationPost =
+    (typeof params.type === 'string' && params.type === 'donation') ||
+    params.isDonationPost === 'true';
   const [user, setUser] = useState<UserInfo | null>(null);
   // Removed title as requested
   const [postContent, setPostContent] = useState('');
@@ -37,6 +42,9 @@ export default function PostScreen() {
   const [selectedImages, setSelectedImages] = useState<string[]>([]); // Multiple images
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const imageScrollRef = useRef<ScrollView>(null);
   const [existingImages, setExistingImages] = useState<string[]>(() => {
     if (!isEditMode) return [];
     const imagesParam = params.images;
@@ -57,7 +65,7 @@ export default function PostScreen() {
         const [userInfo, postDetail] = await Promise.all([
           getUserInfo(),
           isEditMode && numericPostId
-            ? (isForumPost ? getForumDetail(numericPostId) : getPostDetail(numericPostId))
+            ? (isForumPost ? getForumDetail(numericPostId) : isDonationPost ? getDonationDetail(numericPostId) : getPostDetail(numericPostId))
             : Promise.resolve(null),
         ]);
         setUser(userInfo);
@@ -66,8 +74,10 @@ export default function PostScreen() {
           const detail: any = postDetail;
 
           // Prefill content from backend if available
-          if (typeof detail.post_content === 'string' && detail.post_content.length > 0) {
-            setPostContent(detail.post_content);
+          // For donation posts, use description field; for others, use post_content
+          const content = isDonationPost ? detail.description : detail.post_content;
+          if (typeof content === 'string' && content.length > 0) {
+            setPostContent(content);
           }
 
           // If we don't already have images from navigation params, derive them using shared image utils
@@ -112,6 +122,20 @@ export default function PostScreen() {
       }
     }
   }, [isEditMode, params.initialContent, postContent]);
+
+  // Scroll to correct image when viewer opens or index changes
+  useEffect(() => {
+    if (imageViewerVisible && imageScrollRef.current && existingImages.length > 0) {
+      const screenWidth = Dimensions.get('window').width;
+      setTimeout(() => {
+        imageScrollRef.current?.scrollTo({
+          x: selectedImageIndex * screenWidth,
+          y: 0,
+          animated: false,
+        });
+      }, 100);
+    }
+  }, [imageViewerVisible, selectedImageIndex, existingImages.length]);
 
   const pickImage = async () => {
     try {
@@ -192,6 +216,9 @@ export default function PostScreen() {
         if (isForumPost) {
           // Use forum edit API for forum posts so the behavior matches dashboard/forum UI
           await editForumPost(numericPostId, { post_content: postContent.trim() });
+        } else if (isDonationPost) {
+          // Use donation edit API for donation posts
+          await editDonationPost(numericPostId, { description: postContent.trim() });
         } else {
           await editPost(numericPostId, { post_content: postContent.trim() });
         }
@@ -226,9 +253,7 @@ export default function PostScreen() {
           message: 'Compressing images and preparing upload...',
           type: 'info',
           variant: 'success',
-          buttons: [
-            { text: 'OK' }
-          ],
+          buttons: [],
         });
       }
       
@@ -332,25 +357,38 @@ export default function PostScreen() {
       console.log('Post created successfully!');
       // Check if this is a forum post to redirect appropriately
       const isForumPost = postType === 'forum' || params.isForumPost === 'true';
-      showAlert({
-        title: 'Success!',
-        message: 'Post created successfully!',
-        type: 'success',
-        variant: 'success',
-        buttons: [
-          { 
-            text: 'OK', 
-            onPress: () => {
-              // Redirect to forum page if posting from forum, otherwise go to home
-              if (isForumPost) {
-                router.replace('/forum/forumpage');
-              } else {
+      
+      // Navigate back immediately for forum posts (page will auto-refresh)
+      if (isForumPost && !hasNavigatedRef.current) {
+        hasNavigatedRef.current = true;
+        router.back();
+        // Show alert after a short delay to ensure navigation completes
+        setTimeout(() => {
+          showAlert({
+            title: 'Success!',
+            message: 'Post created successfully!',
+            type: 'success',
+            variant: 'success',
+            buttons: [{ text: 'OK' }],
+          });
+        }, 300);
+      } else if (!isForumPost) {
+        // For non-forum posts, show alert and navigate on OK
+        showAlert({
+          title: 'Success!',
+          message: 'Post created successfully!',
+          type: 'success',
+          variant: 'success',
+          buttons: [
+            { 
+              text: 'OK', 
+              onPress: () => {
                 router.replace('/homepage/home');
               }
             }
-          }
-        ],
-      });
+          ],
+        });
+      }
     } catch (error) {
       console.error('Error creating post:', error);
       
@@ -398,7 +436,7 @@ export default function PostScreen() {
   const userName = user ? (user.name || formatUserFullName(user)) || 'User' : 'User';
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
       {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity 
@@ -459,15 +497,51 @@ export default function PostScreen() {
         <View style={styles.addImageContainer}>
           {isEditMode ? (
             <>
-              {/* Editing: show existing images only (no "X attached images" label) */}
+              {/* Editing: show existing images in grid layout like posts */}
               {existingImages.length > 0 ? (
-                <ScrollView horizontal style={styles.imagesContainer}>
-                  {existingImages.map((image, index) => (
-                    <View key={index} style={styles.selectedImageContainer}>
-                      <Image source={{ uri: image }} style={styles.selectedImage} />
-                    </View>
-                  ))}
-                </ScrollView>
+                <View style={styles.imagesGrid}>
+                  {existingImages.slice(0, 4).map((image, idx) => {
+                    // Determine grid style based on image count and position
+                    let gridStyle: any = styles.fourGridImage;
+                    if (existingImages.length === 1) {
+                      gridStyle = styles.singleGridImage;
+                    } else if (existingImages.length === 2) {
+                      gridStyle = styles.twoImagesGrid;
+                    } else if (existingImages.length === 3) {
+                      // For 3 images: first image takes full width on top, other 2 share bottom row
+                      gridStyle = idx === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
+                    } else if (existingImages.length === 4) {
+                      gridStyle = styles.fourGridImage;
+                    } else if (existingImages.length >= 5) {
+                      gridStyle = styles.fourGridImage;
+                    }
+                    
+                    return (
+                      <TouchableOpacity 
+                        key={idx} 
+                        style={gridStyle}
+                        onPress={() => {
+                          console.log('Image clicked:', idx, 'Total images:', existingImages.length);
+                          setSelectedImageIndex(idx);
+                          setImageViewerVisible(true);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Image 
+                          source={{ uri: image }} 
+                          style={styles.gridImage} 
+                          resizeMode="cover"
+                        />
+                        {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+                        {idx === 3 && existingImages.length > 4 && (
+                          <View style={styles.moreImagesOverlay} pointerEvents="none">
+                            <Text style={styles.moreImagesText}>+{existingImages.length - 4}</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               ) : (
                 <View style={styles.addImageRow}>
                   <FontAwesome name="image" size={32} color="#4B944D" style={styles.addImageIcon} />
@@ -490,41 +564,128 @@ export default function PostScreen() {
                 </Text>
               </TouchableOpacity>
               
-              {/* Display multiple selected images */}
-              {selectedImages.length > 0 && (
-                <ScrollView horizontal style={styles.imagesContainer}>
-                  {selectedImages.map((image, index) => (
-                    <View key={index} style={styles.selectedImageContainer}>
-                      <Image source={{ uri: image }} style={styles.selectedImage} />
+              {/* Display selected images in grid layout (same as post layout) */}
+              {(selectedImages.length > 0 || selectedImage) && (
+                <View style={styles.imagesGrid}>
+                  {(selectedImages.length > 0 ? selectedImages : [selectedImage]).slice(0, 4).map((image, idx) => {
+                    const imageIndex = selectedImages.length > 0 ? idx : -1;
+                    // Determine grid style based on image count and position
+                    const totalImages = selectedImages.length > 0 ? selectedImages.length : 1;
+                    let gridStyle: any = styles.fourGridImage;
+                    if (totalImages === 1) {
+                      gridStyle = styles.singleGridImage;
+                    } else if (totalImages === 2) {
+                      gridStyle = styles.twoImagesGrid;
+                    } else if (totalImages === 3) {
+                      // For 3 images: first image takes full width on top, other 2 share bottom row
+                      gridStyle = idx === 0 ? styles.threeImagesFirst : styles.threeImagesRest;
+                    } else if (totalImages === 4) {
+                      gridStyle = styles.fourGridImage;
+                    } else if (totalImages >= 5) {
+                      gridStyle = styles.fourGridImage;
+                    }
+                    
+                    return (
+                      <View key={idx} style={gridStyle}>
+                        <Image source={{ uri: image || '' }} style={styles.gridImage} resizeMode="cover" />
+                        {/* Show "+X more" overlay for the 4th image if there are more than 4 */}
+                        {idx === 3 && totalImages > 4 && (
+                          <View style={styles.moreImagesOverlay}>
+                            <Text style={styles.moreImagesText}>+{totalImages - 4}</Text>
+                          </View>
+                        )}
+                        {/* Remove button overlay */}
                       <TouchableOpacity 
-                        style={styles.removeImageButton}
-                        onPress={() => removeImage(index)}
+                          style={styles.removeImageButtonOverlay}
+                          onPress={() => imageIndex >= 0 ? removeImage(imageIndex) : setSelectedImage(null)}
                       >
-                        <Text style={styles.removeImageText}>Remove</Text>
+                          <FontAwesome name="times-circle" size={24} color="#fff" />
                       </TouchableOpacity>
                     </View>
-                  ))}
-                </ScrollView>
-              )}
-              
-              {/* Fallback for single image (backward compatibility) */}
-              {selectedImages.length === 0 && selectedImage && (
-                <View style={styles.selectedImageContainer}>
-                  <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
-                  <TouchableOpacity 
-                    style={styles.removeImageButton}
-                    onPress={() => setSelectedImage(null)}
-                  >
-                    <Text style={styles.removeImageText}>Remove</Text>
-                  </TouchableOpacity>
+                    );
+                  })}
                 </View>
               )}
             </>
           )}
         </View>
-      
 
-    </View>
+      {/* Image Viewer Modal for Edit Mode */}
+      {imageViewerVisible && existingImages.length > 0 && (
+        <Modal visible={imageViewerVisible} transparent animationType="fade">
+          <View style={styles.imageViewerOverlay}>
+            <View style={styles.imageViewerContainer}>
+              <View style={styles.imageViewerHeader}>
+                  <TouchableOpacity 
+                  onPress={() => setImageViewerVisible(false)}
+                  style={styles.imageViewerCloseButton}
+                  >
+                  <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                {existingImages.length > 1 && (
+                  <Text style={styles.imageViewerPagination}>
+                    {selectedImageIndex + 1} of {existingImages.length}
+                  </Text>
+          )}
+        </View>
+              {(() => {
+                const screenWidth = Dimensions.get('window').width;
+                const screenHeight = Dimensions.get('window').height;
+                return (
+                  <ScrollView
+                    ref={imageScrollRef}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.imageViewerScroll}
+                    contentContainerStyle={{ width: screenWidth * existingImages.length }}
+                    onLayout={() => {
+                      // Scroll to the selected image after layout
+                      setTimeout(() => {
+                        if (imageScrollRef.current) {
+                          imageScrollRef.current.scrollTo({ 
+                            x: selectedImageIndex * screenWidth, 
+                            y: 0, 
+                            animated: false 
+                          });
+                        }
+                      }, 100);
+                    }}
+                    onMomentumScrollEnd={(event) => {
+                      const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                      if (index >= 0 && index < existingImages.length) {
+                        setSelectedImageIndex(index);
+                      }
+                    }}
+                    scrollEventThrottle={16}
+                    decelerationRate="fast"
+                  >
+                    {existingImages.map((image, index) => (
+                      <View 
+                        key={index} 
+                        style={{ 
+                          width: screenWidth, 
+                          height: screenHeight, 
+                          justifyContent: 'center', 
+                          alignItems: 'center' 
+                        }}
+                      >
+                        <CachedImage
+                          uri={image}
+                          style={{ width: screenWidth, height: screenHeight * 0.8 }}
+                          contentFit="contain"
+                        />
+                      </View>
+                    ))}
+                  </ScrollView>
+                );
+              })()}
+            </View>
+          </View>
+        </Modal>
+      )}
+
+    </ScrollView>
   );
 }
 
@@ -790,6 +951,124 @@ topBarButtonRight: {
   imagesContainer: {
     marginTop: 10,
     maxHeight: 150,
+  },
+  // Grid Layout Styles for Edit Mode
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  singleGridImage: {
+    width: '100%',
+    height: 300,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  twoImagesGrid: {
+    width: '49%',
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  threeImagesFirst: {
+    width: '100%',
+    height: 200,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  threeImagesRest: {
+    width: '49%',
+    height: 100,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  fourGridImage: {
+    width: '49%',
+    height: 150,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 100,
+  },
+  moreImagesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreImagesText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  removeImageButtonOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  // Image Viewer Styles
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerHeader: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 1,
+  },
+  imageViewerCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  imageViewerPagination: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  imageViewerScroll: {
+    flex: 1,
+    width: '100%',
   },
 
 });

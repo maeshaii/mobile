@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { API_BASE_URL, getPostDetail, getUserInfo, repostPost, likePost, unlikePost, commentOnPost, updateRepost, deleteRepost, getPostComments, updateComment, deleteComment, getForumDetail, repostForumPost, likeForumPost, unlikeForumPost, commentOnForumPost, deleteForumRepost, getForumComments, updateForumComment, deleteForumComment, getRepostDetail } from '../../services/api';
 import dayjs from 'dayjs';
@@ -17,6 +17,7 @@ export default function RepostScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { showAlert } = useAlert();
+  const hasNavigatedRef = useRef(false);
   const postId = typeof params.postId === 'string' ? parseInt(params.postId) : undefined;
   const isForumPost = params.isForumPost === 'true';
   const mode = typeof params.mode === 'string' ? params.mode : 'create';
@@ -354,25 +355,37 @@ export default function RepostScreen() {
                 console.log('Repost response:', response);
                 
                 if (response.success !== false) {
-                  showAlert({
-                    title: 'Success!',
-                    message: 'Your repost has been successfully shared.',
-                    type: 'success',
-                    variant: 'success',
-                    buttons: [
-                      { 
-                        text: 'OK', 
-                        onPress: () => {
-                          // Redirect to forum page if reposting from forum, otherwise go to home
-                          if (isForumPost) {
-                            router.replace('/forum/forumpage');
-                          } else {
+                  // Navigate back immediately for forum reposts (page will auto-refresh)
+                  if (isForumPost && !hasNavigatedRef.current) {
+                    hasNavigatedRef.current = true;
+                    router.back();
+                    // Show alert after a short delay to ensure navigation completes
+                    setTimeout(() => {
+                      showAlert({
+                        title: 'Success!',
+                        message: 'Your repost has been successfully shared.',
+                        type: 'success',
+                        variant: 'success',
+                        buttons: [{ text: 'OK' }],
+                      });
+                    }, 300);
+                  } else if (!isForumPost) {
+                    // For non-forum reposts, show alert and navigate on OK
+                    showAlert({
+                      title: 'Success!',
+                      message: 'Your repost has been successfully shared.',
+                      type: 'success',
+                      variant: 'success',
+                      buttons: [
+                        { 
+                          text: 'OK', 
+                          onPress: () => {
                             router.replace('/homepage/home');
                           }
                         }
-                      }
-                    ],
-                  });
+                      ],
+                    });
+                  }
                 } else {
                   Alert.alert('Error', response.message || 'Failed to repost');
                 }

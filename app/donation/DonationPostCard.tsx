@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, ScrollView, Dimensions } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, ScrollView, Dimensions } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
-import { API_BASE_URL, likeDonationPost, unlikeDonationPost, commentOnDonationPost, getDonationDetail, repostDonationPost, deleteDonationPost, editDonationPost, followUser, unfollowUser, checkFollowStatus, getUserInfo } from '../../services/api';
+import { API_BASE_URL, likeDonationPost, unlikeDonationPost, commentOnDonationPost, getDonationDetail, repostDonationPost, deleteDonationPost, followUser, unfollowUser, checkFollowStatus, getUserInfo } from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
@@ -42,9 +42,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
   const [showActions, setShowActions] = useState(false);
-  const [editModal, setEditModal] = useState(false);
-  const [editContent, setEditContent] = useState(post.post_content);
-  const [editLoading, setEditLoading] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowButton, setShowFollowButton] = useState(false);
@@ -134,31 +131,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
     );
   };
 
-  const handleEdit = async () => {
-    if (!editContent.trim()) {
-      Alert.alert('Error', 'Post content cannot be empty.');
-      return;
-    }
-
-    try {
-      const response = await editDonationPost(post.post_id, { description: editContent.trim() });
-      if (response.success !== false) {
-        showAlert({
-          title: 'Success',
-          message: 'Post updated successfully.',
-          type: 'success',
-          variant: 'success',
-        });
-        setEditModal(false);
-        onEdited?.(post.post_id, editContent.trim());
-      } else {
-        Alert.alert('Error', response.message || 'Failed to update post.');
-      }
-    } catch (error: any) {
-      console.error('Error editing post:', error);
-      Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to edit post');
-    }
-  };
 
 
   const handleFollow = async () => {
@@ -346,39 +318,6 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
         </TouchableOpacity>
       </View>
 
-      {/* Edit Modal - match home/dashboard UI */}
-      <Modal visible={editModal} transparent animationType="slide" onRequestClose={() => setEditModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.viewerModal, { paddingTop: 0 }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 }}>
-              <TouchableOpacity onPress={() => setEditModal(false)} style={{ padding: 6 }}>
-                <FontAwesome name="close" size={20} color="#333" />
-              </TouchableOpacity>
-              <Text style={[styles.modalTitle, { marginBottom: 0 }]}>EDIT POST</Text>
-              <TouchableOpacity
-                onPress={handleEdit}
-                disabled={editLoading}
-              >
-                {editLoading ? (
-                  <ActivityIndicator size="small" color="#1e3a8a" />
-                ) : (
-                  <Text style={{ color: '#1e3a8a', fontWeight: 'bold' }}>SAVE</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              style={[styles.modalInput, { minHeight: 160 }]}
-              value={editContent}
-              onChangeText={setEditContent}
-              placeholder="Update your post..."
-              multiline
-              maxLength={500}
-            />
-          </View>
-        </View>
-      </Modal>
-
-
       {/* Actions Sheet - match donation repost UI */}
       <Modal visible={showActions} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -388,7 +327,30 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
                 style={styles.sheetRow}
                 onPress={() => {
                   setShowActions(false);
-                  setEditModal(true);
+                  // Navigate to full-screen edit screen that reuses create-post UI,
+                  // matching the Home/Dashboard edit post experience
+                  router.push({
+                    pathname: '/posts/post',
+                    params: {
+                      mode: 'edit',
+                      postId: String(post.post_id),
+                      initialContent: post.post_content,
+                      type: 'donation',
+                      isDonationPost: 'true',
+                      images: JSON.stringify(
+                        Array.isArray(post.post_images)
+                          ? post.post_images.map((img: any) => {
+                              const url = img?.image_url || img?.url || '';
+                              return String(url).startsWith('http')
+                                ? url
+                                : url
+                                ? `${API_BASE_URL}${url}`
+                                : '';
+                            }).filter((u: string) => !!u)
+                          : []
+                      ),
+                    },
+                  });
                 }}
               >
                 <FontAwesome name="pencil" size={18} color="#374151" style={{ marginRight: 8 }} />
@@ -570,62 +532,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  editModal: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    width: '90%',
-    maxHeight: '70%',
-  },
-  editModalContent: {
-    backgroundColor: '#fff',
-    width: '90%',
-    borderRadius: 16,
-    padding: 0,
-    maxHeight: '80%',
-  },
-  editModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  editModalCloseButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
-  },
-  editModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  editModalSaveButton: {
-    backgroundColor: '#1e3a8a',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  editModalSaveText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  editModalInput: {
-    padding: 16,
-    fontSize: 16,
-    color: '#111827',
-    minHeight: 120,
-    textAlignVertical: 'top',
-  },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
+    marginBottom: 20,
     color: '#333',
-    marginBottom: 16,
   },
   viewerModal: {
     backgroundColor: 'white',

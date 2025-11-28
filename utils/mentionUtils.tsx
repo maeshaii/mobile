@@ -95,6 +95,8 @@ export const renderTextWithMentions = (
     // and stops at the first space, punctuation, or end of string
     // Updated to use greedy matching to capture full names with spaces
     let lastIndex = 0;
+    // Match @ followed by name (with spaces allowed), stopping at space, punctuation, or end
+    // The lookahead ensures we don't consume the space/punctuation after the mention
     const mentionRegexLocal = /@([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)(?=\s|$|[,.;:!?\-]|@)/g;
     
     // Reset regex lastIndex to ensure proper matching
@@ -174,11 +176,13 @@ export const renderTextWithMentions = (
         </TouchableOpacity>
       );
       
-      // Update lastIndex to move past the full mention match
-      lastIndex = mentionRegexLocal.lastIndex;
+      // CRITICAL: Update lastIndex to move past the full mention match (including @)
+      // This ensures text after the mention is not highlighted
+      lastIndex = match.index + fullMatch.length;
     }
     
     // Add remaining text after last mention (this should be the text after the mention, like " hello")
+    // This text should be black (using baseStyle), not blue
     if (lastIndex < urlPart.length) {
       result.push(
         <Text key={`text-${urlIndex}-${lastIndex}`} style={baseStyle}>

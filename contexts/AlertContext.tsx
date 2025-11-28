@@ -40,8 +40,9 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [visible, setVisible] = useState(false);
 
   const showAlert = useCallback((options: AlertOptions) => {
-    // If no buttons provided, add a default OK button
-    if (!options.buttons || options.buttons.length === 0) {
+    // If buttons is undefined (not provided), add a default OK button
+    // If buttons is explicitly an empty array, don't add default button (for processing alerts)
+    if (options.buttons === undefined) {
       options.buttons = [{ text: 'OK', style: 'default' }];
     }
     setAlert(options);

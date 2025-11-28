@@ -634,7 +634,7 @@ export default function PostCommentsScreen() {
                   } else {
                     router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                   }
-                })}
+                }, styles.commentText)}
 
                 {/* Comment Images - Swipeable and Centered */}
                 {(() => {
@@ -1617,6 +1617,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 14,
+  },
+  commentText: {
+    fontSize: 14,
+    color: '#000000', // non-mention text is black
+    lineHeight: 20,
   },
   highlightedNameContainer: {
     backgroundColor: '#e5e7eb',
