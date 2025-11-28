@@ -10,7 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 
-import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, updateMessageApi, deleteMessageApi, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL, getAdminPesoUsers, createConversation } from '../../services/api';
+import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, updateMessageApi, deleteMessageApi, deleteConversation, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL, getAdminPesoUsers, createConversation } from '../../services/api';
 import EmojiPickerModal from '../../components/EmojiPickerModal';
 import { downloadImage, downloadVideo, downloadDocument } from '../../utils/downloadHelper';
 import { ConversationWebSocket, TypingIndicator, WsEvent } from '../../services/websocketHelper';
@@ -104,6 +104,9 @@ const ChatMessageScreen = () => {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [replyingToMessage, setReplyingToMessage] = useState<UiMsg | null>(null);
+  const [showConversationMenu, setShowConversationMenu] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
   const wsRef = useRef<ConversationWebSocket | null>(null);
@@ -937,6 +940,33 @@ const ChatMessageScreen = () => {
     );
   }, [conversationId]);
 
+  // Delete Conversation Handler
+  const handleDeleteConversation = useCallback(async () => {
+    if (!conversationId) return;
+    
+    setIsDeletingConversation(true);
+    try {
+      console.log('Deleting conversation:', conversationId);
+      await deleteConversation(Number(conversationId));
+      
+      setShowDeleteConfirmation(false);
+      setShowConversationMenu(false);
+      
+      // Use replace instead of back for cleaner navigation
+      router.replace('/messages/message');
+      
+      // Show success message
+      setTimeout(() => {
+        Alert.alert('Success', 'Conversation deleted successfully!');
+      }, 300);
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+      Alert.alert('Error', 'Failed to delete conversation. Please try again.');
+    } finally {
+      setIsDeletingConversation(false);
+    }
+  }, [conversationId, router]);
+
   const loadMore = async () => {
     if (!conversationId || !nextCursor || isLoadingMore || !currentUser || !currentUser.id) return;
     setIsLoadingMore(true);
@@ -1213,8 +1243,66 @@ const ChatMessageScreen = () => {
              connectionStatus === 'connecting' ? '○' :
              connectionStatus === 'error' ? '●' : '○'}
           </Text>
+          <TouchableOpacity 
+            onPress={() => setShowConversationMenu(!showConversationMenu)}
+            style={{ marginLeft: 12, padding: 4 }}
+          >
+            <FontAwesome name="ellipsis-v" size={20} color="white" />
+          </TouchableOpacity>
         </View>
       </View>
+
+      {/* Conversation Menu Dropdown */}
+      {showConversationMenu && (
+        <Modal
+          transparent={true}
+          visible={showConversationMenu}
+          animationType="fade"
+          onRequestClose={() => setShowConversationMenu(false)}
+        >
+          <TouchableOpacity 
+            style={{
+              flex: 1,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              justifyContent: 'flex-start',
+              alignItems: 'flex-end',
+              paddingTop: 60,
+              paddingRight: 10
+            }}
+            activeOpacity={1}
+            onPress={() => setShowConversationMenu(false)}
+          >
+            <View style={{
+              backgroundColor: '#fff',
+              borderRadius: 8,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.15,
+              shadowRadius: 12,
+              elevation: 8,
+              minWidth: 200
+            }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowConversationMenu(false);
+                  setShowDeleteConfirmation(true);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 16,
+                  gap: 8
+                }}
+              >
+                <FontAwesome name="trash" size={16} color="#dc3545" />
+                <Text style={{ color: '#dc3545', fontSize: 14, fontWeight: '500' }}>
+                  Delete Conversation
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
 
       {/* Main Chat Area - Manual keyboard handling */}
       <View style={styles.chatContainer}>
@@ -1876,6 +1964,95 @@ const ChatMessageScreen = () => {
           saveError={editError}
         />
       )}
+
+      {/* Delete Conversation Confirmation Modal */}
+      <Modal
+        transparent={true}
+        visible={showDeleteConfirmation}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirmation(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 20
+        }}>
+          <View style={{
+            backgroundColor: '#fff',
+            borderRadius: 12,
+            padding: 24,
+            width: '90%',
+            maxWidth: 400
+          }}>
+            <Text style={{
+              fontSize: 20,
+              fontWeight: '600',
+              color: '#333',
+              marginBottom: 16
+            }}>
+              Delete Conversation?
+            </Text>
+            <Text style={{
+              fontSize: 14,
+              color: '#666',
+              lineHeight: 20,
+              marginBottom: 24
+            }}>
+              Are you sure you want to delete this conversation with <Text style={{ fontWeight: '600' }}>{name || 'this user'}</Text>?
+              {'\n\n'}
+              This action cannot be undone. All messages will be removed from your inbox.
+            </Text>
+            <View style={{
+              flexDirection: 'row',
+              gap: 12,
+              justifyContent: 'flex-end'
+            }}>
+              <TouchableOpacity
+                onPress={() => setShowDeleteConfirmation(false)}
+                disabled={isDeletingConversation}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: '#ddd',
+                  backgroundColor: '#fff',
+                  opacity: isDeletingConversation ? 0.6 : 1
+                }}
+              >
+                <Text style={{
+                  color: '#333',
+                  fontSize: 14,
+                  fontWeight: '500'
+                }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleDeleteConversation}
+                disabled={isDeletingConversation}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  borderRadius: 8,
+                  backgroundColor: '#dc3545',
+                  opacity: isDeletingConversation ? 0.6 : 1
+                }}
+              >
+                <Text style={{
+                  color: '#fff',
+                  fontSize: 14,
+                  fontWeight: '600'
+                }}>
+                  {isDeletingConversation ? 'Deleting...' : 'Delete Conversation'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       </View>
     </ErrorBoundary>

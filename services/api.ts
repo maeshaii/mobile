@@ -1982,6 +1982,18 @@ export const markConversationRead = async (conversationId: number) => {
   }
 };
 
+// Mobile -> Backend: DELETE /api/messaging/conversations/{id}/delete/
+export const deleteConversation = async (conversationId: number) => {
+  try {
+    const { data } = await api.delete(`/api/messaging/conversations/${conversationId}/delete/`);
+    console.log('Mobile deleteConversation API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile deleteConversation API Error:', error);
+    throw error;
+  }
+};
+
 // Mobile -> Backend: Generate WebSocket URL for conversation
 export const getConversationWsUrl = async (conversationId: number) => {
   try {

@@ -12,6 +12,7 @@ import {
   Modal,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import RadioGroup from 'react-native-radio-buttons-group';
 import type { RadioButtonProps } from 'react-native-radio-buttons-group';
 // @ts-ignore
@@ -699,16 +700,91 @@ export default function TrackerForm() {
     };
   }, [responses, draftCheckComplete, privacyAccepted]);
 
-  const pickFileForQuestion = async (questionId: string | number, isMultiple: boolean = false) => {
-    const result = await DocumentPicker.getDocumentAsync({});
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const f = result.assets[0];
-      const asset: FileAsset = {
-        name: f.name,
-        uri: f.uri,
-        mimeType: f.mimeType,
-        size: f.size,
-      };
+  const pickFileForQuestion = async (questionId: string | number, isMultiple: boolean = false, questionText?: string) => {
+    // Check if this is an image-only question (20, 31, 32)
+    const lowerText = (questionText || '').toLowerCase();
+    const isFirstEmploymentDoc = lowerText.includes('first employment supporting document');
+    const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
+                                   (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
+    const isCurrentEmploymentDoc = lowerText.includes('employment supporting document') && lowerText.includes('current');
+    const isImageOnlyQuestion = isFirstEmploymentDoc || isAwardSupportingDocs || isCurrentEmploymentDoc;
+    
+    let asset: FileAsset | null = null;
+    
+    if (isImageOnlyQuestion) {
+      // Use ImagePicker for image-only questions
+      try {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (permissionResult.status !== 'granted') {
+          Alert.alert('Permission Required', 'Please grant permission to access your photo library to upload images.');
+          return;
+        }
+        
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: false,
+          quality: 1,
+          allowsMultipleSelection: false,
+        });
+        
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const f = result.assets[0];
+          // Get file extension from URI or name
+          const uri = f.uri;
+          const fileName = f.fileName || `image_${Date.now()}.jpg`;
+          const mimeType = f.type || 'image/jpeg';
+          
+          asset = {
+            name: fileName,
+            uri: uri,
+            mimeType: mimeType,
+            size: f.fileSize || 0,
+          };
+        }
+      } catch (error) {
+        console.error('ImagePicker error:', error);
+        Alert.alert('Error', 'Failed to pick image. Please try again.');
+        return;
+      }
+    } else {
+      // Use DocumentPicker for other file questions
+      const result = await DocumentPicker.getDocumentAsync({});
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const f = result.assets[0];
+        asset = {
+          name: f.name,
+          uri: f.uri,
+          mimeType: f.mimeType,
+          size: f.size,
+        };
+      }
+    }
+    
+    if (asset) {
+      // Validate file size (10MB)
+      if (asset.size && asset.size > 10 * 1024 * 1024) {
+        Alert.alert('File Size Error', 'File size must be less than 10MB');
+        return;
+      }
+      
+      // Validate file type for image-only questions
+      if (isImageOnlyQuestion) {
+        const allowedImageTypes = [
+          'image/jpeg',
+          'image/jpg',
+          'image/png',
+          'image/svg+xml',
+          'image/gif',
+          'image/webp',
+          'image/bmp',
+          'image/tiff',
+        ];
+        
+        if (asset.mimeType && !allowedImageTypes.includes(asset.mimeType)) {
+          Alert.alert('File Type Error', 'Please select an image file only (JPEG, PNG, SVG, GIF, WEBP, BMP, or TIFF)');
+          return;
+        }
+      }
       
       if (isMultiple) {
         const currentFiles = multipleFileAnswers[String(questionId)] || [];
@@ -1027,18 +1103,91 @@ export default function TrackerForm() {
     otherText: '',
   });
 
-  const handleFilePick = async () => {
-    const result = await DocumentPicker.getDocumentAsync({});
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const file = result.assets[0];
-      handleChange('file', {
-        name: file.name,
-        uri: file.uri,
-        mimeType: file.mimeType,
-        size: file.size,
-      });
+  const handleFilePick = async (questionText?: string) => {
+    // Check if this is an image-only question (20, 31, 32)
+    const lowerText = (questionText || '').toLowerCase();
+    const isFirstEmploymentDoc = lowerText.includes('first employment supporting document');
+    const isAwardSupportingDocs = (lowerText.includes('supporting documents') || lowerText.includes('supporting document')) && 
+                                   (lowerText.includes('awards') || lowerText.includes('award') || lowerText.includes('recognition'));
+    const isCurrentEmploymentDoc = (lowerText.includes('employment supporting document') && lowerText.includes('current')) ||
+                                    (lowerText.includes('current employment supporting document'));
+    const isImageOnlyQuestion = isFirstEmploymentDoc || isAwardSupportingDocs || isCurrentEmploymentDoc;
+    
+    let fileAsset: FileAsset | null = null;
+    
+    if (isImageOnlyQuestion) {
+      // Use ImagePicker for image-only questions
+      try {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (permissionResult.status !== 'granted') {
+          Alert.alert('Permission Required', 'Please grant permission to access your photo library to upload images.');
+          return;
+        }
+        
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: false,
+          quality: 1,
+          allowsMultipleSelection: false,
+        });
+        
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const f = result.assets[0];
+          const fileName = f.fileName || `image_${Date.now()}.jpg`;
+          const mimeType = f.type || 'image/jpeg';
+          
+          fileAsset = {
+            name: fileName,
+            uri: f.uri,
+            mimeType: mimeType,
+            size: f.fileSize || 0,
+          };
+          
+          // Validate file size (10MB)
+          if (fileAsset.size && fileAsset.size > 10 * 1024 * 1024) {
+            Alert.alert('File Size Error', 'File size must be less than 10MB');
+            return;
+          }
+          
+          // Validate file type - IMAGE ONLY
+          const allowedImageTypes = [
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/svg+xml',
+            'image/gif',
+            'image/webp',
+            'image/bmp',
+            'image/tiff',
+          ];
+          
+          if (fileAsset.mimeType && !allowedImageTypes.includes(fileAsset.mimeType)) {
+            Alert.alert('File Type Error', 'Please select an image file only (JPEG, PNG, SVG, GIF, WEBP, BMP, or TIFF)');
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('ImagePicker error:', error);
+        Alert.alert('Error', 'Failed to pick image. Please try again.');
+        return;
+      }
+    } else {
+      // Use DocumentPicker for other file questions
+      const result = await DocumentPicker.getDocumentAsync({});
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        fileAsset = {
+          name: file.name,
+          uri: file.uri,
+          mimeType: file.mimeType,
+          size: file.size,
+        };
+      }
     }
     
+    if (fileAsset) {
+      handleChange('file', fileAsset);
+    }
   };
 
   // Helper: check if question text should be hidden (matching web)
@@ -1305,37 +1454,65 @@ export default function TrackerForm() {
       
       // Helper function to update file at specific index
       const updateFileAtIndex = async (index: number) => {
-        const result = await DocumentPicker.getDocumentAsync({});
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          const f = result.assets[0];
-          const asset: FileAsset = {
-            name: f.name,
-            uri: f.uri,
-            mimeType: f.mimeType,
-            size: f.size,
-          };
-          
-          // Validate file size (10MB)
-          if (asset.size && asset.size > 10 * 1024 * 1024) {
-            Alert.alert('File Size Error', 'File size must be less than 10MB');
+        // For award documents (question 31), use ImagePicker (image-only)
+        let asset: FileAsset | null = null;
+        
+        try {
+          const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (permissionResult.status !== 'granted') {
+            Alert.alert('Permission Required', 'Please grant permission to access your photo library to upload images.');
             return;
           }
           
-          // Validate file type
-          const allowedTypes = [
-            'application/pdf',
-            'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'image/jpeg',
-            'image/jpg',
-            'image/png',
-            'image/gif',
-          ];
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: false,
+            quality: 1,
+            allowsMultipleSelection: false,
+          });
           
-          if (asset.mimeType && !allowedTypes.includes(asset.mimeType)) {
-            Alert.alert('File Type Error', 'Please select a valid file type: PDF, DOC, DOCX, JPG, PNG, or GIF');
-            return;
+          if (!result.canceled && result.assets && result.assets.length > 0) {
+            const f = result.assets[0];
+            const fileName = f.fileName || `image_${Date.now()}.jpg`;
+            const mimeType = f.type || 'image/jpeg';
+            
+            asset = {
+              name: fileName,
+              uri: f.uri,
+              mimeType: mimeType,
+              size: f.fileSize || 0,
+            };
           }
+        } catch (error) {
+          console.error('ImagePicker error:', error);
+          Alert.alert('Error', 'Failed to pick image. Please try again.');
+          return;
+        }
+        
+        if (!asset) return;
+        
+        // Validate file size (10MB)
+        if (asset.size && asset.size > 10 * 1024 * 1024) {
+          Alert.alert('File Size Error', 'File size must be less than 10MB');
+          return;
+        }
+        
+        // Validate file type - IMAGE ONLY for question 31
+        const allowedImageTypes = [
+          'image/jpeg',
+          'image/jpg',
+          'image/png',
+          'image/svg+xml',
+          'image/gif',
+          'image/webp',
+          'image/bmp',
+          'image/tiff',
+        ];
+        
+        if (asset.mimeType && !allowedImageTypes.includes(asset.mimeType)) {
+          Alert.alert('File Type Error', 'Please select an image file only (JPEG, PNG, SVG, GIF, WEBP, BMP, or TIFF)');
+          return;
+        }
           
           // Update file at specific index
           const currentFiles = [...files];
@@ -1475,7 +1652,7 @@ export default function TrackerForm() {
             {questionNumber ? `${questionNumber}. ` : ''}{q.text}
             {q.required && <Text style={{ color: 'red' }}> *</Text>}
           </Text>
-          <TouchableOpacity style={styles.uploadButton} onPress={() => pickFileForQuestion(qid)}>
+          <TouchableOpacity style={styles.uploadButton} onPress={() => pickFileForQuestion(qid, false, q.text)}>
             <Text style={styles.uploadButtonText}>Choose File</Text>
           </TouchableOpacity>
           {file && <Text style={styles.fileText}>{file.name}</Text>}
@@ -2280,11 +2457,11 @@ export default function TrackerForm() {
         <Text style={styles.label}>20. First Employment Supporting Document </Text>
         <Text style={styles.labelDesc}>Please upload the soft copy of your Company ID (Back to back) 
         and either your employment Contract or Certificate of Employment using the provided link below.</Text>
-        <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor’s permit </Text>
+        <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor's permit </Text>
         <Text style={styles.labelDesc}>Here is the link:
         https://bit.ly/FirstEmploymentData</Text>
         <Text style={styles.labelDesc1}>Note: You will be required to sign in to Google when uploading your files.</Text>
-        <TouchableOpacity style={styles.uploadButton} onPress={handleFilePick}>
+        <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('First Employment Supporting Document')}>
         <Text style={styles.uploadButtonText}>Choose File</Text>
         </TouchableOpacity>
         {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
@@ -2466,11 +2643,11 @@ export default function TrackerForm() {
         <Text style={styles.label}>29. CURRENT Employment Supporting Document </Text>
         <Text style={styles.labelDesc}>Please upload the soft copy of your Company ID (Back to back) 
         and either your employment Contract or Certificate of Employment using the provided link below.</Text>
-        <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor’s permit </Text>
+        <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor's permit </Text>
         <Text style={styles.labelDesc}>Here is the link:
         https://bit.ly/FirstEmploymentData</Text>
         <Text style={styles.labelDesc1}>Note: You will be required to sign in to Google when uploading your files.</Text>
-        <TouchableOpacity style={styles.uploadButton} onPress={handleFilePick}>
+        <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('Employment Supporting Document(Current)')}>
         <Text style={styles.uploadButtonText}>Choose File</Text>
         </TouchableOpacity>
         {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
@@ -2540,7 +2717,7 @@ export default function TrackerForm() {
 
         <Text style={styles.label}>
         31. Supporting document for awards/recognition</Text>
-        <TouchableOpacity style={styles.uploadButton} onPress={handleFilePick}>
+        <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('Supporting Documents for awards/recognition')}>
         <Text style={styles.uploadButtonText}>Choose File</Text>
         </TouchableOpacity>
         {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
