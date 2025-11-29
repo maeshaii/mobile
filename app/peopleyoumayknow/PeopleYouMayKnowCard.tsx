@@ -187,24 +187,27 @@ export default function PeopleYouMayKnowCard() {
                     {user.name}
                   </Text>
                 </TouchableOpacity>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={styles.followButton}
-                    onPress={() => handleFollow(user.id)}
-                    disabled={followLoading[user.id]}
-                  >
-                    <FontAwesome name="plus" size={10} color="white" />
-                    <Text style={styles.followButtonText}>
-                      {followLoading[user.id] ? '...' : 'Follow'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.removeButton}
-                    onPress={() => handleRemove(user.id)}
-                  >
-                    <Text style={styles.removeButtonText}>Remove</Text>
-                  </TouchableOpacity>
-                </View>
+                {/* Hide Follow button for admin and peso users - they are automatically followed */}
+                {!user.account_type?.admin && !user.account_type?.peso && (
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={styles.followButton}
+                      onPress={() => handleFollow(user.id)}
+                      disabled={followLoading[user.id]}
+                    >
+                      <FontAwesome name="plus" size={10} color="white" />
+                      <Text style={styles.followButtonText}>
+                        {followLoading[user.id] ? '...' : 'Follow'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.removeButton}
+                      onPress={() => handleRemove(user.id)}
+                    >
+                      <Text style={styles.removeButtonText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             )}
           />
