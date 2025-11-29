@@ -27,9 +27,23 @@ export default function LandingScreen() {
       <View style={styles.container}>
         <View style={styles.content}>
           <View style={styles.titleContainer}>
-            <Text style={styles.brandTitle}>
-              WHERENAYOU : Connecting OJT's{'\n'}& Alumni Journeys
-            </Text>
+            <View style={styles.brandContainer}>
+              <Image
+                source={require('../../assets/images/wny-logo.png')}
+                style={styles.brandLogo}
+                resizeMode="contain"
+              />
+              <View style={styles.brandTextContainer}>
+                <Text style={styles.brandTitle}>
+                  <Text style={styles.brandTitleText}>Where</Text>
+                  <Text style={styles.brandTitleText}>Na</Text>
+                  <Text style={styles.brandTitleText}>You</Text>
+                </Text>
+                <Text style={styles.brandTagline}>
+                  Connecting OJTs & Alumni Journeys
+                </Text>
+              </View>
+            </View>
             <Text style={styles.brandSubtitle}>
               Excellence in Technology Education
             </Text>
@@ -102,29 +116,55 @@ const styles = StyleSheet.create({
     zIndex: 1,
     flex: 1,
     justifyContent: 'center',
-    marginTop: 100,
+    marginTop: 150,
   },
   titleContainer: {
     alignItems: 'center',
     marginBottom: 60,
+    width: '100%',
+  },
+  brandContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 20,
+    marginLeft: -5,
+  },
+  brandLogo: {
+    width: 60,
+    height: 67,
+  },
+  brandTextContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 4,
   },
   brandTitle: {
-    fontSize: 24,
+    fontSize: 43,
     fontWeight: '700',
     color: '#ffffff',
-    textAlign: 'center',
+    textAlign: 'left',
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
-    marginBottom: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: 8,
-    overflow: 'hidden',
+    lineHeight: 45,
+  },
+  brandTitleText: {
+    color: '#ffffff',
+  },
+  brandTagline: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: '#ffffff',
+    textAlign: 'left',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    lineHeight: 20,
   },
   brandSubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '400',
     color: '#ffffff',
     textAlign: 'center',
@@ -132,22 +172,23 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
     opacity: 0.9,
+    marginTop: 8,
   },
   collaborationContainer: {
     alignItems: 'center',
     marginBottom: 60,
-    marginTop: 40,
+    marginTop: 20,
     width: '100%',
   },
   collaborationTitle: {
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.85)',
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
-    marginBottom: 12,
+    marginBottom: 15,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
@@ -164,19 +205,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   partnerLogo: {
-    width: 40,
-    height: 40,
+    width: 50,
+    height: 50,
     borderRadius: 20,
     marginBottom: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   partnerLogoImage: {
-    width: 28,
-    height: 28,
+    width: 40,
+    height: 40,
   },
   partnerName: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '400',
     color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
@@ -190,7 +231,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 28,
     borderRadius: 20,
-    marginBottom: 100,
+    marginBottom: 160,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,

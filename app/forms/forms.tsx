@@ -1513,27 +1513,26 @@ export default function TrackerForm() {
           Alert.alert('File Type Error', 'Please select an image file only (JPEG, PNG, SVG, GIF, WEBP, BMP, or TIFF)');
           return;
         }
-          
-          // Update file at specific index
-          const currentFiles = [...files];
-          // Ensure array is large enough
-          while (currentFiles.length <= index) {
-            currentFiles.push(null as any);
-          }
-          currentFiles[index] = asset;
-          
-          // Filter out null entries to get actual file count
-          const validFiles = currentFiles.filter(f => f !== null);
-          
-          setMultipleFileAnswers((prev) => ({ ...prev, [qid]: currentFiles }));
-          // Save file marker in responses for draft persistence (count only valid files)
-          setResponse(qid, { 
-            type: 'file', 
-            multiple: true, 
-            uploaded: true, 
-            count: validFiles.length 
-          });
+        
+        // Update file at specific index
+        const currentFiles = [...files];
+        // Ensure array is large enough
+        while (currentFiles.length <= index) {
+          currentFiles.push(null as any);
         }
+        currentFiles[index] = asset;
+        
+        // Filter out null entries to get actual file count
+        const validFiles = currentFiles.filter(f => f !== null);
+        
+        setMultipleFileAnswers((prev) => ({ ...prev, [qid]: currentFiles }));
+        // Save file marker in responses for draft persistence (count only valid files)
+        setResponse(qid, { 
+          type: 'file', 
+          multiple: true, 
+          uploaded: true, 
+          count: validFiles.length 
+        });
       };
       
       // Ensure at least one slot exists automatically when question is shown (matching web behavior)
@@ -1546,7 +1545,7 @@ export default function TrackerForm() {
             {questionNumber ? `${questionNumber}. ` : ''}{q.text}
             {q.required && <Text style={{ color: 'red' }}> *</Text>}
           </Text>
-          {displayFiles.map((file, index) => (
+          {displayFiles.map((file: FileAsset | null, index: number) => (
             <View key={index} style={{ marginBottom: 8, padding: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 4 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <Text style={{ fontWeight: '500', fontSize: 14 }}>Award Document {index + 1}</Text>
