@@ -12,6 +12,8 @@ import {
   Animated,
   PanResponder,
   Dimensions,
+  TextInput,
+  Image,
 } from 'react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -65,6 +67,9 @@ interface RewardRequest {
   voucher_code?: string;
   notes?: string;
   instructions?: string;
+  gcash_number?: string | null;
+  gcash_name?: string | null;
+  gcash_receipt?: string | null;
 }
 
 interface SwipeableRowProps {
@@ -306,6 +311,8 @@ export default function RewardsScreen() {
   const [showMonthlyLimitModal, setShowMonthlyLimitModal] = useState(false);
   const [showConfirmRequestModal, setShowConfirmRequestModal] = useState(false);
   const [pendingRewardRequest, setPendingRewardRequest] = useState<{id: number; name: string; value: string; type?: string} | null>(null);
+  const [gcashNumber, setGcashNumber] = useState('');
+  const [gcashName, setGcashName] = useState('');
   const [pointsSettings, setPointsSettings] = useState({
     enabled: true,
     like: 1,
@@ -319,6 +326,8 @@ export default function RewardsScreen() {
   const [showEarnPointsModal, setShowEarnPointsModal] = useState(false);
   const [trackerFormEnabled, setTrackerFormEnabled] = useState(false);
   const openingDetailModalRef = useRef(false);
+  const [showReceiptImageModal, setShowReceiptImageModal] = useState(false);
+  const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
 
   // Derive reward availability - matches web logic
   const deriveRewardAvailability = (item: InventoryItem) => {
@@ -684,6 +693,9 @@ export default function RewardsScreen() {
       value: reward.value,
       type: reward.type
     });
+    // Reset GCash fields when opening modal
+    setGcashNumber('');
+    setGcashName('');
     setShowConfirmRequestModal(true);
     console.log('Mobile: Confirmation modal state set to true');
   };
@@ -691,13 +703,37 @@ export default function RewardsScreen() {
   const confirmRequestReward = async () => {
     if (!pendingRewardRequest) return;
     
+    // Validate GCash fields if reward type is GCash
+    if (pendingRewardRequest.type?.toLowerCase() === 'gcash') {
+      if (!gcashNumber.trim()) {
+        showAlert({
+          title: 'GCash Number Required',
+          message: 'Please enter your GCash number',
+          type: 'warning',
+        });
+        return;
+      }
+      if (!gcashName.trim()) {
+        showAlert({
+          title: 'GCash Name Required',
+          message: 'Please enter your GCash account name',
+          type: 'warning',
+        });
+        return;
+      }
+    }
+    
     const rewardId = pendingRewardRequest.id;
     setShowConfirmRequestModal(false);
     
     try {
       setClaimingReward(rewardId);
       console.log('Mobile: Requesting reward with ID:', rewardId);
-      const response = await requestReward(rewardId);
+      const response = await requestReward(
+        rewardId,
+        pendingRewardRequest.type?.toLowerCase() === 'gcash' ? gcashNumber.trim() : undefined,
+        pendingRewardRequest.type?.toLowerCase() === 'gcash' ? gcashName.trim() : undefined
+      );
       console.log('Mobile: Request reward response:', response);
       
       if (response.success) {
@@ -710,8 +746,10 @@ export default function RewardsScreen() {
         // Refresh user points (mobile-specific, helps with UI updates)
         await fetchUserPoints();
         
-        // Close modal
+        // Close modal and reset GCash fields
         setPendingRewardRequest(null);
+        setGcashNumber('');
+        setGcashName('');
       } else {
         showAlert({
           title: 'Error',
@@ -895,14 +933,16 @@ export default function RewardsScreen() {
     }
   };
 
-  const getStatusDisplay = (status: string, hasExpired?: boolean) => {
+  const getStatusDisplay = (status: string, hasExpired?: boolean, rewardType?: string) => {
     if (hasExpired) return 'Expired';
+    const isGcash = rewardType?.toLowerCase() === 'gcash';
     switch (status) {
       case 'pending':
         return 'Pending';
       case 'approved':
       case 'ready_for_pickup':
-        return 'Ready';
+        // For GCash rewards, show "Sent" instead of "Ready" when approved
+        return isGcash ? 'Sent' : 'Ready';
       case 'claimed':
         return 'Claimed';
       case 'did_not_push_through':
@@ -1362,7 +1402,7 @@ export default function RewardsScreen() {
                             ]}
                           >
                             <Text style={styles.statusBadgeText}>
-                              {getStatusDisplay(request.status, didNotPushThrough)}
+                              {getStatusDisplay(request.status, didNotPushThrough, request.reward_type)}
                             </Text>
                           </View>
                         </View>
@@ -1489,7 +1529,8 @@ export default function RewardsScreen() {
                             const isNotClaimed = selectedRewardDetail.status !== 'claimed';
                             const hasExpired = selectedRewardDetail.expires_at ? new Date(selectedRewardDetail.expires_at) < new Date() : false;
                             return isApproved && isNotClaimed && hasExpired;
-                          })()
+                          })(),
+                          selectedRewardDetail.reward_type
                         )}
                       </Text>
                     </View>
@@ -1551,8 +1592,11 @@ export default function RewardsScreen() {
                       </Text>
                     </View>
                   )}
-                  {/* Expires Section */}
-                  {selectedRewardDetail.expires_at && (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') && (
+                  {/* Expires Section - Only show for non-GCash and non-claimed rewards */}
+                  {selectedRewardDetail.expires_at && 
+                   selectedRewardDetail.status !== 'claimed' && 
+                   selectedRewardDetail.reward_type?.toLowerCase() !== 'gcash' &&
+                   (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'ready_for_pickup') && (
                     <View style={styles.expiresBox}>
                       <View style={styles.expiresHeader}>
                         <FontAwesome name="info-circle" size={20} color="#6b7280" />
@@ -1589,6 +1633,83 @@ export default function RewardsScreen() {
                     </View>
                   )}
                   
+                  {/* GCash Details Section */}
+                  {selectedRewardDetail.reward_type?.toLowerCase() === 'gcash' && (
+                    <>
+                      {selectedRewardDetail.gcash_number && selectedRewardDetail.gcash_name && (
+                        <View style={styles.gcashDetailsBox}>
+                          <View style={styles.gcashDetailsHeader}>
+                            <FontAwesome name="mobile" size={20} color="#0284c7" />
+                            <Text style={styles.gcashDetailsTitle}>GCash Details</Text>
+                          </View>
+                          <View style={styles.gcashDetailsContent}>
+                            <View style={styles.gcashDetailRow}>
+                              <Text style={styles.gcashDetailLabel}>GCash Number:</Text>
+                              <Text style={styles.gcashDetailValue}>{selectedRewardDetail.gcash_number}</Text>
+                            </View>
+                            <View style={styles.gcashDetailRow}>
+                              <Text style={styles.gcashDetailLabel}>Account Name:</Text>
+                              <Text style={styles.gcashDetailValue}>{selectedRewardDetail.gcash_name}</Text>
+                            </View>
+                          </View>
+                        </View>
+                      )}
+                      
+                      {/* GCash Receipt Section - Only for GCash rewards */}
+                      {selectedRewardDetail.gcash_receipt && 
+                       selectedRewardDetail.reward_type?.toLowerCase() === 'gcash' &&
+                       (selectedRewardDetail.status === 'approved' || selectedRewardDetail.status === 'claimed') && (() => {
+                        // Helper function to convert relative URL to absolute URL (matching web implementation)
+                        const getAbsoluteUrl = (url: string): string => {
+                          if (url.startsWith('http://') || url.startsWith('https://')) {
+                            return url;
+                          }
+                          const baseUrl = API_BASE_URL.replace(/\/$/, '').replace(/\/api$/, '');
+                          return url.startsWith('/') ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
+                        };
+                        
+                        const receiptUrl = getAbsoluteUrl(selectedRewardDetail.gcash_receipt);
+                        
+                        return (
+                          <View style={styles.gcashReceiptBox}>
+                            <View style={styles.gcashReceiptHeader}>
+                              <Text style={styles.gcashReceiptEmoji}>🧾</Text>
+                              <Text style={styles.gcashReceiptTitle}>Payment Receipt</Text>
+                            </View>
+                            <TouchableOpacity 
+                              style={styles.gcashReceiptImageContainer}
+                              onPress={() => {
+                                setReceiptImageUrl(receiptUrl);
+                                setShowReceiptImageModal(true);
+                              }}
+                              activeOpacity={0.9}
+                            >
+                              <Image
+                                source={{ uri: receiptUrl }}
+                                style={styles.gcashReceiptImage}
+                                resizeMode="contain"
+                                onError={(error) => {
+                                  console.error('Error loading receipt image:', error);
+                                  // Try alternative URL format if first attempt fails
+                                  const altUrl = selectedRewardDetail.gcash_receipt?.startsWith('/') 
+                                    ? getAbsoluteUrl(selectedRewardDetail.gcash_receipt)
+                                    : getAbsoluteUrl(`/${selectedRewardDetail.gcash_receipt}`);
+                                  if (altUrl !== receiptUrl) {
+                                    // Retry with alternative URL
+                                    console.log('Retrying with alternative URL:', altUrl);
+                                  }
+                                }}
+                              />
+                            </TouchableOpacity>
+                            <Text style={styles.gcashReceiptHint}>
+                              Tap image to view full size
+                            </Text>
+                          </View>
+                        );
+                      })()}
+                    </>
+                  )}
+
                   {/* Voucher Code Section */}
                   {selectedRewardDetail.voucher_code && (
                     <View style={styles.voucherCodeBox}>
@@ -1621,13 +1742,21 @@ export default function RewardsScreen() {
                                          selectedRewardDetail.reward_type?.toLowerCase().includes('merch') ||
                                          selectedRewardDetail.reward_type?.toLowerCase().includes('product') ||
                                          selectedRewardDetail.reward_type?.toLowerCase().includes('item');
+                    const isGcash = selectedRewardDetail.reward_type?.toLowerCase() === 'gcash';
                     const canClaim = isApproved && !isClaimed && !isMerchandise;
 
                     return canClaim ? (
                       <TouchableOpacity
                         style={styles.claimButton}
                         onPress={() => {
-                          handleClaimApprovedReward(selectedRewardDetail.request_id);
+                          if (isGcash) {
+                            // For GCash rewards, "Okay" just closes the modal (acknowledgment)
+                            setShowRewardDetailModal(false);
+                            setSelectedRewardDetail(null);
+                          } else {
+                            // For other rewards, show claim confirmation modal
+                            handleClaimApprovedReward(selectedRewardDetail.request_id);
+                          }
                         }}
                         disabled={claimingReward === selectedRewardDetail.request_id}
                       >
@@ -1636,7 +1765,9 @@ export default function RewardsScreen() {
                         ) : (
                           <>
                             <FontAwesome name="gift" size={18} color="#fff" />
-                            <Text style={styles.claimButtonText}>Claim Reward</Text>
+                            <Text style={styles.claimButtonText}>
+                              {isGcash ? 'Okay' : 'Claim Reward'}
+                            </Text>
                           </>
                         )}
                       </TouchableOpacity>
@@ -1828,6 +1959,8 @@ export default function RewardsScreen() {
           onRequestClose={() => {
             setShowConfirmRequestModal(false);
             setPendingRewardRequest(null);
+            setGcashNumber('');
+            setGcashName('');
           }}
           onShow={() => {
             console.log('Mobile: Confirm request modal is now visible');
@@ -1839,6 +1972,8 @@ export default function RewardsScreen() {
             onPress={() => {
               setShowConfirmRequestModal(false);
               setPendingRewardRequest(null);
+              setGcashNumber('');
+              setGcashName('');
             }}
           >
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
@@ -1853,6 +1988,8 @@ export default function RewardsScreen() {
                     onPress={() => {
                       setShowConfirmRequestModal(false);
                       setPendingRewardRequest(null);
+                      setGcashNumber('');
+                      setGcashName('');
                     }}
                     style={styles.closeButtonTouchable}
                   >
@@ -1883,6 +2020,42 @@ export default function RewardsScreen() {
                         </View>
                       )}
 
+                      {/* GCash Input Fields - Only show for GCash rewards */}
+                      {pendingRewardRequest.type && 
+                       pendingRewardRequest.type.toLowerCase() === 'gcash' && (
+                        <View style={styles.gcashInputContainer}>
+                          <View style={styles.gcashInputField}>
+                            <Text style={styles.gcashLabel}>
+                              GCash Number <Text style={styles.requiredAsterisk}>*</Text>
+                            </Text>
+                            <TextInput
+                              style={styles.gcashInput}
+                              value={gcashNumber}
+                              onChangeText={setGcashNumber}
+                              placeholder="e.g., 09123456789"
+                              placeholderTextColor="#9ca3af"
+                              keyboardType="phone-pad"
+                              autoCapitalize="none"
+                              autoCorrect={false}
+                            />
+                          </View>
+                          <View style={styles.gcashInputField}>
+                            <Text style={styles.gcashLabel}>
+                              GCash Account Name <Text style={styles.requiredAsterisk}>*</Text>
+                            </Text>
+                            <TextInput
+                              style={styles.gcashInput}
+                              value={gcashName}
+                              onChangeText={setGcashName}
+                              placeholder="e.g., Juan Dela Cruz"
+                              placeholderTextColor="#9ca3af"
+                              autoCapitalize="words"
+                              autoCorrect={false}
+                            />
+                          </View>
+                        </View>
+                      )}
+
                       {/* Info Box */}
                       <View style={styles.infoBox}>
                         <Text style={styles.infoIcon}>ℹ️</Text>
@@ -1898,6 +2071,8 @@ export default function RewardsScreen() {
                           onPress={() => {
                             setShowConfirmRequestModal(false);
                             setPendingRewardRequest(null);
+                            setGcashNumber('');
+                            setGcashName('');
                           }}
                         >
                           <Text style={styles.modalButtonCancelText}>Cancel</Text>
@@ -1920,6 +2095,47 @@ export default function RewardsScreen() {
                     </View>
                   );
                 })()}
+              </View>
+            </TouchableWithoutFeedback>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Receipt Image Full Screen Modal */}
+        <Modal
+          visible={showReceiptImageModal}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => {
+            setShowReceiptImageModal(false);
+            setReceiptImageUrl(null);
+          }}
+        >
+          <TouchableOpacity
+            style={styles.receiptImageModalOverlay}
+            activeOpacity={1}
+            onPress={() => {
+              setShowReceiptImageModal(false);
+              setReceiptImageUrl(null);
+            }}
+          >
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.receiptImageModalContent}>
+                <TouchableOpacity
+                  style={styles.receiptImageCloseButton}
+                  onPress={() => {
+                    setShowReceiptImageModal(false);
+                    setReceiptImageUrl(null);
+                  }}
+                >
+                  <FontAwesome name="times" size={24} color="#fff" />
+                </TouchableOpacity>
+                {receiptImageUrl && (
+                  <Image
+                    source={{ uri: receiptImageUrl }}
+                    style={styles.receiptImageFullScreen}
+                    resizeMode="contain"
+                  />
+                )}
               </View>
             </TouchableWithoutFeedback>
           </TouchableOpacity>
@@ -2550,6 +2766,148 @@ const styles = StyleSheet.create({
     color: '#0284c7',
     letterSpacing: 3,
     fontFamily: 'monospace',
+  },
+  gcashInputContainer: {
+    marginBottom: 20,
+  },
+  gcashInputField: {
+    marginBottom: 16,
+  },
+  gcashLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  requiredAsterisk: {
+    color: '#ef4444',
+  },
+  gcashInput: {
+    width: '100%',
+    padding: 12,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    fontSize: 15,
+    color: '#111827',
+    backgroundColor: '#fff',
+  },
+  gcashDetailsBox: {
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  gcashDetailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  gcashDetailsTitle: {
+    fontWeight: '600',
+    color: '#0c4a6e',
+    fontSize: 14,
+  },
+  gcashDetailsContent: {
+    gap: 12,
+  },
+  gcashDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0f2fe',
+  },
+  gcashDetailLabel: {
+    fontSize: 13,
+    color: '#0369a1',
+    fontWeight: '500',
+  },
+  gcashDetailValue: {
+    fontSize: 14,
+    color: '#0c4a6e',
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
+  },
+  gcashReceiptBox: {
+    marginBottom: 20,
+    padding: 20,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#86efac',
+  },
+  gcashReceiptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  gcashReceiptEmoji: {
+    fontSize: 24,
+  },
+  gcashReceiptTitle: {
+    fontWeight: '600',
+    color: '#166534',
+    fontSize: 14,
+  },
+  gcashReceiptImageContainer: {
+    marginTop: 8,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    padding: 12,
+    minHeight: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gcashReceiptImage: {
+    width: '100%',
+    maxHeight: 400,
+    backgroundColor: '#f9fafb',
+  },
+  gcashReceiptHint: {
+    fontSize: 12,
+    color: '#166534',
+    textAlign: 'center',
+    marginTop: 12,
+    fontWeight: '500',
+  },
+  receiptImageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  receiptImageModalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  receiptImageCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1000,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  receiptImageFullScreen: {
+    width: '100%',
+    height: '100%',
   },
   rewardDetailSubtitle: {
     fontSize: 11,

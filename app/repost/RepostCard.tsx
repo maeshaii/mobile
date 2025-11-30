@@ -31,6 +31,9 @@ interface OriginalPost {
   is_liked?: boolean;
   forum_id?: number;
   donation_id?: number;
+  is_event?: boolean;
+  event_date?: string | null;
+  event_time?: string | null;
   user: { 
     user_id: number; 
     f_name: string; 
@@ -128,6 +131,12 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
     repost.original_post?.type === 'donation' ||
     repost.original_post?.donation_id ||
     origin === 'donation'
+  );
+
+  // Check if the original post is an event
+  const isEventPost = Boolean(
+    repost.original_post?.is_event ||
+    (repost.original_post as any)?.is_event
   );
 
   // Sync like state and repost count when repost data changes
@@ -517,6 +526,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                   <Text style={styles.donationBadgeText}>DONATION</Text>
                 </View>
               )}
+              {isEventPost && (
+                <View style={styles.eventBadge}>
+                  <Text style={styles.eventBadgeText}>EVENT</Text>
+                </View>
+              )}
             </View>
             {!!repostTimeFromNow && (
               <Text style={styles.repostMeta}>{repostTimeFromNow}</Text>
@@ -591,6 +605,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
                     {isDonationPost && (
                       <View style={styles.donationBadge}>
                         <Text style={styles.donationBadgeText}>DONATION</Text>
+                      </View>
+                    )}
+                    {isEventPost && (
+                      <View style={styles.eventBadge}>
+                        <Text style={styles.eventBadgeText}>EVENT</Text>
                       </View>
                     )}
                   </View>
@@ -1387,6 +1406,18 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   donationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  eventBadge: {
+    backgroundColor: '#3b82f6', // Blue color for event (matching web)
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  eventBadgeText: {
     color: 'white',
     fontSize: 10,
     fontWeight: 'bold',

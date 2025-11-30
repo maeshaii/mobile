@@ -127,6 +127,7 @@ const MessageScreen = () => {
         
         return {
           id: c.conversation_id,
+          targetUserId: c.other_participant?.user_id ? Number(c.other_participant.user_id) : undefined,
           name: fullName,
           lastMessage: c.last_message?.content || '',
           date: new Date(c.updated_at).toLocaleDateString(),
@@ -168,6 +169,7 @@ const MessageScreen = () => {
             }
             return {
               ...mapped[idx],
+              targetUserId: otherUserId ? Number(otherUserId) : mapped[idx].targetUserId,
               isOnline,
             };
           });
@@ -418,14 +420,21 @@ const MessageScreen = () => {
                 size={44}
                 style={styles.avatar}
               />
-              {item.isOnline && <View style={styles.onlineIndicator} />}
+              {/* Only show green dot when NOT in online tab (redundant in online tab) */}
+              {item.isOnline && activeFilter !== 'online' && <View style={styles.onlineIndicator} />}
             </View>
             <View style={styles.messageBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={styles.nameContainer}>
-                  <Text style={styles.name}>{item.name}</Text>
-                  {activeFilter !== 'online' && item.isMessageRequest && (
-                    <Text style={styles.messageRequestIndicator}>📩</Text>
+                  <View style={styles.nameWrapper}>
+                    <Text style={styles.name}>{item.name}</Text>
+                    {activeFilter !== 'online' && item.isMessageRequest && (
+                      <Text style={styles.messageRequestIndicator}>📩</Text>
+                    )}
+                  </View>
+                  {/* Show "Online" text below name when in online tab */}
+                  {activeFilter === 'online' && item.isOnline && (
+                    <Text style={styles.onlineText}>Online</Text>
                   )}
                 </View>
                 {activeFilter !== 'online' && (
@@ -687,9 +696,20 @@ const styles = StyleSheet.create({
   },
   // Name container for message request indicator
   nameContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 2,
+  },
+  nameWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  onlineText: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '500',
+    marginTop: 2,
   },
   messageRequestIndicator: {
     fontSize: 14,

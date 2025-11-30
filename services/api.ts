@@ -89,9 +89,7 @@ const ngrokUrl = 'https://footed-reese-prognosticatively.ngrok-free.dev';
 const defaultUrl = isDev ? (devDefault as string) : ngrokUrl;
 
 // Prefer explicit config from Expo extra / env; otherwise fall back to ngrok/default
-export const API_BASE_URL = normalizeBaseUrl(
-  rawFromExpo || rawFromEnv || ngrokUrl || (defaultUrl as string),
-);
+export const API_BASE_URL = normalizeBaseUrl('https://cachexic-subspirally-sanora.ngrok-free.dev');
 
 console.log('Mobile API base URL:', JSON.stringify(API_BASE_URL));
 console.log('Raw from Expo:', rawFromExpo);
@@ -2193,9 +2191,16 @@ export const getInventoryItems = async () => {
 };
 
 // Mobile -> Backend: POST /api/rewards/request/
-export const requestReward = async (rewardId: number) => {
+export const requestReward = async (rewardId: number, gcashNumber?: string, gcashName?: string) => {
   try {
-    const { data } = await api.post('/api/rewards/request/', { reward_id: rewardId });
+    const payload: any = { reward_id: rewardId };
+    if (gcashNumber) {
+      payload.gcash_number = gcashNumber;
+    }
+    if (gcashName) {
+      payload.gcash_name = gcashName;
+    }
+    const { data } = await api.post('/api/rewards/request/', payload);
     return data;
   } catch (error) {
     console.error('Mobile requestReward API Error:', error);
@@ -2244,6 +2249,18 @@ export const getEngagementPointsSettings = async () => {
     return data;
   } catch (error) {
     console.error('Mobile getEngagementPointsSettings API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: GET /api/alumni/employment-reminder/{user_id}/
+export const checkEmploymentReminder = async (userId: number) => {
+  try {
+    const { data } = await api.get(`/api/alumni/employment-reminder/${userId}/`);
+    console.log('Mobile checkEmploymentReminder API Response:', data);
+    return data;
+  } catch (error) {
+    console.error('Mobile checkEmploymentReminder API Error:', error);
     throw error;
   }
 };

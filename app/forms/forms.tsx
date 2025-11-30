@@ -107,6 +107,10 @@ export default function TrackerForm() {
   // Raw input values for date picker (allow free typing)
   const [dateInputs, setDateInputs] = useState({ year: '', month: '', day: '' });
   
+  // Picker modal states (for employment duration and salary range)
+  const [showEmploymentDurationPicker, setShowEmploymentDurationPicker] = useState<{ questionId: string; visible: boolean }>({ questionId: '', visible: false });
+  const [showSalaryRangePicker, setShowSalaryRangePicker] = useState<{ questionId: string; visible: boolean }>({ questionId: '', visible: false });
+  
   // Job title autocomplete state
   const [jobSuggestions, setJobSuggestions] = useState<any[]>([]);
   const [showJobSuggestions, setShowJobSuggestions] = useState<{ questionId: string; visible: boolean }>({ questionId: '', visible: false });
@@ -119,6 +123,8 @@ export default function TrackerForm() {
   const jobAlignmentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Flag to prevent onBlur from running when suggestion is selected
   const suggestionSelectedRef = useRef<{ questionId: string; timestamp: number } | null>(null);
+  // Refs for job title TextInputs to allow direct updates when suggestions are selected
+  const jobTitleInputRefs = useRef<Record<string, any>>({});
   
   // Job title autocomplete search handler (moved outside renderQuestion to avoid hooks violation)
   const searchJobTitles = useCallback(async (query: string, questionId: string) => {
@@ -195,13 +201,37 @@ export default function TrackerForm() {
         // Note: Value is already set in the suggestion selection handler
         // We just need to check alignment now
         
+        console.log('🔵 [Q26 DEBUG] handleCheckJobAlignment (fromAutocomplete=true):', {
+          questionId,
+          selectedPosition,
+          currentStateValue: responses[questionId],
+          timestamp: Date.now()
+        });
+        
         // Check alignment immediately for autocomplete selections
         const result = await checkJobAlignment(selectedPosition, userId, true);
+        
+        console.log('🔵 [Q26 DEBUG] Alignment check result:', {
+          normalized_position: result.normalized_position,
+          needs_confirmation: result.needs_confirmation,
+          job_alignment_status: result.job_alignment_status
+        });
         
         // Preserve user's exact selection (don't overwrite with normalized position)
         // The user chose this specific suggestion - ensure it stays as-is
         // (Response is already set from suggestion handler, this is just a safety check)
-        setResponse(questionId, selectedPosition);
+        // CRITICAL: Only update if the value is different or missing - don't overwrite if already set
+        const currentValue = responses[questionId];
+        if (currentValue !== selectedPosition) {
+          console.log('🔵 [Q26 DEBUG] Value mismatch detected, updating:', {
+            currentValue,
+            selectedPosition,
+            willUpdate: true
+          });
+          setResponse(questionId, selectedPosition);
+        } else {
+          console.log('🔵 [Q26 DEBUG] Value already correct, skipping update');
+        }
         
         // Store alignment status
         setJobAlignmentStatus({
@@ -247,10 +277,31 @@ export default function TrackerForm() {
         }
         
         const userId = user.id || user.user_id;
-        const result = await checkJobAlignment(position.trim(), userId, false);
+        const trimmedPosition = position.trim();
+        
+        if (questionId === '26') {
+          console.log('🔵 [Q26 DEBUG] handleCheckJobAlignment (fromAutocomplete=false) - checking alignment:', {
+            questionId,
+            position: trimmedPosition,
+            userId,
+            timestamp: Date.now()
+          });
+        }
+        
+        const result = await checkJobAlignment(trimmedPosition, userId, false);
+        
+        if (questionId === '26') {
+          console.log('🔵 [Q26 DEBUG] Alignment check result (manual typing):', {
+            normalized_position: result.normalized_position,
+            needs_confirmation: result.needs_confirmation,
+            job_alignment_status: result.job_alignment_status,
+            hasSuggestion: !!result.suggestion,
+            willShowModal: result.needs_confirmation
+          });
+        }
         
         // User typed manually - allow normalization if provided
-        if (result.normalized_position && result.normalized_position !== position.trim()) {
+        if (result.normalized_position && result.normalized_position !== trimmedPosition) {
           setTimeout(() => {
             setResponse(questionId, result.normalized_position);
           }, 50);
@@ -263,18 +314,32 @@ export default function TrackerForm() {
           normalized: result.normalized_position
         });
         
-        // Show confirmation modal if needed
+        // Show confirmation modal if needed (matching web behavior)
         if (result.needs_confirmation) {
+          if (questionId === '26') {
+            console.log('🔵 [Q26 DEBUG] Showing alignment confirmation modal:', {
+              questionId,
+              position: result.normalized_position || trimmedPosition,
+              suggestion: result.suggestion
+            });
+          }
           setShowJobAlignmentModal({
             questionId,
-            position: result.normalized_position || position,
+            position: result.normalized_position || trimmedPosition,
             visible: true,
             needsConfirmation: true,
             suggestion: result.suggestion
           });
+        } else {
+          if (questionId === '26') {
+            console.log('🔵 [Q26 DEBUG] No confirmation needed, alignment status:', result.job_alignment_status);
+          }
         }
       } catch (error) {
         console.error('Error checking job alignment:', error);
+        if (questionId === '26') {
+          console.error('🔴 [Q26 DEBUG] Error in handleCheckJobAlignment:', error);
+        }
         setJobAlignmentStatus({ questionId, status: 'error' });
       } finally {
         setCheckingAlignment(false);
@@ -615,7 +680,26 @@ export default function TrackerForm() {
 
   // Dynamic responses change (triggers auto-save)
   const setResponse = (questionId: string | number, value: any) => {
-    setResponses((prev) => ({ ...prev, [String(questionId)]: value }));
+    const qidStr = String(questionId);
+    // Debug logging for question 26
+    if (qidStr === '26') {
+      console.log('🔵 [Q26 DEBUG] setResponse called:', {
+        questionId: qidStr,
+        newValue: value,
+        oldValue: responses[qidStr],
+        timestamp: Date.now()
+      });
+    }
+    setResponses((prev) => {
+      const updated = { ...prev, [qidStr]: value };
+      if (qidStr === '26') {
+        console.log('🔵 [Q26 DEBUG] setResponse state updated:', {
+          newValue: updated[qidStr],
+          allResponses: Object.keys(updated).length
+        });
+      }
+      return updated;
+    });
   };
   
   // Auto-save formResponses (debounced - saves 3 seconds after last change, matching web)
@@ -732,7 +816,9 @@ export default function TrackerForm() {
           // Get file extension from URI or name
           const uri = f.uri;
           const fileName = f.fileName || `image_${Date.now()}.jpg`;
-          const mimeType = f.type || 'image/jpeg';
+          
+          // Get MIME type from file extension (f.type is media category, not MIME type)
+          const mimeType = getMimeTypeFromAsset(f);
           
           asset = {
             name: fileName,
@@ -780,7 +866,7 @@ export default function TrackerForm() {
           'image/tiff',
         ];
         
-        if (asset.mimeType && !allowedImageTypes.includes(asset.mimeType)) {
+        if (!asset.mimeType || !allowedImageTypes.includes(asset.mimeType)) {
           Alert.alert('File Type Error', 'Please select an image file only (JPEG, PNG, SVG, GIF, WEBP, BMP, or TIFF)');
           return;
         }
@@ -1103,6 +1189,42 @@ export default function TrackerForm() {
     otherText: '',
   });
 
+  // Helper function to infer MIME type from file extension
+  const getMimeTypeFromExtension = (fileName: string): string => {
+    const ext = fileName.toLowerCase().split('.').pop() || '';
+    const mimeMap: Record<string, string> = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+      'bmp': 'image/bmp',
+      'tiff': 'image/tiff',
+      'tif': 'image/tiff',
+      'svg': 'image/svg+xml',
+    };
+    return mimeMap[ext] || 'image/jpeg';
+  };
+  
+  // Helper function to get MIME type from ImagePicker asset
+  // Note: f.type from ImagePicker is a media category ("image", "video", etc.), not a MIME type
+  // So we always infer from file extension
+  const getMimeTypeFromAsset = (asset: { fileName?: string | null; uri?: string }): string => {
+    // Try to get extension from fileName first
+    if (asset.fileName) {
+      return getMimeTypeFromExtension(asset.fileName);
+    }
+    // Fallback: try to extract from URI
+    if (asset.uri) {
+      const uriParts = asset.uri.split('.');
+      if (uriParts.length > 1) {
+        return getMimeTypeFromExtension(uriParts[uriParts.length - 1]);
+      }
+    }
+    // Default to JPEG if we can't determine
+    return 'image/jpeg';
+  };
+
   const handleFilePick = async (questionText?: string) => {
     // Check if this is an image-only question (20, 31, 32)
     const lowerText = (questionText || '').toLowerCase();
@@ -1134,7 +1256,9 @@ export default function TrackerForm() {
         if (!result.canceled && result.assets && result.assets.length > 0) {
           const f = result.assets[0];
           const fileName = f.fileName || `image_${Date.now()}.jpg`;
-          const mimeType = f.type || 'image/jpeg';
+          
+          // Get MIME type from file extension (f.type is media category, not MIME type)
+          const mimeType = getMimeTypeFromAsset(f);
           
           fileAsset = {
             name: fileName,
@@ -1161,7 +1285,7 @@ export default function TrackerForm() {
             'image/tiff',
           ];
           
-          if (fileAsset.mimeType && !allowedImageTypes.includes(fileAsset.mimeType)) {
+          if (!allowedImageTypes.includes(mimeType)) {
             Alert.alert('File Type Error', 'Please select an image file only (JPEG, PNG, SVG, GIF, WEBP, BMP, or TIFF)');
             return;
           }
@@ -1474,7 +1598,9 @@ export default function TrackerForm() {
           if (!result.canceled && result.assets && result.assets.length > 0) {
             const f = result.assets[0];
             const fileName = f.fileName || `image_${Date.now()}.jpg`;
-            const mimeType = f.type || 'image/jpeg';
+            
+            // Get MIME type from file extension (f.type is media category, not MIME type)
+            const mimeType = getMimeTypeFromAsset(f);
             
             asset = {
               name: fileName,
@@ -1509,7 +1635,7 @@ export default function TrackerForm() {
           'image/tiff',
         ];
         
-        if (asset.mimeType && !allowedImageTypes.includes(asset.mimeType)) {
+        if (!asset.mimeType || !allowedImageTypes.includes(asset.mimeType)) {
           Alert.alert('File Type Error', 'Please select an image file only (JPEG, PNG, SVG, GIF, WEBP, BMP, or TIFF)');
           return;
         }
@@ -1879,17 +2005,9 @@ export default function TrackerForm() {
           <TouchableOpacity
             style={styles.input}
             onPress={() => {
-              Alert.alert(
-                'Select Employment Duration',
-                '',
-                [
-                  ...durationOptions.map(opt => ({
-                    text: opt.label,
-                    onPress: () => setResponse(qid, opt.value)
-                  })),
-                  { text: 'Cancel', style: 'cancel' }
-                ]
-              );
+              // Ensure all 5 options are included (matching web implementation)
+              console.log('Employment Duration Options:', durationOptions.length, durationOptions.map(o => o.label));
+              setShowEmploymentDurationPicker({ questionId: qid, visible: true });
             }}
           >
             <Text style={{ color: currentLabel ? '#000' : '#999' }}>
@@ -1923,17 +2041,9 @@ export default function TrackerForm() {
           <TouchableOpacity
             style={styles.input}
             onPress={() => {
-              Alert.alert(
-                'Select Salary Range',
-                '',
-                [
-                  ...salaryOptions.map(opt => ({
-                    text: opt.label,
-                    onPress: () => setResponse(qid, opt.value)
-                  })),
-                  { text: 'Cancel', style: 'cancel' }
-                ]
-              );
+              // Ensure all 5 options are included (matching web implementation)
+              console.log('Salary Range Options:', salaryOptions.length, salaryOptions.map(o => o.label));
+              setShowSalaryRangePicker({ questionId: qid, visible: true });
             }}
           >
             <Text style={{ color: currentLabel ? '#000' : '#999' }}>
@@ -1953,6 +2063,26 @@ export default function TrackerForm() {
       const isLoadingSuggestions = loadingJobSuggestions.questionId === qid && loadingJobSuggestions.loading;
       const isCheckingAlignment = checkingAlignment && jobAlignmentStatus?.questionId === qid;
       
+      // Debug logging for question 26
+      if (qid === '26') {
+        console.log('🔵 [Q26 DEBUG] Rendering TextInput:', {
+          qid,
+          value,
+          valueType: typeof value,
+          valueString: value !== null && value !== undefined ? String(value) : '',
+          responsesQid: responses[qid],
+          valueFromState: responses[qid] !== undefined ? responses[qid] : getPrefilledValue(q),
+          showJobSuggestions: showJobSuggestions,
+          jobSuggestionsLength: jobSuggestions.length,
+          currentQuestionSuggestionsLength: currentQuestionSuggestions.length,
+          willShowSuggestions: currentQuestionSuggestions.length > 0 && showJobSuggestions.visible && showJobSuggestions.questionId === qid,
+          timestamp: Date.now()
+        });
+      }
+      
+      // Compute the display value - ensure it's always a string
+      const displayValue = value !== null && value !== undefined ? String(value) : '';
+      
       return (
         <View key={qid} style={{ marginBottom: 12 }}>
           <Text style={styles.label}>
@@ -1963,9 +2093,17 @@ export default function TrackerForm() {
           {/* Job Title Input with Suggestions */}
           <View style={{ position: 'relative', zIndex: 1000 }}>
             <TextInput
+              key={`job-input-${qid}`}
               style={styles.input}
-              value={value !== null && value !== undefined ? String(value) : ''}
+              value={displayValue}
               onChangeText={(v) => {
+                if (qid === '26') {
+                  console.log('🔵 [Q26 DEBUG] onChangeText called:', {
+                    newValue: v,
+                    currentStateValue: responses[qid],
+                    timestamp: Date.now()
+                  });
+                }
                 setResponse(qid, v);
                 // Clear alignment status when typing
                 if (jobAlignmentStatus?.questionId === qid) {
@@ -1975,65 +2113,135 @@ export default function TrackerForm() {
                 searchJobTitles(v, qid);
               }}
               onSubmitEditing={() => {
-                // Handle Enter key - check alignment if user typed manually
+                // Handle Enter key - check alignment if user typed manually (matching web behavior)
                 const currentValue = responses[qid] !== undefined ? String(responses[qid]) : '';
                 if (currentValue && currentValue.trim().length >= 2) {
-                  const isFromAutocomplete = currentQuestionSuggestions.some(s => s.title.toLowerCase().trim() === currentValue.toLowerCase().trim());
+                  // Check against ALL jobSuggestions, not just currently visible ones (matching web)
+                  // If jobSuggestions is empty (no matches found), treat as manually typed
+                  const isFromAutocomplete = jobSuggestions.length > 0 && jobSuggestions.some(s => 
+                    s.title.toLowerCase().trim() === currentValue.toLowerCase().trim()
+                  );
+                  
+                  if (qid === '26') {
+                    console.log('🔵 [Q26 DEBUG] onSubmitEditing checking alignment:', {
+                      currentValue: currentValue.trim(),
+                      isFromAutocomplete,
+                      jobSuggestionsCount: jobSuggestions.length,
+                      jobSuggestions: jobSuggestions.map(s => s.title),
+                      willCheckAlignment: !isFromAutocomplete
+                    });
+                  }
+                  
                   if (!isFromAutocomplete) {
+                    if (qid === '26') {
+                      console.log('🔵 [Q26 DEBUG] onSubmitEditing - calling handleCheckJobAlignment for manually typed job');
+                    }
                     handleCheckJobAlignment(currentValue.trim(), qid, false);
+                  } else {
+                    if (qid === '26') {
+                      console.log('🔵 [Q26 DEBUG] onSubmitEditing - skipping alignment check (value is from autocomplete)');
+                    }
                   }
                 }
                 // Hide suggestions
                 setShowJobSuggestions({ questionId: '', visible: false });
               }}
               onBlur={() => {
-                // CRITICAL FIX: Prevent onBlur from interfering with suggestion selection
-                // Check if a suggestion was just selected (within last 300ms)
-                const justSelected = suggestionSelectedRef.current && 
-                  suggestionSelectedRef.current.questionId === qid &&
-                  Date.now() - suggestionSelectedRef.current.timestamp < 300;
-                
-                if (justSelected) {
-                  // Don't run onBlur logic if suggestion was just selected
-                  return;
+                if (qid === '26') {
+                  console.log('🔵 [Q26 DEBUG] onBlur triggered:', {
+                    qid,
+                    showJobSuggestionsVisible: showJobSuggestions.visible,
+                    showJobSuggestionsQuestionId: showJobSuggestions.questionId,
+                    suggestionSelectedRef: suggestionSelectedRef.current,
+                    timestamp: Date.now()
+                  });
                 }
+                
+                // CRITICAL FIX: Don't hide suggestions immediately on blur
+                // This prevents the race condition where onBlur fires before TouchableOpacity onPress
+                // Instead, use a longer delay and check if a suggestion was actually selected
                 
                 // For manually typed jobs, check alignment after a delay
                 setTimeout(() => {
                   const currentValue = responses[qid] !== undefined ? String(responses[qid]) : '';
                   
-                  // Double-check that suggestion wasn't selected during the delay
-                  const stillJustSelected = suggestionSelectedRef.current && 
+                  // Check if a suggestion was selected during the delay
+                  const suggestionWasSelected = suggestionSelectedRef.current && 
                     suggestionSelectedRef.current.questionId === qid &&
-                    Date.now() - suggestionSelectedRef.current.timestamp < 500;
+                    Date.now() - suggestionSelectedRef.current.timestamp < 1000; // 1 second window
                   
-                  if (stillJustSelected) {
-                    return; // Don't interfere with suggestion selection
+                  if (suggestionWasSelected) {
+                    if (qid === '26') {
+                      console.log('🔵 [Q26 DEBUG] onBlur timeout - suggestion was selected, NOT hiding');
+                    }
+                    // Don't hide suggestions if one was selected
+                    return;
                   }
                   
-                  // Only check alignment if user typed something manually
-                  if (currentValue && currentValue.trim().length >= 2 && !showJobSuggestions.visible) {
-                    // Check if this value exactly matches any suggestion (case-insensitive)
-                    const isFromAutocomplete = currentQuestionSuggestions.some(s => 
+                  // Check alignment for manually typed jobs (matching web behavior)
+                  // Web checks: if inputValue.trim() && !suggestions.some(s => s.title.toLowerCase() === inputValue.toLowerCase())
+                  if (currentValue && currentValue.trim().length >= 2) {
+                    // Check if this value exactly matches any suggestion in the jobSuggestions array (case-insensitive)
+                    // This matches web behavior: check against ALL suggestions, not just currently visible ones
+                    // If jobSuggestions is empty (no matches found), treat as manually typed
+                    const isFromAutocomplete = jobSuggestions.length > 0 && jobSuggestions.some(s => 
                       s.title.toLowerCase().trim() === currentValue.toLowerCase().trim()
                     );
                     
+                    if (qid === '26') {
+                      console.log('🔵 [Q26 DEBUG] onBlur checking alignment:', {
+                        currentValue: currentValue.trim(),
+                        isFromAutocomplete,
+                        jobSuggestionsCount: jobSuggestions.length,
+                        jobSuggestions: jobSuggestions.map(s => s.title),
+                        willCheckAlignment: !isFromAutocomplete
+                      });
+                    }
+                    
                     // Only check alignment for manually typed jobs (not from autocomplete)
+                    // This matches web: if (!suggestions.some(...)) then checkJobAlignment
+                    // If suggestions are empty or value doesn't match, it's manually typed
                     if (!isFromAutocomplete) {
+                      if (qid === '26') {
+                        console.log('🔵 [Q26 DEBUG] onBlur - calling handleCheckJobAlignment for manually typed job');
+                      }
                       handleCheckJobAlignment(currentValue.trim(), qid, false);
+                    } else {
+                      if (qid === '26') {
+                        console.log('🔵 [Q26 DEBUG] onBlur - skipping alignment check (value is from autocomplete)');
+                      }
                     }
                   }
                   
-                  // Always hide suggestions after blur (if still visible)
+                  // Only hide suggestions if they're still visible AND no suggestion was selected
                   if (showJobSuggestions.visible && showJobSuggestions.questionId === qid) {
-                    setShowJobSuggestions({ questionId: '', visible: false });
+                    // Final check - was a suggestion selected?
+                    const finalCheck = suggestionSelectedRef.current && 
+                      suggestionSelectedRef.current.questionId === qid &&
+                      Date.now() - suggestionSelectedRef.current.timestamp < 1000;
+                    
+                    if (!finalCheck) {
+                      if (qid === '26') {
+                        console.log('🔵 [Q26 DEBUG] onBlur timeout - hiding suggestions (no selection detected)');
+                      }
+                      setShowJobSuggestions({ questionId: '', visible: false });
+                    } else {
+                      if (qid === '26') {
+                        console.log('🔵 [Q26 DEBUG] onBlur timeout - NOT hiding (suggestion was selected)');
+                      }
+                    }
                   }
-                }, 200); // Short delay to allow suggestion selection to complete
+                }, 300); // Delay to allow TouchableOpacity onPress to fire first
               }}
               placeholder={q.placeholder || "Select or type Job Title"}
               autoCapitalize="words"
               ref={(ref) => {
-                // Store ref for potential programmatic updates if needed
+                // Store ref for direct updates when suggestion is selected
+                if (ref) {
+                  jobTitleInputRefs.current[qid] = ref;
+                } else {
+                  delete jobTitleInputRefs.current[qid];
+                }
               }}
             />
             
@@ -2045,16 +2253,105 @@ export default function TrackerForm() {
             )}
             
             {/* Job Suggestions Dropdown */}
-            {currentQuestionSuggestions.length > 0 && showJobSuggestions.visible && showJobSuggestions.questionId === qid && (
-              <View style={styles.jobSuggestionsContainer}>
+            {(() => {
+              const shouldShow = currentQuestionSuggestions.length > 0 && showJobSuggestions.visible && showJobSuggestions.questionId === qid;
+              if (qid === '26') {
+                console.log('🔵 [Q26 DEBUG] Suggestions container check:', {
+                  shouldShow,
+                  currentQuestionSuggestionsLength: currentQuestionSuggestions.length,
+                  showJobSuggestionsVisible: showJobSuggestions.visible,
+                  showJobSuggestionsQuestionId: showJobSuggestions.questionId,
+                  qid,
+                  suggestions: currentQuestionSuggestions.map(s => s.title)
+                });
+              }
+              return shouldShow;
+            })() && (
+              <View 
+                style={styles.jobSuggestionsContainer}
+                onStartShouldSetResponder={() => {
+                  // Mark that user is interacting with suggestions to prevent onBlur from hiding them
+                  const timestamp = Date.now();
+                  if (qid === '26') {
+                    console.log('🔵 [Q26 DEBUG] Suggestions container onStartShouldSetResponder - preventing blur', { timestamp });
+                  }
+                  suggestionSelectedRef.current = {
+                    questionId: qid,
+                    timestamp: timestamp
+                  };
+                  return true; // Capture the touch event
+                }}
+                onMoveShouldSetResponder={() => true}
+                onTouchStart={(e) => {
+                  // Mark immediately when user touches the suggestions container
+                  // This fires BEFORE onBlur, so we can prevent suggestions from being hidden
+                  const timestamp = Date.now();
+                  if (qid === '26') {
+                    console.log('🔵 [Q26 DEBUG] Suggestions container onTouchStart - marking selection', { 
+                      timestamp,
+                      touchEvent: 'captured'
+                    });
+                  }
+                  suggestionSelectedRef.current = {
+                    questionId: qid,
+                    timestamp: timestamp
+                  };
+                  // Prevent the touch from propagating to cause blur
+                  e.stopPropagation();
+                }}
+                onTouchEnd={(e) => {
+                  // Also mark on touch end to ensure we catch it
+                  if (qid === '26') {
+                    console.log('🔵 [Q26 DEBUG] Suggestions container onTouchEnd');
+                  }
+                }}
+              >
                 <ScrollView style={styles.jobSuggestionsList} nestedScrollEnabled={true}>
-                  {currentQuestionSuggestions.map((suggestion, index) => (
+                  {currentQuestionSuggestions.map((suggestion, index) => {
+                    if (qid === '26') {
+                      console.log('🔵 [Q26 DEBUG] Rendering suggestion item:', {
+                        index,
+                        title: suggestion.title,
+                        program: suggestion.program
+                      });
+                    }
+                    return (
                     <TouchableOpacity
                       key={`${suggestion.title}-${suggestion.program}-${index}`}
                       style={styles.jobSuggestionItem}
+                      activeOpacity={0.7}
+                      onPressIn={() => {
+                        // Mark selection immediately on press start to prevent onBlur from interfering
+                        const timestamp = Date.now();
+                        if (qid === '26') {
+                          console.log('🔵 [Q26 DEBUG] TouchableOpacity onPressIn triggered!', {
+                            qid,
+                            suggestionTitle: suggestion.title,
+                            timestamp
+                          });
+                        }
+                        // Mark immediately so onBlur knows not to hide suggestions
+                        suggestionSelectedRef.current = {
+                          questionId: qid,
+                          timestamp: timestamp
+                        };
+                      }}
                       onPress={async () => {
+                        const timestamp = Date.now();
+                        console.log('🔵 [Q26 DEBUG] TouchableOpacity onPress triggered!', {
+                          qid,
+                          suggestionTitle: suggestion.title,
+                          timestamp
+                        });
                         // CRITICAL FIX: Ensure the selected value appears in TextInput immediately
                         const selectedTitle = suggestion.title;
+                        
+                        console.log('🔵 [Q26 DEBUG] Suggestion selected:', {
+                          qid,
+                          selectedTitle,
+                          currentValue: responses[qid],
+                          timestamp: Date.now()
+                        });
                         
                         // Mark that a suggestion was selected (prevents onBlur from interfering)
                         suggestionSelectedRef.current = {
@@ -2066,15 +2363,41 @@ export default function TrackerForm() {
                         setShowJobSuggestions({ questionId: '', visible: false });
                         setJobSuggestions([]);
                         
-                        // Update response state immediately - this triggers re-render with new value
-                        setResponse(qid, selectedTitle);
+                        // Update response state immediately using functional update to ensure it works
+                        console.log('🔵 [Q26 DEBUG] Updating state with:', selectedTitle);
+                        setResponses((prev) => {
+                          const updated = { ...prev, [qid]: selectedTitle };
+                          console.log('🔵 [Q26 DEBUG] State updated, new value:', updated[qid]);
+                          return updated;
+                        });
                         
-                        // Use requestAnimationFrame to ensure state update has propagated to TextInput
-                        // Then check alignment immediately (fromAutocomplete=true means no debounce)
-                        requestAnimationFrame(() => {
+                        // Also directly update the TextInput if ref exists (as a fallback)
+                        // This ensures the value appears immediately even if state update is delayed
+                        const inputRef = jobTitleInputRefs.current[qid];
+                        console.log('🔵 [Q26 DEBUG] Input ref exists:', !!inputRef, 'has setNativeProps:', !!(inputRef && inputRef.setNativeProps));
+                        if (inputRef && inputRef.setNativeProps) {
+                          try {
+                            inputRef.setNativeProps({ text: selectedTitle });
+                            console.log('🔵 [Q26 DEBUG] setNativeProps called with:', selectedTitle);
+                          } catch (e) {
+                            console.error('🔴 [Q26 DEBUG] Error calling setNativeProps:', e);
+                          }
+                        } else {
+                          console.warn('🔴 [Q26 DEBUG] Input ref not available or setNativeProps missing');
+                        }
+                        
+                        // Verify the state was set correctly after a brief moment
+                        setTimeout(() => {
+                          console.log('🔵 [Q26 DEBUG] After state update, responses[qid]:', responses[qid]);
+                        }, 10);
+                        
+                        // Use a small delay to ensure state has propagated, then check alignment
+                        // This ensures the TextInput value prop updates before alignment check
+                        setTimeout(() => {
+                          console.log('🔵 [Q26 DEBUG] Checking alignment, current state value:', responses[qid]);
                           // Check alignment immediately for autocomplete selections
                           handleCheckJobAlignment(selectedTitle, qid, true);
-                        });
+                        }, 100);
                       }}
                     >
                       <Text style={styles.jobSuggestionTitle}>{suggestion.title}</Text>
@@ -2083,7 +2406,8 @@ export default function TrackerForm() {
                         <Text style={styles.jobSuggestionCode}> • Code: {suggestion.code}</Text>
                       </View>
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </ScrollView>
               </View>
             )}
@@ -3283,6 +3607,96 @@ export default function TrackerForm() {
         </View>
       </Modal>
       
+      {/* Employment Duration Picker Modal */}
+      <Modal
+        visible={showEmploymentDurationPicker.visible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEmploymentDurationPicker({ questionId: '', visible: false })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Select Employment Duration</Text>
+              <TouchableOpacity
+                onPress={() => setShowEmploymentDurationPicker({ questionId: '', visible: false })}
+              >
+                <FontAwesome name="times" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerModalScrollView} nestedScrollEnabled={true}>
+              {[
+                { value: 'less_than_6_months', label: 'Less than 6 months' },
+                { value: '6_months_1_year', label: '6 months – 1 year' },
+                { value: '1_2_years', label: '1 – 2 years' },
+                { value: '3_5_years', label: '3 – 5 years' },
+                { value: 'more_than_5_years', label: 'More than 5 years' }
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={styles.pickerModalOption}
+                  onPress={() => {
+                    setResponse(showEmploymentDurationPicker.questionId, opt.value);
+                    setShowEmploymentDurationPicker({ questionId: '', visible: false });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.pickerModalOptionText}>{opt.label}</Text>
+                  {responses[showEmploymentDurationPicker.questionId] === opt.value && (
+                    <FontAwesome name="check" size={16} color="#174f84" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Salary Range Picker Modal */}
+      <Modal
+        visible={showSalaryRangePicker.visible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowSalaryRangePicker({ questionId: '', visible: false })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Select Salary Range</Text>
+              <TouchableOpacity
+                onPress={() => setShowSalaryRangePicker({ questionId: '', visible: false })}
+              >
+                <FontAwesome name="times" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerModalScrollView} nestedScrollEnabled={true}>
+              {[
+                { value: 'below_5000', label: '5,000 below' },
+                { value: '5001_10000', label: '5,001 to 10,000' },
+                { value: '10001_20000', label: '10,001 to 20,000' },
+                { value: '20001_30000', label: '20,001 to 30,000' },
+                { value: 'above_30000', label: '30,000 above' }
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={styles.pickerModalOption}
+                  onPress={() => {
+                    setResponse(showSalaryRangePicker.questionId, opt.value);
+                    setShowSalaryRangePicker({ questionId: '', visible: false });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.pickerModalOptionText}>{opt.label}</Text>
+                  {responses[showSalaryRangePicker.questionId] === opt.value && (
+                    <FontAwesome name="check" size={16} color="#174f84" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      
       <TermsAndConditionsModal
         isVisible={showTermsModal}
         onClose={handleTermsClose}
@@ -3813,6 +4227,53 @@ uploadButtonText: {
     fontWeight: '700',
     color: '#ffffff',
     letterSpacing: 0.5,
+  },
+  // Picker Modal Styles (for Employment Duration and Salary Range)
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 420,
+    maxHeight: '70%',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  pickerModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    backgroundColor: '#f8f9fa',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  pickerModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#174f84',
+    flex: 1,
+  },
+  pickerModalScrollView: {
+    maxHeight: 400,
+  },
+  pickerModalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pickerModalOptionText: {
+    fontSize: 16,
+    color: '#222',
+    flex: 1,
   },
   // Job Alignment Modal Styles
   jobAlignmentModalContent: {

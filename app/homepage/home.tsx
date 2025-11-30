@@ -5,8 +5,9 @@ import { ActivityIndicator, Alert, Animated, Image, Modal, RefreshControl, Scrol
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TrackerReminderModal from '../../components/TrackerReminderModal';
+import EmploymentUpdateReminderModal from '../../components/EmploymentUpdateReminderModal';
 import NavBar from '../(tabs)/navbar';
-import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getPostReposts, getFeed, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, fetchFollowing } from '../../services/api';
+import { API_BASE_URL, commentOnPost, getPosts, getUserInfo, likePost, repostPost, unlikePost, getPostDetail, editPost, getPostLikes, getPostReposts, getFeed, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, fetchFollowing, checkEmploymentReminder } from '../../services/api';
 import { useUser } from '../../contexts/UserContext';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -127,6 +128,7 @@ const HomeScreen = () => {
   const params = useLocalSearchParams();
   const [nowTick, setNowTick] = useState(0);
   const [showTrackerReminder, setShowTrackerReminder] = useState<boolean>(false);
+  const [showEmploymentUpdateModal, setShowEmploymentUpdateModal] = useState<boolean>(false);
   const isMountedRef = React.useRef(true);
   const scrollY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
@@ -245,6 +247,42 @@ const HomeScreen = () => {
       // Don't show modal if there's an error checking status
     }
   }, []);
+
+  // Check employment update reminder function
+  const checkEmploymentUpdateReminder = React.useCallback(async () => {
+    try {
+      const currentUser = await getUserInfo();
+      const userId = currentUser?.user_id || currentUser?.id;
+      if (!userId) return;
+
+      // Check if user dismissed this reminder
+      const dismissedUntil = await AsyncStorage.getItem('employmentUpdateReminderDismissedUntil');
+      if (dismissedUntil) {
+        const dismissedDate = new Date(dismissedUntil);
+        if (dismissedDate > new Date()) {
+          console.log('🔍 Employment reminder dismissed until:', dismissedDate);
+          return; // Still dismissed
+        }
+      }
+
+      // Check reminder status from API
+      const reminderData = await checkEmploymentReminder(userId);
+      console.log('🔍 Employment update reminder check:', reminderData);
+      
+      if (reminderData?.should_show_reminder) {
+        // Show modal after a short delay (don't conflict with tracker modal)
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            setShowEmploymentUpdateModal(true);
+          }
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Error checking employment update reminder:', error);
+      // Don't show modal if there's an error
+    }
+  }, []);
+
   // Refetch posts and check tracker status whenever this screen gains focus
   useFocusEffect(
     React.useCallback(() => {
@@ -279,6 +317,8 @@ const HomeScreen = () => {
           if (currentUser && (accountType?.user || accountType === 'alumni')) {
             console.log('🎓 Homepage focused - checking tracker status for alumni user');
             await checkTrackerStatus();
+            // Check employment update reminder (for alumni who have submitted tracker)
+            await checkEmploymentUpdateReminder();
           }
         } catch (err) {
           console.error('Homepage: Error in focus effect:', err);
@@ -1306,6 +1346,36 @@ const HomeScreen = () => {
         </Modal>
       </ScrollView>
       {/* Tracker reminder modal */}
+      {/* Employment Update Reminder Modal */}
+      <EmploymentUpdateReminderModal
+        visible={showEmploymentUpdateModal}
+        onClose={() => setShowEmploymentUpdateModal(false)}
+        onUpdateNow={() => {
+          setShowEmploymentUpdateModal(false);
+          router.push('/settings/settings');
+          // Small delay to ensure navigation happens, then open employment section
+          setTimeout(() => {
+            AsyncStorage.setItem('settingsOpenState', JSON.stringify({ personal: false, employment: true, password: false }));
+          }, 100);
+        }}
+        onMaybeLater={() => {
+          setShowEmploymentUpdateModal(false);
+          // Dismiss for 7 days
+          const dismissedUntil = new Date();
+          dismissedUntil.setDate(dismissedUntil.getDate() + 7);
+          AsyncStorage.setItem('employmentUpdateReminderDismissedUntil', dismissedUntil.toISOString());
+          console.log('🔍 Employment reminder dismissed until:', dismissedUntil);
+        }}
+        onNoChanges={() => {
+          setShowEmploymentUpdateModal(false);
+          // Dismiss permanently (user confirmed no changes needed)
+          const dismissedUntil = new Date();
+          dismissedUntil.setDate(dismissedUntil.getDate() + 180); // 6 months
+          AsyncStorage.setItem('employmentUpdateReminderDismissedUntil', dismissedUntil.toISOString());
+          console.log('✅ User confirmed no changes - reminder dismissed for 6 months');
+        }}
+      />
+
       <TrackerReminderModal
         isVisible={showTrackerReminder}
         onClose={() => setShowTrackerReminder(false)}

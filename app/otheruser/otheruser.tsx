@@ -29,7 +29,8 @@ import {
   fetchFollowing,
   getAdminPesoUsers,
   getPostLikes,
-  getPostReposts
+  getPostReposts,
+  createConversation
 } from '../../services/api';
 import FollowModal from '../follow/follow';
 import UserAvatar from '../../components/UserAvatar';
@@ -397,11 +398,32 @@ export default function OtherUserPage() {
     }
   };
 
-  const handleMessage = () => {
-    // Navigate to chat screen with the user
+  const handleMessage = async () => {
+    // Create conversation first, then navigate to chat screen
     if (user?.id) {
-      const userName = formatUserFullName(user);
-      router.push(`/messages/chatmessage?conversationId=${user.id}&name=${encodeURIComponent(userName)}`);
+      try {
+        const userName = formatUserFullName(user);
+        // Create or get existing conversation
+        const conversation = await createConversation(user.id);
+        const conversationId = conversation.conversation_id || conversation.id;
+        
+        if (!conversationId) {
+          Alert.alert('Error', 'Failed to create conversation. Please try again.');
+          return;
+        }
+        
+        // Navigate with the actual conversation ID
+        router.push({
+          pathname: '/messages/chatmessage',
+          params: {
+            conversationId: String(conversationId),
+            name: userName
+          }
+        });
+      } catch (error) {
+        console.error('Failed to create conversation:', error);
+        Alert.alert('Error', 'Failed to start conversation. Please try again.');
+      }
     }
   };
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, FlatList, Platform, AppState, Alert, Keyboard, Dimensions, StatusBar, Modal, Linking, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, FlatList, Platform, AppState, Alert, Keyboard, Dimensions, StatusBar, Modal, Linking, ScrollView, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // Using expo-av for video playback (more stable)
 import { Video, ResizeMode } from 'expo-av';
 import { FontAwesome } from '@expo/vector-icons';
@@ -10,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 
-import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, updateMessageApi, deleteMessageApi, deleteConversation, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL, getAdminPesoUsers, createConversation } from '../../services/api';
+import { listMessages, markConversationRead, sendMessage as sendMessageApi, getWebSocketBase, getUserInfo, uploadAttachment, updateMessageApi, deleteMessageApi, deleteConversation, api, MessageItem, getAccessToken, getRefreshToken, API_BASE_URL, getAdminPesoUsers, createConversation, getOnlineUsers } from '../../services/api';
 import EmojiPickerModal from '../../components/EmojiPickerModal';
 import { downloadImage, downloadVideo, downloadDocument } from '../../utils/downloadHelper';
 import { ConversationWebSocket, TypingIndicator, WsEvent } from '../../services/websocketHelper';
@@ -59,6 +60,7 @@ type UiMsg = {
 
 const ChatMessageScreen = () => {
   const logger = useLogger('ChatMessageScreen');
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { conversationId, name } = useLocalSearchParams<{ conversationId: string; name: string }>();
   const [messages, setMessages] = useState<UiMsg[]>([]);
@@ -70,6 +72,8 @@ const ChatMessageScreen = () => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [otherParticipantAvatar, setOtherParticipantAvatar] = useState<string | null>(null);
+  const [otherParticipantId, setOtherParticipantId] = useState<number | null>(null);
+  const [isParticipantOnline, setIsParticipantOnline] = useState(false);
   
   // Download modal state
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -147,11 +151,17 @@ const ChatMessageScreen = () => {
             const conversation = response.data;
             console.log('Loaded conversation:', conversation);
             
-            // Get other participant's avatar
+            // Get other participant's info
             const otherParticipant = conversation.other_participant;
-            if (otherParticipant?.avatar_url) {
-              setOtherParticipantAvatar(otherParticipant.avatar_url);
-              console.log('Loaded other participant avatar:', otherParticipant.avatar_url);
+            if (otherParticipant) {
+              if (otherParticipant.avatar_url) {
+                setOtherParticipantAvatar(otherParticipant.avatar_url);
+                console.log('Loaded other participant avatar:', otherParticipant.avatar_url);
+              }
+              if (otherParticipant.user_id) {
+                setOtherParticipantId(otherParticipant.user_id);
+                console.log('Loaded other participant ID:', otherParticipant.user_id);
+              }
             }
           } catch (convError) {
             console.error('Failed to load conversation details:', convError);
@@ -252,14 +262,67 @@ const ChatMessageScreen = () => {
     resolveConversation();
   }, [conversationId, name, currentUser?.id, router]);
 
+  // Track whether the other participant is currently online via the shared API (like web version)
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let isMounted = true;
+
+    const updateParticipantStatus = async () => {
+      if (!otherParticipantId) {
+        setIsParticipantOnline(false);
+        return;
+      }
+
+      try {
+        const response = await getOnlineUsers();
+        if (!isMounted) return;
+        if (!response?.success) {
+          setIsParticipantOnline(false);
+          return;
+        }
+
+        const onlineIds = new Set<number>(
+          (Array.isArray(response.online_users) ? response.online_users : []).map((user: any) =>
+            Number(user.user_id)
+          )
+        );
+        setIsParticipantOnline(onlineIds.has(Number(otherParticipantId)));
+      } catch (error) {
+        console.error('Failed to determine participant online status:', error);
+        if (isMounted) {
+          setIsParticipantOnline(false);
+        }
+      }
+    };
+
+    if (otherParticipantId) {
+      updateParticipantStatus();
+      intervalId = setInterval(updateParticipantStatus, 30000); // Poll every 30 seconds like web
+    } else {
+      setIsParticipantOnline(false);
+    }
+
+    return () => {
+      isMounted = false;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [otherParticipantId]);
+
   // Keyboard event listeners for manual handling
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
         const height = e.endCoordinates.height;
-        console.log('🎹 Keyboard showing, exact height:', height);
-        setKeyboardHeight(height);
+        const screenY = e.endCoordinates.screenY;
+        const windowHeight = Dimensions.get('window').height;
+        // Calculate distance from bottom more accurately
+        const distanceFromBottom = windowHeight - screenY;
+        const calculatedHeight = Math.max(height, distanceFromBottom);
+        console.log('🎹 Keyboard showing, height:', height, 'screenY:', screenY, 'distanceFromBottom:', distanceFromBottom);
+        setKeyboardHeight(calculatedHeight);
         setIsKeyboardVisible(true);
         
         // Close emoji picker when keyboard shows (user tapped text input)
@@ -785,27 +848,30 @@ const ChatMessageScreen = () => {
     if (!reactionMessage || !currentUser) return;
     
     try {
-      // Check if user already reacted with this emoji
-      const existingReaction = reactionMessage.reactions?.find(
+      // Check if user already reacted with this specific emoji
+      const existingSameReaction = reactionMessage.reactions?.find(
         r => r.emoji === emoji && r.userId === currentUser.id
       );
       
-      const action = existingReaction ? 'remove' : 'add';
+      // Check if user already reacted with ANY emoji (to enforce 1 reaction limit)
+      const existingAnyReaction = reactionMessage.reactions?.find(
+        r => r.userId === currentUser.id
+      );
       
-      // Send via WebSocket for real-time sync
-      if (wsRef.current) {
-        wsRef.current.send({
-          type: 'reaction',
-          message_id: parseInt(reactionMessage.id),
-          emoji: emoji,
-          action: action
-        });
-        console.log(`[Reaction] Sent via WebSocket: ${action} ${emoji} on message ${reactionMessage.id}`);
-      }
-      
-      // Optimistic UI update
-      if (existingReaction) {
-        // Remove reaction (toggle off)
+      // If user clicked the same emoji they already have, remove it (toggle off)
+      if (existingSameReaction) {
+        // Remove reaction
+        if (wsRef.current) {
+          wsRef.current.send({
+            type: 'reaction',
+            message_id: parseInt(reactionMessage.id),
+            emoji: emoji,
+            action: 'remove'
+          });
+          console.log(`[Reaction] Sent via WebSocket: remove ${emoji} on message ${reactionMessage.id}`);
+        }
+        
+        // Optimistic UI update - remove reaction
         setMessages(prev => prev.map(m => {
           if (m.id === reactionMessage.id) {
             return {
@@ -816,12 +882,40 @@ const ChatMessageScreen = () => {
           return m;
         }));
       } else {
-        // Add reaction
+        // User wants to add/change reaction
+        // If user already has a different reaction, remove it first
+        if (existingAnyReaction && existingAnyReaction.emoji !== emoji) {
+          // Remove old reaction first
+          if (wsRef.current) {
+            wsRef.current.send({
+              type: 'reaction',
+              message_id: parseInt(reactionMessage.id),
+              emoji: existingAnyReaction.emoji,
+              action: 'remove'
+            });
+            console.log(`[Reaction] Removing old reaction ${existingAnyReaction.emoji} before adding ${emoji}`);
+          }
+        }
+        
+        // Add new reaction
+        if (wsRef.current) {
+          wsRef.current.send({
+            type: 'reaction',
+            message_id: parseInt(reactionMessage.id),
+            emoji: emoji,
+            action: 'add'
+          });
+          console.log(`[Reaction] Sent via WebSocket: add ${emoji} on message ${reactionMessage.id}`);
+        }
+        
+        // Optimistic UI update - replace existing reaction or add new one
         setMessages(prev => prev.map(m => {
           if (m.id === reactionMessage.id) {
+            // Remove any existing reaction from this user, then add the new one
+            const filteredReactions = (m.reactions || []).filter(r => r.userId !== currentUser.id);
             return {
               ...m,
-              reactions: [...(m.reactions || []), { emoji, userId: currentUser.id, userName: currentUser.name }]
+              reactions: [...filteredReactions, { emoji, userId: currentUser.id, userName: currentUser.name }]
             };
           }
           return m;
@@ -1230,22 +1324,19 @@ const ChatMessageScreen = () => {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <FontAwesome name="arrow-left" size={20} color="white" />
         </TouchableOpacity>
-        <Text style={styles.topBarTitle}>{name || 'Chat'}</Text>
-        <View style={styles.topBarRight}>
+        <View style={styles.topBarTitleContainer}>
+          <Text style={styles.topBarTitle}>{name || 'Chat'}</Text>
           <Text style={[
-            styles.connectionStatus,
-            connectionStatus === 'connected' ? styles.connectionStatusConnected : 
-            connectionStatus === 'connecting' ? styles.connectionStatusConnecting :
-            connectionStatus === 'error' ? styles.connectionStatusError :
-            styles.connectionStatusDisconnected
+            styles.topBarStatus,
+            isParticipantOnline ? styles.topBarStatusOnline : styles.topBarStatusOffline
           ]}>
-            {connectionStatus === 'connected' ? '●' : 
-             connectionStatus === 'connecting' ? '○' :
-             connectionStatus === 'error' ? '●' : '○'}
+            {isParticipantOnline ? 'Online' : 'Offline'}
           </Text>
+        </View>
+        <View style={styles.topBarRight}>
           <TouchableOpacity 
             onPress={() => setShowConversationMenu(!showConversationMenu)}
-            style={{ marginLeft: 12, padding: 4 }}
+            style={{ padding: 4 }}
           >
             <FontAwesome name="ellipsis-v" size={20} color="white" />
           </TouchableOpacity>
@@ -1705,7 +1796,10 @@ const ChatMessageScreen = () => {
         <View style={[
           styles.inputBarContainer,
           {
-            bottom: isKeyboardVisible ? keyboardHeight : 0
+            bottom: isKeyboardVisible && keyboardHeight > 0 
+              ? keyboardHeight 
+              : Math.max(insets.bottom + 10, Platform.OS === 'ios' ? 30 : 25),
+            zIndex: 1000
           }
         ]}>
           {/* P0 Feature: Reply Preview */}
@@ -2080,11 +2174,25 @@ const styles = StyleSheet.create({
   backButton: {
     marginRight: 15,
   },
-  topBarTitle: {
+  topBarTitleContainer: {
     flex: 1,
+    flexDirection: 'column',
+  },
+  topBarTitle: {
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  topBarStatus: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  topBarStatusOnline: {
+    color: '#4CAF50', // Green for online
+  },
+  topBarStatusOffline: {
+    color: 'rgba(255, 255, 255, 0.7)', // Light gray for offline
   },
   topBarRight: {
     flexDirection: 'row',
@@ -2345,7 +2453,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: '#1C4E80',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 8,
     paddingTop: 8,
     elevation: 8,
     shadowColor: '#000',

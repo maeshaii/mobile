@@ -14,11 +14,12 @@ import {
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import NavBar from '../(tabs)/navbar';
-import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL, changePassword, getAccessToken } from '../../services/api';
+import { getAlumniProfile, getUserInfo, putAlumniProfile, API_BASE_URL, changePassword, getAccessToken, api } from '../../services/api';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PasswordVisibilityIcon from '../../components/PasswordVisibilityIcon';
 import { validatePassword } from '../../utils/passwordValidator';
+import * as ImagePicker from 'expo-image-picker';
 
 // Utility function to format employment duration: "1_2_years" -> "1-2 years"
 const formatEmploymentDuration = (duration: string | undefined | null): string => {
@@ -116,6 +117,27 @@ const Storage = {
 const civilStatusOptions = ['Single', 'Married', 'Divorced', 'Widowed'];
 const employmentStatusOptions = ['Full Time', 'Part Time', 'Unemployed'];
 const sectorOptions = ['Private', 'Government', 'Unemployed'];
+
+// Employment details options - matching web
+const employmentTypeOptions = ['Employed by a company/organization', 'Self-employed', 'Freelance/Contract-based'];
+const currentEmploymentStatusOptions = ['Permanent', 'Contractual', 'Probationary', 'Temporary', 'Unemployed'];
+const sectorRadioOptions = ['Public', 'Private'];
+const scopeOptions = ['Local', 'International'];
+const awardsOptions = ['Yes', 'No'];
+const employmentDurationOptions = [
+  { value: 'less_than_6_months', label: 'Less than 6 months' },
+  { value: '6_months_1_year', label: '6 months – 1 year' },
+  { value: '1_2_years', label: '1-2 years' },
+  { value: '3_5_years', label: '3-5 years' },
+  { value: 'more_than_5_years', label: 'More than 5 years' }
+];
+const salaryRangeOptions = [
+  { value: 'below_5000', label: '5,000 below' },
+  { value: '5001_10000', label: '5,001 - 10,000' },
+  { value: '10001_20000', label: '10,001 - 20,000' },
+  { value: '20001_30000', label: '20,001 - 30,000' },
+  { value: 'above_30000', label: '30,000 above' }
+];
 
 // Form components - defined outside to prevent recreation on each render
 const LabeledInput = React.memo(({
@@ -261,6 +283,11 @@ export default function SettingsPage() {
   // Employment flow state - matching web structure
   const [accountType, setAccountType] = useState<string>(''); // 'alumni' or 'ojt'
   const [hasJobInDB, setHasJobInDB] = useState<boolean | null>(null); // Check if user has job in database (for alumni: tracker data, for ojt: employment data)
+  const [isEditingEmployment, setIsEditingEmployment] = useState(false);
+  const [isSavingEmployment, setIsSavingEmployment] = useState(false);
+  const [employmentOriginalData, setEmploymentOriginalData] = useState<any>(null); // Store original data for cancel
+  const [awardsFile, setAwardsFile] = useState<any>(null);
+  const [employmentFile, setEmploymentFile] = useState<any>(null);
 
   // Password state
   const [passwordData, setPasswordData] = useState({
@@ -288,6 +315,13 @@ export default function SettingsPage() {
     });
   };
 
+  // Close dropdown when edit mode changes
+  useEffect(() => {
+    if (!isEditingEmployment) {
+      setOpenDropdown(null);
+    }
+  }, [isEditingEmployment]);
+
 
   const DropDown = ({
     label,
@@ -295,24 +329,29 @@ export default function SettingsPage() {
     options,
     id,
     onSelect,
+    disabled = false,
   }: {
     label: string;
     value: string;
     options: string[];
     id: string;
     onSelect: (value: string) => void;
+    disabled?: boolean;
   }) => (
     <View style={[styles.formGroup, { position: 'relative', zIndex: openDropdown === id ? 20 : 1 }]}>
       <Text style={styles.label}>{label}</Text>
       <TouchableOpacity
-        style={styles.dropdown}
-        onPress={() => setOpenDropdown(openDropdown === id ? null : id)}
+        style={[styles.dropdown, disabled && styles.dropdownDisabled]}
+        onPress={() => !disabled && setOpenDropdown(openDropdown === id ? null : id)}
+        disabled={disabled}
       >
-        <Text style={{ color: value ? '#111827' : '#9ca3af' }}>{value || 'Select'}</Text>
-        <FontAwesome name="chevron-down" size={14} color="#111827" />
+        <Text style={{ color: value ? (disabled ? '#9ca3af' : '#111827') : '#9ca3af' }}>
+          {value || 'Select'}
+        </Text>
+        <FontAwesome name="chevron-down" size={14} color={disabled ? '#9ca3af' : '#111827'} />
       </TouchableOpacity>
 
-      {openDropdown === id && (
+      {openDropdown === id && !disabled && (
         <View style={styles.dropdownList}>
           {options.map((option) => (
             <TouchableOpacity
@@ -459,8 +498,84 @@ export default function SettingsPage() {
           current_position: data.current_position || data.position || '',
           current_sector: data.current_sector || normalizedSector || '',
           current_scope: data.current_scope || normalizedScope || '',
-          employment_duration: data.employment_duration || data.employment_duration_current || '',
-          salary_range: data.salary_range || data.salary_current || '',
+          // Map employment duration - convert formatted values to raw values for dropdown
+          employment_duration: (() => {
+            const durationValue = data.employment_duration || data.employment_duration_current || '';
+            if (!durationValue) {
+              console.log('Employment duration: empty value');
+              return '';
+            }
+            console.log('Employment duration raw value from API:', durationValue);
+            // Check if it's already a raw value (contains underscore)
+            if (durationValue.includes('_')) {
+              console.log('Employment duration: already raw value, using as-is');
+              return durationValue;
+            }
+            // Map formatted values to raw values (case-insensitive)
+            const durationMap: Record<string, string> = {
+              'less than 6 months': 'less_than_6_months',
+              '6 months – 1 year': '6_months_1_year',
+              '6 months - 1 year': '6_months_1_year',
+              '6 months to 1 year': '6_months_1_year',
+              '1-2 years': '1_2_years',
+              '1 to 2 years': '1_2_years',
+              '3-5 years': '3_5_years',
+              '3 to 5 years': '3_5_years',
+              'more than 5 years': 'more_than_5_years',
+            };
+            const normalized = durationValue.trim().toLowerCase();
+            const mapped = durationMap[normalized] || durationValue;
+            console.log('Employment duration mapped value:', mapped);
+            return mapped;
+          })(),
+          // Map salary range - convert formatted values to raw values for dropdown
+          salary_range: (() => {
+            const salaryValue = data.salary_range || data.salary_current || '';
+            if (!salaryValue) {
+              console.log('Salary range: empty value');
+              return '';
+            }
+            console.log('Salary range raw value from API:', salaryValue);
+            // Check if it's already a raw value (contains underscore or specific keywords)
+            if (salaryValue.includes('_')) {
+              console.log('Salary range: already raw value, using as-is');
+              return salaryValue;
+            }
+            // Normalize common variations with "below" or "above"
+            const lowerValue = salaryValue.toLowerCase().trim();
+            if (lowerValue.includes('below') || lowerValue.includes('under')) {
+              const mapped = 'below_5000';
+              console.log('Salary range mapped to:', mapped);
+              return mapped;
+            }
+            if (lowerValue.includes('above') || lowerValue.includes('over')) {
+              // Check if it's 30k+ or just "above"
+              if (lowerValue.includes('30') || lowerValue === 'above' || lowerValue === 'over') {
+                const mapped = 'above_30000';
+                console.log('Salary range mapped to:', mapped);
+                return mapped;
+              }
+            }
+            // Map formatted values to raw values
+            const salaryMap: Record<string, string> = {
+              '5,000 below': 'below_5000',
+              '5000 below': 'below_5000',
+              '5,001 - 10,000': '5001_10000',
+              '5001 - 10000': '5001_10000',
+              '5,001–10,000': '5001_10000',
+              '10,001 - 20,000': '10001_20000',
+              '10001 - 20000': '10001_20000',
+              '10,001–20,000': '10001_20000',
+              '20,001 - 30,000': '20001_30000',
+              '20001 - 30000': '20001_30000',
+              '20,001–30,000': '20001_30000',
+              '30,000 above': 'above_30000',
+              '30000 above': 'above_30000',
+            };
+            const mapped = salaryMap[salaryValue.trim()] || salaryValue;
+            console.log('Salary range mapped value:', mapped);
+            return mapped;
+          })(),
           received_awards: data.received_awards || normalizedAwards || '',
           awards_supporting_doc: data.awards_supporting_doc || data.supporting_document_awards_recognition || '',
           employment_supporting_doc: data.employment_supporting_doc || data.supporting_document_current || '',
@@ -560,52 +675,179 @@ export default function SettingsPage() {
     }
   };
 
+  const handleEmploymentChange = (field: string, value: any) => {
+    setEmployment(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Helper function to detect MIME type from file extension
+  const getMimeTypeFromUri = (uri: string): string => {
+    const extension = uri.toLowerCase().split('.').pop();
+    const mimeTypes: Record<string, string> = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+    };
+    return mimeTypes[extension || ''] || 'image/jpeg';
+  };
+
   const onSaveEmployment = async () => {
     try {
+      setIsSavingEmployment(true);
       const user = await getUserInfo();
       if (!user) {
         Alert.alert('Error', 'User not found');
+        setIsSavingEmployment(false);
         return;
       }
       
       const userId = user.user_id || user.id;
       if (!userId) {
         Alert.alert('Error', 'User ID not found');
+        setIsSavingEmployment(false);
         return;
       }
       
       const accessToken = await getAccessToken();
       if (!accessToken) {
         Alert.alert('Error', 'Authentication required');
+        setIsSavingEmployment(false);
         return;
       }
       
-      let employmentData;
+      // Prepare FormData for file uploads
+      const formData = new FormData();
       
-      // Send employment data (either updating existing or creating new)
-      const dataToSend = employment;
+      // Add all employment fields (only Part III fields for alumni)
+      const fieldsToSend = [
+        'employment_type',
+        'current_employment_status',
+        'current_company_name',
+        'current_position',
+        'current_sector',
+        'current_scope',
+        'employment_duration',
+        'salary_range',
+        'received_awards'
+      ];
       
-      const response = await fetch(`${API_BASE_URL}/api/alumni/employment/${userId}/`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(dataToSend)
+      fieldsToSend.forEach(key => {
+        const value = employment[key as keyof typeof employment];
+        if (value !== null && value !== undefined && value !== '') {
+          formData.append(key, String(value));
+        }
       });
-
-      if (response.ok) {
-        Alert.alert('Success', 'Employment details updated successfully!');
-        toggle('employment');
-        // Refresh employment data
-        await loadEmploymentData(userId);
-      } else {
-        const errorData = await response.json();
-        Alert.alert('Error', `Failed to update employment details: ${errorData.error || 'Unknown error'}`);
+      
+      // Add file uploads if they exist - with proper MIME type detection
+      if (awardsFile) {
+        const fileName = awardsFile.fileName || awardsFile.name || `awards_${Date.now()}.jpg`;
+        const detectedMimeType = getMimeTypeFromUri(awardsFile.uri);
+        const mimeType = awardsFile.mimeType || awardsFile.type || detectedMimeType;
+        
+        // Ensure we have a proper MIME type (not just "image")
+        const finalMimeType = mimeType === 'image' ? detectedMimeType : mimeType;
+        
+        const fileObj = {
+          uri: awardsFile.uri,
+          type: finalMimeType,
+          name: fileName,
+        };
+        console.log('Adding awards file to FormData:', fileObj);
+        formData.append('awards_supporting_doc', fileObj as any);
       }
-    } catch (error) {
+      
+      if (employmentFile) {
+        const fileName = employmentFile.fileName || employmentFile.name || `employment_${Date.now()}.jpg`;
+        const detectedMimeType = getMimeTypeFromUri(employmentFile.uri);
+        const mimeType = employmentFile.mimeType || employmentFile.type || detectedMimeType;
+        
+        // Ensure we have a proper MIME type (not just "image")
+        const finalMimeType = mimeType === 'image' ? detectedMimeType : mimeType;
+        
+        const fileObj = {
+          uri: employmentFile.uri,
+          type: finalMimeType,
+          name: fileName,
+        };
+        console.log('Adding employment file to FormData:', fileObj);
+        formData.append('employment_supporting_doc', fileObj as any);
+      }
+      
+      console.log('Sending employment update with FormData...');
+      console.log('API URL:', `${API_BASE_URL}/api/alumni/employment/${userId}/`);
+      
+      // Use axios for PUT requests with FormData (matching updateAlumniProfile pattern)
+      try {
+        const response = await api.put(
+          `/api/alumni/employment/${userId}/`,
+          formData,
+          {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+              'ngrok-skip-browser-warning': 'true',
+            },
+            timeout: 30000, // 30 second timeout
+          }
+        );
+        
+        console.log('Employment update response:', response.data);
+
+        if (response.data && (response.data.success || response.status === 200)) {
+          Alert.alert('Success', 'Employment details updated successfully!');
+          setIsEditingEmployment(false);
+          setAwardsFile(null);
+          setEmploymentFile(null);
+          // Refresh employment data
+          await loadEmploymentData(userId);
+        } else {
+          Alert.alert('Error', `Failed to update employment details: ${response.data?.error || 'Unknown error'}`);
+        }
+      } catch (apiError: any) {
+        console.error('API Error details:', {
+          message: apiError?.message,
+          response: apiError?.response?.data,
+          status: apiError?.response?.status,
+          statusText: apiError?.response?.statusText,
+        });
+        
+        // Better error handling
+        if (apiError?.response) {
+          const errorData = apiError.response.data || {};
+          const errorMessage = errorData.error || errorData.message || `HTTP ${apiError.response.status}: ${apiError.response.statusText}`;
+          Alert.alert('Error', `Failed to update employment details: ${errorMessage}`);
+        } else if (apiError?.message) {
+          Alert.alert('Error', `Network error: ${apiError.message}. Please check your connection and try again.`);
+        } else {
+          Alert.alert('Error', 'Failed to update employment details. Please try again.');
+        }
+        throw apiError; // Re-throw to be caught by outer catch
+      }
+    } catch (error: any) {
       console.error('Error updating employment details:', error);
-      Alert.alert('Error', 'Failed to update employment details');
+      // Only show alert if not already shown in the inner catch
+      if (!error?.response && !error?.message?.includes('Network')) {
+        Alert.alert('Error', 'Failed to update employment details. Please check your connection and try again.');
+      }
+    } finally {
+      setIsSavingEmployment(false);
+    }
+  };
+
+  const onCancelEmployment = async () => {
+    if (employmentOriginalData) {
+      setEmployment(employmentOriginalData);
+    }
+    setIsEditingEmployment(false);
+    setAwardsFile(null);
+    setEmploymentFile(null);
+    // Reload from server to ensure we have latest data
+    const user = await getUserInfo();
+    if (user) {
+      const userId = user.user_id || user.id;
+      if (userId) {
+        await loadEmploymentData(userId);
+      }
     }
   };
 
@@ -746,10 +988,23 @@ export default function SettingsPage() {
 
         {/* Employment Details card */}
         <View style={styles.card}>
-          <TouchableOpacity style={styles.cardHeader} onPress={() => toggle('employment')}>
-            <Text style={styles.cardHeaderText}>Employment Details</Text>
-            <FontAwesome name={open.employment ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
-          </TouchableOpacity>
+          <View style={styles.cardHeaderRow}>
+            <TouchableOpacity style={[styles.cardHeader, { flex: 1 }]} onPress={() => toggle('employment')}>
+              <Text style={styles.cardHeaderText}>Employment Details</Text>
+              <FontAwesome name={open.employment ? 'chevron-up' : 'chevron-down'} size={14} color="#111827" />
+            </TouchableOpacity>
+            {!isEditingEmployment && hasJobInDB && accountType === 'alumni' && open.employment && (
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => {
+                  setEmploymentOriginalData(JSON.parse(JSON.stringify(employment))); // Deep copy
+                  setIsEditingEmployment(true);
+                }}
+              >
+                <Text style={styles.editButtonText}>EDIT</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
           {open.employment && (
             <View style={styles.cardBody}>
@@ -822,130 +1077,307 @@ export default function SettingsPage() {
               {accountType === 'alumni' && (hasJobInDB === true || hasJobInDB === false) && (
                 <>
                   {hasJobInDB ? (
-                    // Display Part III tracker data
+                    // Display Part III tracker data with edit functionality
                     <>
-                      <Text style={[styles.sectionNote, { fontWeight: 'bold', color: '#174f84', marginBottom: 16 }]}>
-                        PART III - Employment Status
-                      </Text>
-                      
-                      <LabeledInput
-                        label="Employment Type :"
-                        value={employment.employment_type || 'N/A'}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Current Employment Status :"
-                        value={employment.current_employment_status || 'N/A'}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Company Name :"
-                        value={employment.current_company_name || 'N/A'}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Current Position :"
-                        value={employment.current_position || 'N/A'}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Sector :"
-                        value={employment.current_sector || 'N/A'}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Scope :"
-                        value={employment.current_scope || 'N/A'}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Employment Duration :"
-                        value={formatEmploymentDuration(employment.employment_duration)}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Salary Range :"
-                        value={formatSalaryRange(employment.salary_range)}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      <LabeledInput
-                        label="Received Awards :"
-                        value={employment.received_awards || 'N/A'}
-                        onChangeText={() => {}}
-                        styles={styles}
-                        editable={false}
-                      />
-                      
-                      {employment.awards_supporting_doc && (
-                        <View style={{ marginBottom: 12 }}>
-                          <Text style={[styles.label, { marginBottom: 6 }]}>Awards Supporting Document :</Text>
-                          <TouchableOpacity
-                            onPress={async () => {
-                              const url = `${API_BASE_URL}${employment.awards_supporting_doc}`;
-                              try {
-                                const canOpen = await Linking.canOpenURL(url);
-                                if (canOpen) {
-                                  await Linking.openURL(url);
-                                } else {
-                                  Alert.alert('Error', 'Cannot open this document URL');
-                                }
-                              } catch (error) {
-                                Alert.alert('Error', 'Failed to open document');
-                              }
-                            }}
-                          >
-                            <Text style={{ color: '#174f84', textDecorationLine: 'underline' }}>
-                              View Document
-                            </Text>
-                          </TouchableOpacity>
+                      {/* Info Box - matching web */}
+                      {hasJobInDB && accountType === 'alumni' && (
+                        <View style={styles.infoBox}>
+                          <Text style={styles.infoBoxTitle}>Update Your Employment Status</Text>
+                          <Text style={styles.infoBoxText}>
+                            You can update your employment information here without redoing the entire tracker form. This is useful for periodic re-checks (e.g., after 6 months or 1 year) to update if you've changed companies, positions, or employment status.
+                          </Text>
                         </View>
                       )}
-                      
-                      {employment.employment_supporting_doc && (
-                        <View style={{ marginBottom: 12 }}>
-                          <Text style={[styles.label, { marginBottom: 6 }]}>Employment Supporting Document :</Text>
+
+                      {/* Employment Type Dropdown */}
+                      <DropDown
+                        id="employment_type"
+                        label="Employment Type :"
+                        value={employment.employment_type || ''}
+                        options={employmentTypeOptions}
+                        onSelect={(value) => handleEmploymentChange('employment_type', value)}
+                        disabled={!isEditingEmployment}
+                      />
+
+                      {/* Current Employment Status Dropdown */}
+                      <DropDown
+                        id="current_employment_status"
+                        label="Current Employment Status :"
+                        value={employment.current_employment_status || ''}
+                        options={currentEmploymentStatusOptions}
+                        onSelect={(value) => handleEmploymentChange('current_employment_status', value)}
+                        disabled={!isEditingEmployment}
+                      />
+
+                      {/* Company Name and Position in one row */}
+                      <View style={styles.rowContainer}>
+                        <View style={styles.halfWidth}>
+                          <LabeledInput
+                            label="Company Name :"
+                            value={employment.current_company_name || ''}
+                            onChangeText={(text) => handleEmploymentChange('current_company_name', text)}
+                            styles={styles}
+                            editable={isEditingEmployment}
+                          />
+                        </View>
+                        <View style={styles.halfWidth}>
+                          <LabeledInput
+                            label="Current Position :"
+                            value={employment.current_position || ''}
+                            onChangeText={(text) => handleEmploymentChange('current_position', text)}
+                            styles={styles}
+                            editable={isEditingEmployment}
+                          />
+                        </View>
+                      </View>
+
+                      {/* Sector and Scope in one row */}
+                      <View style={styles.rowContainer}>
+                        <View style={styles.halfWidth}>
+                          <DropDown
+                            id="current_sector"
+                            label="Sector :"
+                            value={employment.current_sector || ''}
+                            options={sectorRadioOptions}
+                            onSelect={(value) => handleEmploymentChange('current_sector', value)}
+                            disabled={!isEditingEmployment}
+                          />
+                        </View>
+                        <View style={styles.halfWidth}>
+                          <DropDown
+                            id="current_scope"
+                            label="Scope :"
+                            value={employment.current_scope || ''}
+                            options={scopeOptions}
+                            onSelect={(value) => handleEmploymentChange('current_scope', value)}
+                            disabled={!isEditingEmployment}
+                          />
+                        </View>
+                      </View>
+
+                      {/* Employment Duration Dropdown */}
+                      <DropDown
+                        id="employment_duration"
+                        label="Employment Duration :"
+                        value={employment.employment_duration ? employmentDurationOptions.find(opt => opt.value === employment.employment_duration)?.label || '' : ''}
+                        options={employmentDurationOptions.map(opt => opt.label)}
+                        onSelect={(label) => {
+                          const option = employmentDurationOptions.find(opt => opt.label === label);
+                          handleEmploymentChange('employment_duration', option?.value || '');
+                        }}
+                        disabled={!isEditingEmployment}
+                      />
+
+                      {/* Salary Range Dropdown */}
+                      <DropDown
+                        id="salary_range"
+                        label="Salary Range :"
+                        value={employment.salary_range ? salaryRangeOptions.find(opt => opt.value === employment.salary_range)?.label || '' : ''}
+                        options={salaryRangeOptions.map(opt => opt.label)}
+                        onSelect={(label) => {
+                          const option = salaryRangeOptions.find(opt => opt.label === label);
+                          handleEmploymentChange('salary_range', option?.value || '');
+                        }}
+                        disabled={!isEditingEmployment}
+                      />
+
+                      {/* Received Awards Dropdown */}
+                      <DropDown
+                        id="received_awards"
+                        label="Received Awards :"
+                        value={employment.received_awards || ''}
+                        options={awardsOptions}
+                        onSelect={(value) => handleEmploymentChange('received_awards', value)}
+                        disabled={!isEditingEmployment}
+                      />
+
+                      {/* Supporting Documents for Awards/Recognition - Only show if "Yes" */}
+                      {employment.received_awards === 'Yes' && (
+                        <View style={styles.documentSection}>
+                          <Text style={styles.documentSectionTitle}>
+                            Supporting Documents for Awards/Recognition
+                          </Text>
+                          
+                          {/* Show existing document if available */}
+                          {employment.awards_supporting_doc && !awardsFile && (
+                            <View style={styles.existingDocumentContainer}>
+                              <Text style={styles.existingDocumentLabel}>Current Award Document</Text>
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  const url = `${API_BASE_URL}${employment.awards_supporting_doc}`;
+                                  try {
+                                    const canOpen = await Linking.canOpenURL(url);
+                                    if (canOpen) {
+                                      await Linking.openURL(url);
+                                    } else {
+                                      Alert.alert('Error', 'Cannot open this document URL');
+                                    }
+                                  } catch (error) {
+                                    Alert.alert('Error', 'Failed to open document');
+                                  }
+                                }}
+                                style={styles.viewDocumentButton}
+                              >
+                                <Text style={styles.viewDocumentText}>View Full</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+
+                          {/* File upload input - only when editing */}
+                          {isEditingEmployment && (
+                            <TouchableOpacity
+                              style={styles.uploadButton}
+                              onPress={async () => {
+                                try {
+                                  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                                  if (status !== 'granted') {
+                                    Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+                                    return;
+                                  }
+
+                                  const result = await ImagePicker.launchImageLibraryAsync({
+                                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                                    allowsEditing: false,
+                                    quality: 0.8,
+                                  });
+
+                                  if (!result.canceled && result.assets[0]) {
+                                    setAwardsFile(result.assets[0]);
+                                  }
+                                } catch (error) {
+                                  console.error('Error with image picker:', error);
+                                  Alert.alert('Error', 'Failed to select image. Please try again.');
+                                }
+                              }}
+                            >
+                              <Text style={styles.uploadButtonText}>
+                                {employment.awards_supporting_doc ? 'Replace Award Document' : 'Upload Award Document'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+
+                          {/* Show selected file name */}
+                          {awardsFile && (
+                            <View style={styles.selectedFileContainer}>
+                              <Text style={styles.selectedFileText}>
+                                ✓ New file selected: {awardsFile.fileName || 'image.jpg'}
+                              </Text>
+                            </View>
+                          )}
+
+                          <Text style={styles.uploadHint}>
+                            Upload an image of your award or recognition certificate (PNG, JPG, JPEG)
+                          </Text>
+
+                          {!isEditingEmployment && !employment.awards_supporting_doc && (
+                            <Text style={styles.noDocumentText}>No award document uploaded yet</Text>
+                          )}
+                        </View>
+                      )}
+
+                      {/* Employment Supporting Documents Section */}
+                      <View style={styles.documentSection}>
+                        <Text style={styles.documentSectionTitle}>
+                          Employment Supporting Document (Current)
+                        </Text>
+                        
+                        {/* Show existing document if available */}
+                        {employment.employment_supporting_doc && !employmentFile && (
+                          <View style={styles.existingDocumentContainer}>
+                            <Text style={styles.existingDocumentLabel}>Current Employment Document</Text>
+                            <Text style={styles.existingDocumentSubtext}>Certificate of Employment or Company ID</Text>
+                            <TouchableOpacity
+                              onPress={async () => {
+                                const url = `${API_BASE_URL}${employment.employment_supporting_doc}`;
+                                try {
+                                  const canOpen = await Linking.canOpenURL(url);
+                                  if (canOpen) {
+                                    await Linking.openURL(url);
+                                  } else {
+                                    Alert.alert('Error', 'Cannot open this document URL');
+                                  }
+                                } catch (error) {
+                                  Alert.alert('Error', 'Failed to open document');
+                                }
+                              }}
+                              style={styles.viewDocumentButton}
+                            >
+                              <Text style={styles.viewDocumentText}>View Full</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+
+                        {/* File upload input - only when editing */}
+                        {isEditingEmployment && (
                           <TouchableOpacity
+                            style={styles.uploadButton}
                             onPress={async () => {
-                              const url = `${API_BASE_URL}${employment.employment_supporting_doc}`;
                               try {
-                                const canOpen = await Linking.canOpenURL(url);
-                                if (canOpen) {
-                                  await Linking.openURL(url);
-                                } else {
-                                  Alert.alert('Error', 'Cannot open this document URL');
+                                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                                if (status !== 'granted') {
+                                  Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+                                  return;
+                                }
+
+                                const result = await ImagePicker.launchImageLibraryAsync({
+                                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                                  allowsEditing: false,
+                                  quality: 0.8,
+                                });
+
+                                if (!result.canceled && result.assets[0]) {
+                                  setEmploymentFile(result.assets[0]);
                                 }
                               } catch (error) {
-                                Alert.alert('Error', 'Failed to open document');
+                                console.error('Error with image picker:', error);
+                                Alert.alert('Error', 'Failed to select image. Please try again.');
                               }
                             }}
                           >
-                            <Text style={{ color: '#174f84', textDecorationLine: 'underline' }}>
-                              View Document
+                            <Text style={styles.uploadButtonText}>
+                              {employment.employment_supporting_doc ? 'Replace Employment Document' : 'Upload Employment Document'}
                             </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {/* Show selected file name */}
+                        {employmentFile && (
+                          <View style={styles.selectedFileContainer}>
+                            <Text style={styles.selectedFileText}>
+                              ✓ New file selected: {employmentFile.fileName || 'image.jpg'}
+                            </Text>
+                          </View>
+                        )}
+
+                        <Text style={styles.uploadHint}>
+                          Upload Certificate of Employment or Company ID (PNG, JPG, JPEG)
+                        </Text>
+
+                        {!isEditingEmployment && !employment.employment_supporting_doc && (
+                          <Text style={styles.noDocumentText}>No employment document uploaded yet</Text>
+                        )}
+                      </View>
+
+                      {/* Save/Cancel buttons - Only show for alumni accounts when editing */}
+                      {isEditingEmployment && (
+                        <View style={styles.buttonRow}>
+                          <TouchableOpacity
+                            onPress={onSaveEmployment}
+                            style={[styles.saveButton, isSavingEmployment && styles.buttonDisabled]}
+                            disabled={isSavingEmployment}
+                          >
+                            {isSavingEmployment ? (
+                              <ActivityIndicator color="#fff" size="small" />
+                            ) : (
+                              <Text style={styles.saveButtonText}>Save</Text>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={onCancelEmployment}
+                            style={styles.cancelButton}
+                            disabled={isSavingEmployment}
+                          >
+                            <Text style={styles.cancelButtonText}>Cancel</Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -1346,5 +1778,127 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  infoBox: {
+    backgroundColor: '#e0f2fe',
+    borderLeftWidth: 4,
+    borderLeftColor: '#174f84',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  infoBoxTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0c4a6e',
+    marginBottom: 8,
+  },
+  infoBoxText: {
+    fontSize: 12,
+    color: '#075985',
+    lineHeight: 18,
+  },
+  rowContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  halfWidth: {
+    flex: 1,
+  },
+  dropdownDisabled: {
+    backgroundColor: '#f3f4f6',
+    opacity: 0.6,
+  },
+  documentSection: {
+    borderWidth: 2,
+    borderColor: '#174f84',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 16,
+    backgroundColor: '#f8fafc',
+    marginBottom: 16,
+  },
+  documentSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#174f84',
+    marginBottom: 12,
+  },
+  existingDocumentContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  existingDocumentLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  existingDocumentSubtext: {
+    fontSize: 12,
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  viewDocumentButton: {
+    borderWidth: 1,
+    borderColor: '#174f84',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  viewDocumentText: {
+    color: '#174f84',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  uploadButton: {
+    backgroundColor: '#174f84',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  uploadButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  selectedFileContainer: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 6,
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectedFileText: {
+    color: '#166534',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  uploadHint: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 8,
+  },
+  noDocumentText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontStyle: 'italic',
+    marginTop: 8,
   },
 });
