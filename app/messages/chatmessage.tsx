@@ -1038,28 +1038,49 @@ const ChatMessageScreen = () => {
   const handleDeleteConversation = useCallback(async () => {
     if (!conversationId) return;
     
+    console.log('🔵 [MOBILE DELETE] START - Deleting conversation from chat screen:', {
+      conversation_id: conversationId,
+      other_user_name: name
+    });
+    
     setIsDeletingConversation(true);
     try {
-      console.log('Deleting conversation:', conversationId);
-      await deleteConversation(Number(conversationId));
+      console.log('🔵 [MOBILE DELETE] Calling deleteConversation API...');
+      const response = await deleteConversation(Number(conversationId));
+      
+      console.log('🔵 [MOBILE DELETE] API Response:', {
+        status: response?.status,
+        message: response?.message,
+        conversation_id: response?.conversation_id,
+        fully_deleted: response?.fully_deleted
+      });
+      
+      const fullyDeleted = response?.fully_deleted === true;
+      console.log('🔵 [MOBILE DELETE] Deletion decision:', {
+        fully_deleted: fullyDeleted,
+        should_navigate_away: true // Always navigate away for deleting user
+      });
       
       setShowDeleteConfirmation(false);
       setShowConversationMenu(false);
       
       // Use replace instead of back for cleaner navigation
+      // Always navigate away since the user deleted it (even if it still exists for others)
       router.replace('/messages/message');
       
       // Show success message
       setTimeout(() => {
         Alert.alert('Success', 'Conversation deleted successfully!');
       }, 300);
+      
+      console.log('🔵 [MOBILE DELETE] END - Deletion complete, navigated away');
     } catch (error) {
-      console.error('Failed to delete conversation:', error);
+      console.error('🔵 [MOBILE DELETE] ERROR - Failed to delete conversation:', error);
       Alert.alert('Error', 'Failed to delete conversation. Please try again.');
     } finally {
       setIsDeletingConversation(false);
     }
-  }, [conversationId, router]);
+  }, [conversationId, router, name]);
 
   const loadMore = async () => {
     if (!conversationId || !nextCursor || isLoadingMore || !currentUser || !currentUser.id) return;
@@ -2096,7 +2117,7 @@ const ChatMessageScreen = () => {
             }}>
               Are you sure you want to delete this conversation with <Text style={{ fontWeight: '600' }}>{name || 'this user'}</Text>?
               {'\n\n'}
-              This action cannot be undone. All messages will be removed from your inbox.
+              <Text style={{ fontWeight: '600' }}>Important:</Text> Deleting will remove this chat for <Text style={{ fontWeight: '600' }}>both</Text> of you, including all previous messages. This action cannot be undone.
             </Text>
             <View style={{
               flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -32,6 +32,7 @@ import {
   cancelRewardRequest,
   getEngagementPointsSettings,
   API_BASE_URL,
+  fetchTrackerResponsesByUser,
 } from '../../services/api';
 import { NotificationWebSocket } from '../../services/notificationWebSocket';
 import EarnPointsModal from '../../components/EarnPointsModal';
@@ -325,6 +326,7 @@ export default function RewardsScreen() {
   });
   const [showEarnPointsModal, setShowEarnPointsModal] = useState(false);
   const [trackerFormEnabled, setTrackerFormEnabled] = useState(false);
+  const [hasCompletedTracker, setHasCompletedTracker] = useState(false);
   const openingDetailModalRef = useRef(false);
   const [showReceiptImageModal, setShowReceiptImageModal] = useState(false);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
@@ -344,6 +346,26 @@ export default function RewardsScreen() {
     return { status: 'in_stock' as const, label: 'In Stock', units_available: units, is_available: true };
   };
 
+  const checkTrackerCompletion = useCallback(async (uid?: number, accountType?: any) => {
+    if (!uid || !(accountType?.user) || accountType?.ojt) {
+      setHasCompletedTracker(false);
+      return;
+    }
+    try {
+      const trackerStatus = await fetchTrackerResponsesByUser(uid);
+      const completed = Boolean(
+        trackerStatus &&
+        trackerStatus.success !== false &&
+        Array.isArray(trackerStatus.responses) &&
+        trackerStatus.responses.length > 0
+      );
+      setHasCompletedTracker(completed);
+    } catch (error) {
+      console.error('RewardsScreen: Error checking tracker completion:', error);
+      setHasCompletedTracker(false);
+    }
+  }, []);
+
   const fetchUserPoints = async () => {
     try {
       console.log('RewardsScreen: Fetching user info...');
@@ -353,6 +375,7 @@ export default function RewardsScreen() {
       const userId = user?.user_id || user?.id;
       console.log('RewardsScreen: User ID:', userId);
       if (userId) {
+        await checkTrackerCompletion(userId, user?.account_type);
         console.log('RewardsScreen: Fetching user points for userId:', userId);
         const points = await getUserPoints(userId);
         console.log('RewardsScreen: User points fetched:', points);
@@ -383,6 +406,7 @@ export default function RewardsScreen() {
         }
       } else {
         console.warn('RewardsScreen: No user ID found, cannot fetch points');
+        setHasCompletedTracker(false);
       }
     } catch (error) {
       console.error('RewardsScreen: Error fetching user points:', error);
@@ -1053,7 +1077,7 @@ export default function RewardsScreen() {
             </Text>
           </TouchableOpacity>
 
-          {trackerFormEnabled && userInfo?.account_type?.user && !userInfo?.account_type?.ojt && (
+          {trackerFormEnabled && userInfo?.account_type?.user && !userInfo?.account_type?.ojt && !hasCompletedTracker && (
             <TouchableOpacity
               style={styles.earnPointsButtonBlue}
               onPress={() => router.push('/forms/forms')}
@@ -2024,6 +2048,7 @@ export default function RewardsScreen() {
                       {pendingRewardRequest.type && 
                        pendingRewardRequest.type.toLowerCase() === 'gcash' && (
                         <View style={styles.gcashInputContainer}>
+                          {/* GCash Number Field */}
                           <View style={styles.gcashInputField}>
                             <Text style={styles.gcashLabel}>
                               GCash Number <Text style={styles.requiredAsterisk}>*</Text>
@@ -2039,6 +2064,7 @@ export default function RewardsScreen() {
                               autoCorrect={false}
                             />
                           </View>
+                          {/* GCash Name Field */}
                           <View style={styles.gcashInputField}>
                             <Text style={styles.gcashLabel}>
                               GCash Account Name <Text style={styles.requiredAsterisk}>*</Text>
@@ -2052,6 +2078,21 @@ export default function RewardsScreen() {
                               autoCapitalize="words"
                               autoCorrect={false}
                             />
+                          </View>
+                          {/* GCash Verify Note */}
+                          <View style={{
+                            backgroundColor: '#fef9c3',
+                            borderColor: '#fde68a',
+                            borderWidth: 1,
+                            borderRadius: 8,
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            marginTop: 2,
+                            marginBottom: 10,
+                          }}>
+                            <Text style={{ fontSize: 13, color: '#92400e', lineHeight: 18 }}>
+                              Please double-check that the GCash number is verified and the name you entered is accurate. Once the transaction has proceeded, it is not reversible.
+                            </Text>
                           </View>
                         </View>
                       )}

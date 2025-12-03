@@ -20,6 +20,7 @@ import type {} from 'expo-document-picker';
 import type {} from 'react-native-radio-buttons-group';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, saveTrackerDraft, loadTrackerDraft, getJobAutocomplete, checkJobAlignment, confirmJobAlignment } from '../../services/api';
 import TermsAndConditionsModal from './termsandcondi';
 
@@ -1149,6 +1150,10 @@ export default function TrackerForm() {
       
       // Refresh status after successful submission to ensure sync
       await checkTrackerStatus();
+      
+      // Set flag to trigger employment reminder check on homepage
+      // This ensures the employment update modal appears after tracker submission
+      await AsyncStorage.setItem('checkEmploymentReminderAfterTracker', 'true');
       
       Alert.alert('Success', 'Form submitted successfully!');
       navigation.goBack();

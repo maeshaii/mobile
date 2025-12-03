@@ -304,22 +304,64 @@ const MessageScreen = () => {
   const handleDeleteConversation = async () => {
     if (!selectedConversation || selectedConversation.id < 0) return;
     
+    const conversationId = selectedConversation.id;
+    const otherUserId = selectedConversation.targetUserId;
+    
+    console.log('🔵 [MOBILE DELETE] START - Deleting conversation:', {
+      conversation_id: conversationId,
+      other_user_id: otherUserId,
+      other_user_name: selectedConversation.name
+    });
+    
     setIsDeletingConversation(true);
     try {
-      await deleteConversation(selectedConversation.id);
+      console.log('🔵 [MOBILE DELETE] Calling deleteConversation API...');
+      const response = await deleteConversation(conversationId);
       
-      // Remove from local state
-      setRows(prev => prev.filter(r => r.id !== selectedConversation.id));
+      console.log('🔵 [MOBILE DELETE] API Response:', {
+        status: response?.status,
+        message: response?.message,
+        conversation_id: response?.conversation_id,
+        fully_deleted: response?.fully_deleted
+      });
+      
+      const fullyDeleted = response?.fully_deleted === true;
+      
+      console.log('🔵 [MOBILE DELETE] Deletion decision:', {
+        fully_deleted: fullyDeleted,
+        should_remove_from_ui: fullyDeleted
+      });
+      
+      // CRITICAL FIX: Only remove from local state if conversation was fully deleted
+      // If fully_deleted is false, the conversation still exists for other participants
+      // We should reload to get updated data, but not remove it immediately
+      if (fullyDeleted) {
+        console.log('🔵 [MOBILE DELETE] Conversation fully deleted - removing from UI');
+        // Remove from local state immediately
+        setRows(prev => {
+          const filtered = prev.filter(r => r.id !== conversationId);
+          console.log('🔵 [MOBILE DELETE] Removed from local state:', {
+            before_count: prev.length,
+            after_count: filtered.length
+          });
+          return filtered;
+        });
+      } else {
+        console.log('🔵 [MOBILE DELETE] Conversation NOT fully deleted - keeping in UI, will reload');
+        console.log('🔵 [MOBILE DELETE] This means other participants still have access to this conversation');
+      }
       
       setShowDeleteModal(false);
       setSelectedConversation(null);
       
-      // Reload conversations to ensure fresh data
+      // Always reload conversations to ensure consistency
+      console.log('🔵 [MOBILE DELETE] Reloading conversations from API...');
       await load();
       
+      console.log('🔵 [MOBILE DELETE] END - Deletion complete');
       Alert.alert('Success', 'Conversation deleted successfully!');
     } catch (error) {
-      console.error('Failed to delete conversation:', error);
+      console.error('🔵 [MOBILE DELETE] ERROR - Failed to delete conversation:', error);
       Alert.alert('Error', 'Failed to delete conversation. Please try again.');
     } finally {
       setIsDeletingConversation(false);
@@ -503,7 +545,7 @@ const MessageScreen = () => {
             }}>
               Are you sure you want to delete this conversation with <Text style={{ fontWeight: '600' }}>{selectedConversation?.name || 'this user'}</Text>?
               {'\n\n'}
-              This action cannot be undone.
+              <Text style={{ fontWeight: '600' }}>Important:</Text> Deleting will permanently remove this chat for <Text style={{ fontWeight: '600' }}>both</Text> of you, including all previous messages. This action cannot be undone.
             </Text>
             <View style={{
               flexDirection: 'row',

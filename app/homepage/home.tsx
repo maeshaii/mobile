@@ -150,6 +150,20 @@ const HomeScreen = () => {
         // Only load if we have a token
         await loadUserInfo();
         await loadPosts();
+        
+        // Check employment update reminder on initial mount (like web version)
+        // This ensures users who submitted tracker before see the reminder
+        const currentUser = await getUserInfo();
+        const accountType = (currentUser as any)?.account_type;
+        if (currentUser && (accountType?.user || accountType === 'alumni')) {
+          console.log('🎓 Homepage mounted - checking employment reminder for alumni user');
+          // Small delay to avoid conflict with other initial loading
+          setTimeout(async () => {
+            if (isMountedRef.current) {
+              await checkEmploymentUpdateReminder();
+            }
+          }, 2000);
+        }
       } catch (err) {
         console.error('🔍 HOME DEBUG: Error checking auth on mount:', err);
         router.replace('/login/login');
@@ -166,7 +180,7 @@ const HomeScreen = () => {
       isMountedRef.current = false;
       clearInterval(t);
     };
-  }, []);
+  }, [checkEmploymentUpdateReminder]);
   // Setup WebSocket for real-time points updates
   useEffect(() => {
     let notificationWs: NotificationWebSocket | null = null;
@@ -253,32 +267,49 @@ const HomeScreen = () => {
     try {
       const currentUser = await getUserInfo();
       const userId = currentUser?.user_id || currentUser?.id;
-      if (!userId) return;
+      if (!userId) {
+        console.log('🔍 Employment reminder: No user ID found');
+        return;
+      }
 
-      // Check if user dismissed this reminder
+      // Check reminder status from API FIRST (before checking dismissal)
+      // This allows us to see what the API returns even if dismissed
+      console.log('🔍 Employment reminder: Checking API for user', userId);
+      const reminderData = await checkEmploymentReminder(userId);
+      console.log('🔍 Employment update reminder check result:', reminderData);
+      
+      // Only proceed if API says we should show
+      if (!reminderData?.should_show_reminder) {
+        console.log('ℹ️ Employment reminder: Should not show modal. Reason:', reminderData?.reason || 'unknown');
+        return;
+      }
+
+      // Now check if user dismissed this reminder (only if API says to show)
       const dismissedUntil = await AsyncStorage.getItem('employmentUpdateReminderDismissedUntil');
       if (dismissedUntil) {
         const dismissedDate = new Date(dismissedUntil);
         if (dismissedDate > new Date()) {
           console.log('🔍 Employment reminder dismissed until:', dismissedDate);
+          console.log('ℹ️ Employment reminder: API says to show, but user dismissed until', dismissedDate.toISOString());
           return; // Still dismissed
+        } else {
+          console.log('🔍 Employment reminder dismissal expired, showing modal');
         }
       }
 
-      // Check reminder status from API
-      const reminderData = await checkEmploymentReminder(userId);
-      console.log('🔍 Employment update reminder check:', reminderData);
-      
-      if (reminderData?.should_show_reminder) {
-        // Show modal after a short delay (don't conflict with tracker modal)
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            setShowEmploymentUpdateModal(true);
-          }
-        }, 3000);
-      }
+      // API says to show and not dismissed (or dismissal expired)
+      console.log('✅ Employment reminder: Should show modal, setting timeout');
+      // Show modal after a short delay (don't conflict with tracker modal)
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          console.log('✅ Employment reminder: Showing modal now');
+          setShowEmploymentUpdateModal(true);
+        } else {
+          console.log('⚠️ Employment reminder: Component unmounted, not showing modal');
+        }
+      }, 3000);
     } catch (error) {
-      console.error('Error checking employment update reminder:', error);
+      console.error('❌ Error checking employment update reminder:', error);
       // Don't show modal if there's an error
     }
   }, []);
@@ -317,8 +348,25 @@ const HomeScreen = () => {
           if (currentUser && (accountType?.user || accountType === 'alumni')) {
             console.log('🎓 Homepage focused - checking tracker status for alumni user');
             await checkTrackerStatus();
-            // Check employment update reminder (for alumni who have submitted tracker)
-            await checkEmploymentUpdateReminder();
+            
+            // Check if we should trigger employment reminder check after tracker submission
+            const shouldCheckEmploymentReminder = await AsyncStorage.getItem('checkEmploymentReminderAfterTracker');
+            if (shouldCheckEmploymentReminder === 'true') {
+              // Clear the flag
+              await AsyncStorage.removeItem('checkEmploymentReminderAfterTracker');
+              // Wait longer for backend to process tracker submission and set tracker_submitted_at
+              // The backend needs time to process TrackerResponse.save() which calls update_user_fields()
+              // which sets tracker_submitted_at on TrackerData
+              setTimeout(async () => {
+                if (isMountedRef.current) {
+                  console.log('🔔 Triggering employment reminder check after tracker submission');
+                  await checkEmploymentUpdateReminder();
+                }
+              }, 5000); // 5 second delay to ensure backend has fully processed tracker submission
+            } else {
+              // Check employment update reminder (for alumni who have submitted tracker)
+              await checkEmploymentUpdateReminder();
+            }
           }
         } catch (err) {
           console.error('Homepage: Error in focus effect:', err);
@@ -330,7 +378,7 @@ const HomeScreen = () => {
         }
       };
       checkAndLoad();
-    }, [user, checkTrackerStatus])
+    }, [user, checkTrackerStatus, checkEmploymentUpdateReminder])
   );
   // Add refresh functionality
   const onRefresh = async () => {

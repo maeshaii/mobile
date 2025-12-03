@@ -662,6 +662,15 @@ export const getTrackerAcceptingStatus = async (trackerFormId: number) => {
   }
   return (await api.get(`/api/tracker/accepting/${trackerFormId}/`)).data;
 };
+
+// Mobile -> Backend: GET /api/tracker/user-responses/{user_id}/
+export const fetchTrackerResponsesByUser = async (userId: number) => {
+  if (!userId) {
+    throw new Error('User ID is required to fetch tracker responses');
+  }
+  const response = await api.get(`/api/tracker/user-responses/${userId}/`);
+  return response.data;
+};
 // Mobile -> Backend: POST /api/tracker/save-draft/
 export const saveTrackerDraft = async (userId: string, answers: Record<string, any>) => {
   return (await api.post('/api/tracker/save-draft/', {
@@ -1983,11 +1992,21 @@ export const markConversationRead = async (conversationId: number) => {
 // Mobile -> Backend: DELETE /api/messaging/conversations/{id}/delete/
 export const deleteConversation = async (conversationId: number) => {
   try {
+    console.log('🔵 [MOBILE API] deleteConversation called:', { conversation_id: conversationId });
     const { data } = await api.delete(`/api/messaging/conversations/${conversationId}/delete/`);
-    console.log('Mobile deleteConversation API Response:', data);
+    console.log('🔵 [MOBILE API] deleteConversation response:', {
+      status: data?.status,
+      message: data?.message,
+      conversation_id: data?.conversation_id,
+      fully_deleted: data?.fully_deleted
+    });
     return data;
-  } catch (error) {
-    console.error('Mobile deleteConversation API Error:', error);
+  } catch (error: any) {
+    console.error('🔵 [MOBILE API] deleteConversation ERROR:', {
+      conversation_id: conversationId,
+      error: error?.message,
+      response: error?.response?.data
+    });
     throw error;
   }
 };
