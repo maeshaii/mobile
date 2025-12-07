@@ -276,7 +276,7 @@ export default function OJTDonationPage() {
               placeholder="Describe your donation request... *"
               style={styles.contentInput}
               multiline
-              maxLength={1000}
+              maxLength={5000}
             />
             
             {selectedImage && (

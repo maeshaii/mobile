@@ -486,11 +486,11 @@ export default function PostScreen() {
           numberOfLines={6}
           value={postContent}
           onChangeText={setPostContent}
-          maxLength={1000}
+          maxLength={5000}
         />
 
         {/* Character Count */}
-        <Text style={styles.charCount}>{postContent.length}/1000</Text>
+        <Text style={styles.charCount}>{postContent.length}/5000</Text>
       </View> 
 
         {/* Add Image / Attached Images Section */}

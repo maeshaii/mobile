@@ -240,7 +240,7 @@ export default function DonationRepostScreen() {
           value={caption}
           onChangeText={setCaption}
           multiline
-          maxLength={280}
+          maxLength={5000}
         />
       </View>
 

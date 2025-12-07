@@ -51,6 +51,7 @@ import UserAvatar from '../../components/UserAvatar';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import MentionInput from '../../components/MentionInput';
 import PostCard from './postCard';
+import SeeMoreText from '../../components/SeeMoreText';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getImagesFromContent } from '../../utils/imageUtils';
@@ -837,11 +838,14 @@ export default function PostDetailScreen() {
               </View>
             </KeyboardAvoidingView>
           ) : (
-            <View>
-              {renderTextWithMentions(post.post_content, [], (userId) => {
+            <SeeMoreText
+              text={post.post_content}
+              maxLength={500}
+              renderText={(text) => renderTextWithMentions(text, [], (userId) => {
                 router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
               }, styles.postText)}
-            </View>
+              buttonBelow={true}
+            />
           )}
           {(() => {
             const images = getPostImages(post);
@@ -1162,7 +1166,7 @@ export default function PostDetailScreen() {
                             style={styles.editInput}
                             multiline
                             onSuggestionsChange={handleSuggestionsChange}
-                            maxLength={500}
+                            maxLength={5000}
                           />
                           <View style={styles.editActions}>
                             <TouchableOpacity onPress={() => handleUpdateComment(c.comment_id)} style={styles.sendBtn}>
@@ -1290,7 +1294,7 @@ export default function PostDetailScreen() {
                               }}
                               onSuggestionsChange={handleSuggestionsChange}
                               multiline
-                              maxLength={500}
+                              maxLength={5000}
                             />
                             <TouchableOpacity
                               disabled={!replyText.trim() || submittingReply}
@@ -1381,7 +1385,7 @@ export default function PostDetailScreen() {
                                             style={styles.editReplyInput}
                                             multiline
                                             onSuggestionsChange={handleSuggestionsChange}
-                                            maxLength={500}
+                                            maxLength={5000}
                                           />
                                           <View style={styles.editReplyActions}>
                                             <TouchableOpacity
@@ -1521,7 +1525,7 @@ export default function PostDetailScreen() {
                                             style={styles.replyInput}
                                             onSuggestionsChange={handleSuggestionsChange}
                                             multiline
-                                            maxLength={500}
+                                            maxLength={5000}
                                           />
                                           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
                                             <TouchableOpacity
@@ -1581,7 +1585,7 @@ export default function PostDetailScreen() {
                   maxHeight: 120
                 }}
                 multiline
-                maxLength={500}
+                maxLength={5000}
                 disabled={!!editingReplyId || !!editingId}
                 onSuggestionsChange={handleSuggestionsChange}
               />

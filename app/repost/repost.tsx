@@ -440,6 +440,7 @@ export default function RepostScreen() {
             placeholder="Add an optional caption..."
             placeholderTextColor="#888"
             multiline
+            maxLength={5000}
           />
 
           {/* Nested original post card (tap to open original post detail) */}

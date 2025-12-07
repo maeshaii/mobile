@@ -841,12 +841,13 @@ export default function DonationPage() {
               placeholder="Start a post..."
               style={styles.input}
               multiline
+              maxLength={5000}
               onSuggestionsChange={handleSuggestionsChange}
               textInputStyle={styles.mentionTextInput}
             />
 
             {/* Character Count */}
-            <Text style={styles.charCount}>{donationMessage.length}/1000</Text>
+            <Text style={styles.charCount}>{donationMessage.length}/5000</Text>
           </View>
 
           {/* Add Image Section */}

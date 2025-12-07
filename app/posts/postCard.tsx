@@ -11,6 +11,7 @@ import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { screenWidth, screenHeight, wp, hp, getResponsiveFontSize, getResponsivePadding, getPercentageWidth } from '../../utils/responsive';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 import { useAlert } from '../../contexts/AlertContext';
+import SeeMoreText from '../../components/SeeMoreText';
 
 interface Post {
   post_id: number;
@@ -346,11 +347,15 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
       {/* Content */}
       {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
       
-      <Text style={styles.content}>
-        {renderTextWithMentions(post.post_content, [], (userId) => {
+      <SeeMoreText
+        text={post.post_content}
+        maxLength={500}
+        renderText={(text) => renderTextWithMentions(text, [], (userId) => {
           router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
         })}
-      </Text>
+        style={styles.content}
+        buttonBelow={true}
+      />
       {/* Images - Facebook-style grid layout like web */}
       {images.length > 0 && (
         <View style={styles.imagesContainer}>
@@ -562,7 +567,7 @@ const PostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenVi
               onChangeText={setEditContent}
               placeholder="What's happening?"
               multiline
-              maxLength={500}
+              maxLength={5000}
             />
           </View>
         </View>

@@ -204,7 +204,7 @@ export default function OJTForumPage() {
               value={commentText}
               onChangeText={setCommentText}
               multiline
-              maxLength={500}
+              maxLength={5000}
             />
             
             <View style={styles.modalActions}>

@@ -9,6 +9,7 @@ import { getImagesFromContent, getFirstImageUrl, hasImages } from '../../utils/i
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 import { useAlert } from '../../contexts/AlertContext';
+import SeeMoreText from '../../components/SeeMoreText';
 
 interface Post {
   post_id: number;
@@ -241,8 +242,10 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
         {/* Content */}
 
         {post.post_title && <Text style={styles.postTitle}>{post.post_title}</Text>}
-        <Text style={styles.content}>
-          {renderTextWithMentions(post.post_content, [], (userId) => {
+        <SeeMoreText
+          text={post.post_content}
+          maxLength={500}
+          renderText={(text) => renderTextWithMentions(text, [], (userId) => {
             if (!userId) return;
 
             // Match comment mention behavior:
@@ -254,7 +257,9 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
               router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
             }
           })}
-        </Text>
+          style={styles.content}
+          buttonBelow={true}
+        />
 
 
         {/* Images - Facebook-style grid layout like web */}

@@ -12,6 +12,7 @@ import { getImagesFromContent } from '../../utils/imageUtils';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { formatUserFullName, formatLikeCountText } from '../../utils/nameUtils';
 import { useAlert } from '../../contexts/AlertContext';
+import SeeMoreText from '../../components/SeeMoreText';
 
 dayjs.extend(relativeTime);
 
@@ -549,7 +550,11 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
       </View>
       {/* Caption (if exists) directly below header */}
       {repost.repost_caption && repost.repost_caption.trim() ? (
-        <Text style={styles.caption}>{repost.repost_caption}</Text>
+        <SeeMoreText
+          text={repost.repost_caption}
+          maxLength={500}
+          style={styles.caption}
+        />
       ) : null}
 
       {/* Original Post (Embedded) */}
@@ -622,11 +627,15 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
 
             {/* Original Content */}
             {/* Note: Backend doesn't provide post_title for original post in repost detail */}
-            <Text style={styles.originalContent}>
-              {renderTextWithMentions(repost.original_post.post_content, [], (userId) => {
+            <SeeMoreText
+              text={repost.original_post.post_content}
+              maxLength={500}
+              renderText={(text) => renderTextWithMentions(text, [], (userId) => {
                 router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
               })}
-            </Text>
+              style={styles.originalContent}
+              buttonBelow={true}
+            />
           
           {/* Original Images - support multiple images */}
           {originalImages.length > 0 && (
@@ -882,7 +891,7 @@ const RepostCard: React.FC<Props> = ({ repost, currentUserId, onLikeToggle, onOp
               placeholder="Add a caption..."
               placeholderTextColor="#888"
               multiline
-              maxLength={500}
+              maxLength={5000}
             />
           </View>
         </View>

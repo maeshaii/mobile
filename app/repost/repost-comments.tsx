@@ -10,6 +10,7 @@ import MentionInput from '../../components/MentionInput';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import { getImagesFromContent } from '../../utils/imageUtils';
 import { formatUserFullName } from '../../utils/nameUtils';
+import SeeMoreText from '../../components/SeeMoreText';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { useAlert } from '../../contexts/AlertContext';
@@ -603,7 +604,7 @@ export default function RepostCommentsScreen() {
                   style={styles.editInput}
                   onSuggestionsChange={handleSuggestionsChange}
                   multiline
-                  maxLength={500}
+                  maxLength={5000}
                 />
                 <View style={styles.editActions}>
                   <TouchableOpacity onPress={() => handleUpdate(c.comment_id)} style={styles.sendBtn}>
@@ -759,7 +760,7 @@ export default function RepostCommentsScreen() {
                         }}
                         onSuggestionsChange={handleSuggestionsChange}
                         multiline
-                        maxLength={500}
+                        maxLength={5000}
                       />
                       <TouchableOpacity
                         disabled={!replyText.trim() || submittingReply}
@@ -850,7 +851,7 @@ export default function RepostCommentsScreen() {
                                   style={styles.editReplyInput}
                                   onSuggestionsChange={handleSuggestionsChange}
                                   multiline
-                                  maxLength={500}
+                                  maxLength={5000}
                                 />
                                 <View style={styles.editReplyActions}>
                                   <TouchableOpacity
@@ -1006,7 +1007,7 @@ export default function RepostCommentsScreen() {
                                   }}
                                   onSuggestionsChange={handleSuggestionsChange}
                                   multiline
-                                  maxLength={500}
+                                  maxLength={5000}
                                 />
                                 <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
                                   <TouchableOpacity
@@ -1129,7 +1130,7 @@ export default function RepostCommentsScreen() {
                       placeholder="Edit your repost caption..."
                       style={styles.editRepostCaptionInput}
                       multiline
-                      maxLength={500}
+                      maxLength={5000}
                       onSuggestionsChange={handleSuggestionsChange}
                     />
                     <View style={styles.editRepostCaptionActions}>
@@ -1172,8 +1173,10 @@ export default function RepostCommentsScreen() {
                   </KeyboardAvoidingView>
                 ) : (
                   repost.caption && repost.caption.trim() ? (
-                    <Text style={styles.postContent}>
-                      {renderTextWithMentions(repost.caption, [], (userId) => {
+                    <SeeMoreText
+                      text={repost.caption}
+                      maxLength={500}
+                      renderText={(text) => renderTextWithMentions(text, [], (userId) => {
                         if (!userId) return;
                         if (userId === meId) {
                           router.push('/profile/profilepage');
@@ -1181,7 +1184,8 @@ export default function RepostCommentsScreen() {
                           router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                         }
                       })}
-                    </Text>
+                      style={styles.postContent}
+                    />
                   ) : null
                 )}
           {/* Original Post */}
@@ -1244,8 +1248,10 @@ export default function RepostCommentsScreen() {
                 const original = repost?.original || (repost as any)?.original_post;
                 const content = (original?.content && original.content.trim()) || (original?.post_content && original.post_content.trim());
                 return content ? (
-                  <Text style={styles.postContent}>
-                    {renderTextWithMentions(original?.content || original?.post_content, [], (userId) => {
+                  <SeeMoreText
+                    text={original?.content || original?.post_content || ''}
+                    maxLength={500}
+                    renderText={(text) => renderTextWithMentions(text, [], (userId) => {
                       if (!userId) return;
                       if (userId === meId) {
                         router.push('/profile/profilepage');
@@ -1253,7 +1259,9 @@ export default function RepostCommentsScreen() {
                         router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                       }
                     })}
-                  </Text>
+                    style={styles.postContent}
+                    buttonBelow={true}
+                  />
                 ) : (
                   <Text style={[styles.postContent, { fontStyle: 'italic', color: '#6b7280' }]}>
                     Original post content unavailable
@@ -1377,7 +1385,7 @@ export default function RepostCommentsScreen() {
                   height: composerHeight
                 }}
                 multiline
-                maxLength={500}
+                maxLength={5000}
                 disabled={!!replyingTo || !!editingReplyId}
                 onSuggestionsChange={handleSuggestionsChange}
               />

@@ -614,7 +614,7 @@ export default function PostCommentsScreen() {
                   style={styles.editInput}
                   onSuggestionsChange={handleSuggestionsChange}
                   multiline
-                  maxLength={500}
+                  maxLength={5000}
                 />
                 <View style={styles.editActions}>
                   <TouchableOpacity onPress={() => handleUpdate(c.comment_id)} style={styles.editSaveButton}>
@@ -786,7 +786,7 @@ export default function PostCommentsScreen() {
                         }}
                         onSuggestionsChange={handleSuggestionsChange}
                         multiline
-                        maxLength={500}
+                        maxLength={5000}
                       />
                       <TouchableOpacity
                         disabled={!replyText.trim() || submittingReply}
@@ -877,7 +877,7 @@ export default function PostCommentsScreen() {
                                   style={styles.editReplyInput}
                                   onSuggestionsChange={handleSuggestionsChange}
                                   multiline
-                                  maxLength={500}
+                                  maxLength={5000}
                                 />
                                 <View style={styles.editReplyActions}>
                                   <TouchableOpacity
@@ -1036,7 +1036,7 @@ export default function PostCommentsScreen() {
                                   style={styles.replyInput}
                                   onSuggestionsChange={handleSuggestionsChange}
                                   multiline
-                                  maxLength={500}
+                                  maxLength={5000}
                                 />
                                 <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
                                   <TouchableOpacity
@@ -1230,7 +1230,7 @@ export default function PostCommentsScreen() {
                 style={{ flex: 1, backgroundColor: 'transparent' }}
                 textInputStyle={[styles.inputText, { minHeight: 44, maxHeight: 120, height: composerHeight, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10 }]}
                 multiline
-                maxLength={500}
+                maxLength={5000}
                 disabled={!!editingReplyId}
                 onSuggestionsChange={handleSuggestionsChange}
               />

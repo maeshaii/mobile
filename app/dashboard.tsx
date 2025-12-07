@@ -14,6 +14,7 @@ import UserAvatar from '../components/UserAvatar';
 import { renderTextWithMentions } from '../utils/mentionUtils';
 import MentionInput from '../components/MentionInput';
 import TrackerReminderModal from '../components/TrackerReminderModal';
+import SeeMoreText from '../components/SeeMoreText';
 import { getImagesFromContent, getFirstImageUrl, hasImages } from '../utils/imageUtils';
 import { formatUserFullName } from '../utils/nameUtils';
 
@@ -775,11 +776,15 @@ export default function DashboardScreen() {
               {post.post_title && (
                 <Text style={styles.postTitle}>{post.post_title}</Text>
               )}
-              <Text style={styles.postContent}>
-                {renderTextWithMentions(post.post_content, [], (userId) => {
+              <SeeMoreText
+                text={post.post_content}
+                maxLength={500}
+                renderText={(text) => renderTextWithMentions(text, [], (userId) => {
                   router.push({ pathname: '/otheruser/otheruser', params: { viewUserId: userId } });
                 })}
-              </Text>
+                style={styles.postContent}
+                buttonBelow={true}
+              />
               {post.original_post && (
                 <TouchableOpacity
                   style={{ alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 }}
