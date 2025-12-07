@@ -220,9 +220,9 @@ const MentionInput: React.FC<MentionInputProps> = ({
     // Replace the mention token from '@' to caret with selected user name
     const beforeMention = value.substring(0, effectiveMentionStart);
     const afterCaret = value.substring(caretEnd);
-    // Build mention token using the full display name with spaces (e.g. "@Harley Dave Chavez ")
-    // The rendering helper will detect the mention and only highlight the name portion.
-    const displayName = (user.name || formatUserFullName(user)).trim();
+    // Build mention token using the full formatted name with spaces (e.g. "@Harley Dave Chavez ")
+    // This matches how mentions appear in post/repost comments on web.
+    const displayName = formatUserFullName(user).trim();
     const insert = `@${displayName} `;
     const newValue = beforeMention + insert + afterCaret;
     onChange(newValue);

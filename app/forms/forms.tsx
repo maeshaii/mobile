@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  KeyboardAvoidingView
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -2496,1227 +2497,1229 @@ export default function TrackerForm() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#1C4E80' }}>
-      {/* Top Bar */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <FontAwesome name="arrow-left" size={20} color="#174f84" />
-        </TouchableOpacity>
-        <Text style={styles.topBarTitle}>CTU MAIN ALUMNI TRACKER</Text>
-      </View>
-      
-      {/* Auto-save status indicator */}
-      {saveStatus && (
-        <View style={{
-          backgroundColor: saveStatus === 'saved' ? '#4CAF50' : saveStatus === 'saving' ? '#FF9800' : '#F44336',
-          paddingVertical: 6,
-          paddingHorizontal: 12,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          {saveStatus === 'saving' && <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />}
-          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
-            {saveStatus === 'saved' && '✓ Draft saved'}
-            {saveStatus === 'saving' && 'Saving draft...'}
-            {saveStatus === 'unsaved' && '● Unsaved changes'}
-          </Text>
-        </View>
-      )}
-      
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.loadingText}>Loading form...</Text>
-          {error && <Text style={styles.errorText}>{error}</Text>}
-        </View>
-      ) : Array.isArray(categories) && categories.length > 0 ? (
-        <ScrollView contentContainerStyle={styles.container}>
-        
-          {categories
-            .filter((cat) => shouldShowCategory(cat))
-            .map((cat, catIdx) => (
-              <View key={cat.id ?? catIdx} style={styles.card}>
-                {(cat.title || cat.name) && <Text style={styles.sectionTitle}>{cat.title || cat.name}</Text>}
-                {cat.description && <Text style={styles.sectionDescription}>{cat.description}</Text>}
-                {Array.isArray(cat.questions) && cat.questions.map((q: any, qIdx: number) => renderQuestion(q, catIdx, qIdx))}
-              </View>
-            ))}
-
-          <TouchableOpacity 
-            style={[styles.button, submitting && styles.buttonDisabled]} 
-            onPress={handleSubmit}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <View style={styles.buttonContent}>
-                <ActivityIndicator size="small" color="#005c99" />
-                <Text style={styles.buttonText}>Submitting...</Text>
-              </View>
-            ) : (
-              <Text style={styles.buttonText}>Submit</Text>
-            )}
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: '#1C4E80' }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+    >
+      <View style={{ flex: 1 }}>
+        {/* Top Bar */}
+        <View style={styles.topBar}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <FontAwesome name="arrow-left" size={20} color="#174f84" />
           </TouchableOpacity>
-        </ScrollView>
-      ) : (
-        // Fallback to existing static form UI if no dynamic questions
-        <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>To our Dear Graduates,</Text>
-        <Text style={styles.sectionDescription}>Kindly complete this questionnaire accurately and truthfully. Your responses will be used for research purposes to assess employability and, ultimately, improve the curriculum programs offered at Cebu Technological University (CTU). Rest assured that your answers to this survey will be treated with the utmost confidentiality.</Text>
-        <Text style={styles.sectionDescription}>Thank you very much!</Text>
-        <Text style={styles.sectionDescription}>If you have any questions, you may contact the office of the Alumni Director through 
-        email address gts@ctu.edu.ph or Contact no: (032) 402 4060.</Text>
-      </View>
-
-      {/* Personal Info */}
-      <View style={styles.card}>
-        <Text style={styles.sectionDescription}>* Required</Text>
-
-        <Text style={styles.label}>1. Email </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          value={form.email}
-          onChangeText={(v) => handleChange('email', v)}
-        />
-
-        <Text style={styles.label}>2. Year Graduated</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Year"
-          keyboardType="numeric"
-          value={form.yearGraduated}
-          onChangeText={(v) => handleChange('yearGraduated', v)}
-        />
-
-        <Text style={styles.label}>3. Course Graduated </Text>
-        <View style={styles.dropdownContainer}>
-          <TouchableOpacity style={styles.dropdown} onPress={() => setShowCourseDropdown(!showCourseDropdown)}>
-            <Text style={{ color: form.courseGraduated ? '#222' : '#aaa' }}>{form.courseGraduated || 'Select your course'}</Text>
-            <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 250 }} />
-          </TouchableOpacity>
-          {showCourseDropdown && (
-            <View style={styles.dropdownList}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('courseGraduated', 'Bachelor in Science in Information Technology'); setShowCourseDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Bachelor in Science in Information Technology</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('courseGraduated', 'Bachelor in Science in Information System'); setShowCourseDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Bachelor in Science in Information System</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('courseGraduated', 'Bachelor in Industrial Technology major in Computer Technology'); setShowCourseDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Bachelor in Industrial Technology major in Computer Technology</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <Text style={styles.topBarTitle}>CTU MAIN ALUMNI TRACKER</Text>
         </View>
-      </View>
-
-      {/* PART I - Personal Profile */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>PART I - Personal Profile</Text>
-        <Text style={styles.sectionDescription}>N/A if not applicable</Text>
-
-        <Text style={styles.label}>4. Last Name </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Last Name"
-          value={form.lastName}
-          onChangeText={(v) => handleChange('lastName', v)}
-        />       
-
-        <Text style={styles.label}>5. First Name </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="First Name"
-          value={form.firstName}
-          onChangeText={(v) => handleChange('firstName', v)}
-        /> 
-
-        <Text style={styles.label}>6. Middle Name </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Middle Name"
-          value={form.middleName}
-          onChangeText={(v) => handleChange('middleName', v)}
-        /> 
-        <Text style={styles.label}>7. Gender</Text>
-        <RadioGroup
-          radioButtons={genderOptions}
-          selectedId={genderOptions.find((btn) => btn.selected)?.id}
-          onPress={(selectedId: any) => {
-            const updatedButtons = genderOptions.map((btn) => ({
-              ...btn,
-              selected: btn.id === selectedId,
-            }));
-            setGenderOptions(updatedButtons);
-
-            const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) handleChange('gender', selected.value);
-          }}
-          layout="row"
-        />
-
-        <Text style={styles.label}>8. Age </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="22"
-          value={form.age}
-          onChangeText={(v) => handleChange('age', v)}
-        />
-
-        <Text style={styles.label}>9. Birthdate</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="00/00/0000"
-          value={form.birthdate}
-          onChangeText={(v) => handleChange('birthdate', v)}
-        />
-
-        <Text style={styles.label}>10. Landline or Mobile Number</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="+63"
-          value={form.contactno}
-          onChangeText={(v) => handleChange('contactno', v)}
-        />     
-
-        <Text style={styles.label}>11. Social Media Account Link (e.g  https://www.facebook.com/aboloc)  </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="https://www.facebook.com/aboloc"
-          value={form.socmedlink}
-          onChangeText={(v) => handleChange('socmedlink', v)}
-        />  
-
-        <Text style={styles.label}>12. Complete Current Address </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Address 1"
-          value={form.currentAdd}
-          onChangeText={(v) => handleChange('currentAdd', v)}
-        />  
-
-        <Text style={styles.label}>13. Complete Home Address </Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Address 1"
-          value={form.homeAdd}
-          onChangeText={(v) => handleChange('homeAdd', v)}
-        />         
-      </View>
-
-
-      {/* PART II - Employment Status */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>PART II - Employment Status</Text>
-        <Text style={styles.sectionDescription}>N/A if not applicable</Text>
-
-        <Text style={styles.label}>14. Name of your organization/employer <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Employeer 1"
-          value={form.employeer1}
-          onChangeText={(v) => handleChange('employeer1', v)}
-        />
-
-        <Text style={styles.label}>15. Date hired <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
-        <TextInput
-          style={styles.input}
-          placeholder="00/00/0000"
-          value={form.dateHired1}
-          onChangeText={(v) => handleChange('dateHired1', v)}
-        />    
-
-        <Text style={styles.label}>16. Position <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
-        <Text style={styles.sectionDescription}><Text style={{ fontStyle: 'italic' }}>(N/A if not applicable)</Text></Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Manager"
-          value={form.jobPos1}
-          onChangeText={(v) => handleChange('jobPos1', v)}
-        />  
-
-        <Text style={styles.label}>17. Status of your employment <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
-        <View style={styles.dropdownContainer}>
-          <TouchableOpacity style={styles.dropdown} onPress={() => setShowEmploymentStatusDropdown(!showEmploymentStatusDropdown)}>
-            <Text style={{ color: form.empstat1 ? '#222' : '#aaa' }}>{form.empstat1 || 'Select Employment Status'}</Text>
-            <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 130 }} />
-          </TouchableOpacity>
-          {showEmploymentStatusDropdown && (
-            <View style={styles.dropdownList}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('empstat1', 'permanent'); setShowEmploymentStatusDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Permanent</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('empstat1', 'temporary'); setShowEmploymentStatusDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Temporary</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        <Text style={styles.label}>18. Company Address <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Company 1"
-          value={form.compAdd1}
-          onChangeText={(v) => handleChange('compAdd1', v)}
-        /> 
-
-        <Text style={styles.label}>
-          19. Sector <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text>
-        </Text>
-        <RadioGroup
-          radioButtons={sectorOptions}
-          selectedId={sectorOptions.find((btn) => btn.selected)?.id}
-          onPress={(selectedId: any) => {
-            const updatedButtons = sectorOptions.map((btn) => ({
-              ...btn,
-              selected: btn.id === selectedId,
-            }));
-            setSectorOptions(updatedButtons);
-
-            const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) handleChange('sector', selected.value);
-          }}
-          layout="row"
-        />
-
-        <Text style={styles.label}>20. First Employment Supporting Document </Text>
-        <Text style={styles.labelDesc}>Please upload the soft copy of your Company ID (Back to back) 
-        and either your employment Contract or Certificate of Employment using the provided link below.</Text>
-        <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor's permit </Text>
-        <Text style={styles.labelDesc}>Here is the link:
-        https://bit.ly/FirstEmploymentData</Text>
-        <Text style={styles.labelDesc1}>Note: You will be required to sign in to Google when uploading your files.</Text>
-        <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('First Employment Supporting Document')}>
-        <Text style={styles.uploadButtonText}>Choose File</Text>
-        </TouchableOpacity>
-        {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
-
-        <Text style={styles.label}>
-          21. Are you <Text style={{ fontWeight: 'bold' }}>PRESENTLY</Text> employed?
-        </Text>
-        <RadioGroup
-          radioButtons={presentlyEmployedOptions}
-          selectedId={presentlyEmployedOptions.find((btn) => btn.selected)?.id}
-          onPress={(selectedId: any) => {
-            const updatedButtons = presentlyEmployedOptions.map((btn) => ({
-              ...btn,
-              selected: btn.id === selectedId,
-            }));
-            setPresentlyEmployedOptions(updatedButtons);
-
-            const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) handleChange('presentlyEmployed', selected.value);
-          }}
-          layout="row"
-        />
-
-        </View>
-
-      {/* PART III - Employment Status */}
-      {form.presentlyEmployed === 'Yes' && (
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>PART III - Employment Status</Text>
-        <Text style={styles.label}>
-        22. Are you employed by a company/organization or are you self-employed?
-        </Text>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setEmploymentTypes((prev) => ({ ...prev, company: !prev.company }))
-            }
-        >
-            <View style={[styles.checkboxBox, employmentTypes.company && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Employed by a company/organization</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setEmploymentTypes((prev) => ({ ...prev, selfEmployed: !prev.selfEmployed }))
-            }
-        >
-            <View style={[styles.checkboxBox, employmentTypes.selfEmployed && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Self-employed</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setEmploymentTypes((prev) => ({ ...prev, freelance: !prev.freelance }))
-            }
-        >
-            <View style={[styles.checkboxBox, employmentTypes.freelance && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Freelance/Contract-based</Text>
-        </TouchableOpacity>
-        </View>
-        
-        <Text style={styles.label}>23. Status of your CURRENT Employment</Text>
-        <View style={styles.dropdownContainer}>
-          <TouchableOpacity style={styles.dropdown} onPress={() => setShowCurrentStatusDropdown(!showCurrentStatusDropdown)}>
-            <Text style={{ color: form.currentStat ? '#222' : '#aaa' }}>{form.currentStat || 'Select Employment Status'}</Text>
-            <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 130 }} />
-          </TouchableOpacity>
-          {showCurrentStatusDropdown && (
-            <View style={styles.dropdownList}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('currentStat', 'permanent'); setShowCurrentStatusDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Permanent</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('currentStat', 'temporary'); setShowCurrentStatusDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Temporary</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        <Text style={styles.label}>24. Name of your CURRENT organization/employer. <Text style={{ fontStyle: 'italic' }}>(Please don't abbreviate)</Text></Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Company 1"
-          value={form.currentComp}
-          onChangeText={(v) => handleChange('currentComp', v)}
-        />
-
-        <Text style={styles.label}>25. Position <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
-        <Text style={styles.sectionDescription}><Text style={{ fontStyle: 'italic' }}>(N/A if not applicable)</Text></Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Manager"
-          value={form.currentPos}
-          onChangeText={(v) => handleChange('currentPos', v)}
-        />  
-
-        <Text style={styles.label}>
-          26. Sector <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text>
-        </Text>
-        <RadioGroup
-          radioButtons={sectorOptions}
-          selectedId={sectorOptions.find((btn) => btn.selected)?.id}
-          onPress={(selectedId: any) => {
-            const updatedButtons = sectorOptions.map((btn) => ({
-              ...btn,
-              selected: btn.id === selectedId,
-            }));
-            setSectorOptions(updatedButtons);
-
-            const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) handleChange('sector', selected.value);
-          }}
-          layout="row"
-        />
-
-
-        <Text style={styles.label}>
-        27. How long have you been employed? <Text style={{ fontStyle: 'italic' }}>(Current Employment)</Text></Text>
-        <View style={styles.dropdownContainer}>
-          <TouchableOpacity style={styles.dropdown} onPress={() => setShowYearsEmployedDropdown(!showYearsEmployedDropdown)}>
-            <Text style={{ color: form.yearsEmployed ? '#222' : '#aaa' }}>{form.yearsEmployed || 'Select duration'}</Text>
-            <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 195}} />
-          </TouchableOpacity>
-          {showYearsEmployedDropdown && (
-            <View style={styles.dropdownList}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('yearsEmployed', 'less_than_1'); setShowYearsEmployedDropdown(false); }}>
-                <Text style={{ color: '#222' }}>Less than 1 year</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('yearsEmployed', 'more_than_1'); setShowYearsEmployedDropdown(false); }}>
-                <Text style={{ color: '#222' }}>More than one (1) year</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        <Text style={styles.label}>
-        28. What is your current salary range? <Text style={{ fontStyle: 'italic' }}>(Current Employment)</Text></Text>
-        <View style={styles.dropdownContainer}>
-          <TouchableOpacity style={styles.dropdown} onPress={() => setShowSalaryRangeDropdown(!showSalaryRangeDropdown)}>
-            <Text style={{ color: form.salaryRange ? '#222' : '#aaa' }}>
-              {form.salaryRange === 'below_5000' ? '5,000 below' :
-               form.salaryRange === '5001_10000' ? '5,001 to 10,000' :
-               form.salaryRange === '10001_20000' ? '10,001 to 20,000' :
-               form.salaryRange === '20001_30000' ? '20,001 to 30,000' :
-               form.salaryRange === 'above_30000' ? '30,000 above' :
-               'Select salary range'}
+        {/* Auto-save status indicator */}
+        {saveStatus && (
+          <View style={{
+            backgroundColor: saveStatus === 'saved' ? '#4CAF50' : saveStatus === 'saving' ? '#FF9800' : '#F44336',
+            paddingVertical: 6,
+            paddingHorizontal: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            {saveStatus === 'saving' && <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />}
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
+              {saveStatus === 'saved' && '✓ Draft saved'}
+              {saveStatus === 'saving' && 'Saving draft...'}
+              {saveStatus === 'unsaved' && '● Unsaved changes'}
             </Text>
-            <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 170 }} />
-          </TouchableOpacity>
-          {showSalaryRangeDropdown && (
-            <View style={styles.dropdownList}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'below_5000'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>5,000 below</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '5001_10000'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>5,001 to 10,000</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '10001_20000'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>10,001 to 20,000</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '20001_30000'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>20,001 to 30,000</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'above_30000'); setShowSalaryRangeDropdown(false); }}>
-                <Text style={{ color: '#222' }}>30,000 above</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-        
-        <Text style={styles.label}>29. CURRENT Employment Supporting Document </Text>
-        <Text style={styles.labelDesc}>Please upload the soft copy of your Company ID (Back to back) 
-        and either your employment Contract or Certificate of Employment using the provided link below.</Text>
-        <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor's permit </Text>
-        <Text style={styles.labelDesc}>Here is the link:
-        https://bit.ly/FirstEmploymentData</Text>
-        <Text style={styles.labelDesc1}>Note: You will be required to sign in to Google when uploading your files.</Text>
-        <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('Employment Supporting Document(Current)')}>
-        <Text style={styles.uploadButtonText}>Choose File</Text>
-        </TouchableOpacity>
-        {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
-
-        <Text style={styles.label}>
-          30. Have you received any awards or recognition during your employment?
-        </Text>
-        <RadioGroup
-          radioButtons={awardOptions}
-          selectedId={awardOptions.find((btn) => btn.selected)?.id}
-          onPress={(selectedId: any) => {
-            const updatedButtons = awardOptions.map((btn) => ({
-              ...btn,
-              selected: btn.id === selectedId,
-            }));
-            setAwardOptions(updatedButtons);
-
-            const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) {
-              setHasAwards(selected.value);
-              
-              // When "Yes" is selected, automatically create the first file upload slot for Question 31
-              if (selected.value === 'Yes') {
-                // Find Question 31 (Supporting Documents for awards/recognition)
-                const awardDocsQuestion = categories
-                  ?.flatMap(cat => cat.questions || [])
-                  .find((q: any) => {
-                    const qt = (q.text || '').toLowerCase();
-                    return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
-                           (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
-                  });
-                
-                if (awardDocsQuestion) {
-                  const questionId = String(awardDocsQuestion.id);
-                  const currentFiles = multipleFileAnswers[questionId] || [];
-                  // Auto-create first slot if none exists
-                  if (currentFiles.length === 0) {
-                    setMultipleFileAnswers((prev) => ({ ...prev, [questionId]: [null as any] }));
-                  }
-                }
-              } else if (selected.value === 'No') {
-                // Clear award documents when "No" is selected
-                const awardDocsQuestion = categories
-                  ?.flatMap(cat => cat.questions || [])
-                  .find((q: any) => {
-                    const qt = (q.text || '').toLowerCase();
-                    return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
-                           (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
-                  });
-                
-                if (awardDocsQuestion) {
-                  const questionId = String(awardDocsQuestion.id);
-                  setMultipleFileAnswers((prev) => {
-                    const newState = { ...prev };
-                    delete newState[questionId];
-                    return newState;
-                  });
-                  // Clear file marker from responses
-                  setResponse(questionId, '');
-                }
-              }
-            }
-          }}
-          layout="row"
-        />
-
-
-        <Text style={styles.label}>
-        31. Supporting document for awards/recognition</Text>
-        <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('Supporting Documents for awards/recognition')}>
-        <Text style={styles.uploadButtonText}>Choose File</Text>
-        </TouchableOpacity>
-        {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
-
-        <Text style={styles.label}>
-          32. Did you pursue further study?
-        </Text>
-        <RadioGroup
-          radioButtons={furtherStudyOptions}
-          selectedId={furtherStudyOptions.find((btn) => btn.selected)?.id}
-          onPress={(selectedId: any) => {
-            const updatedButtons = furtherStudyOptions.map((btn) => ({
-              ...btn,
-              selected: btn.id === selectedId,
-            }));
-            setFurtherStudyOptions(updatedButtons);
-
-            const selected = updatedButtons.find((btn) => btn.id === selectedId);
-            if (selected) setFurtherStudy(selected.value);
-          }}
-          layout="row"
-        />
-
-      </View>
-      )}
-
-      {/* IF UNEMPLOYED */}
-      {form.presentlyEmployed === 'No' && (
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>IF UNEMPLOYED</Text>
-        <Text style={styles.label}>
-        33. Reason for unemployment</Text>
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, family: !prev.family }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.family && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Family concerns and the decision not to find a job</Text>
-        </TouchableOpacity>
-        </View>
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, health: !prev.health }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.health && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Health-related reasons</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, experience: !prev.experience }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.experience && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Lack of work experience</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, noOpportunity: !prev.noOpportunity }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.noOpportunity && styles.checked]} />
-            <Text style={styles.checkboxLabel}>No job opportunity</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, notLooking: !prev.notLooking }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.notLooking && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Did not look for a job</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, seeking: !prev.seeking }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.seeking && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Seeking employment</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, study: !prev.study }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.study && styles.checked]} />
-            <Text style={styles.checkboxLabel}>For further study</Text>
-        </TouchableOpacity>
-        </View>
-
-        <View style={styles.checkboxItem}>
-        <TouchableOpacity
-            style={styles.checkbox}
-            onPress={() =>
-            setUnemploymentReasons((prev) => ({ ...prev, other: !prev.other }))
-            }
-        >
-            <View style={[styles.checkboxBox, unemploymentReasons.other && styles.checked]} />
-            <Text style={styles.checkboxLabel}>Other</Text>
-        </TouchableOpacity>
-        </View>
-
-        {unemploymentReasons.other && (
-        <TextInput
-            style={styles.input}
-            placeholder="Other"
-            value={unemploymentReasons.otherText}
-            onChangeText={(text) =>
-            setUnemploymentReasons((prev) => ({ ...prev, otherText: text }))
-            }
-        />
-        )}
-      </View>
-      )}
-
-      {/* PART IV - Further Study */}
-      {furtherStudy === 'Yes' && (
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>PART IV - Further Study</Text>
-        <Text style={styles.sectionDescription}>N/A if not applicable</Text> 
-
-        <Text style={styles.label}>34. Date Started</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="00/00/0000"
-          value={form.fsDateStart}
-          onChangeText={(v) => handleChange('fsDateStart', v)}
-        />  
-
-        <Text style={styles.label}>35. Please specify post graduate/degree</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Graduate Program"
-          value={form.postGrad}
-          onChangeText={(v) => handleChange('postGrad', v)}
-        />
-
-        <Text style={styles.label}>36. Name of Institution/University</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="University"
-          value={form.postGradUniv}
-          onChangeText={(v) => handleChange('postGradUniv', v)}
-        />
-
-        <Text style={styles.label}>37. Total number of units obtain</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Units"
-          value={form.totalUnits}
-          onChangeText={(v) => handleChange('totalUnits', v)}
-        />
-    </View>
-    )}
-
-      <TouchableOpacity 
-        style={[styles.button, submitting && styles.buttonDisabled]} 
-        onPress={handleSubmit}
-        disabled={submitting}
-      >
-        {submitting ? (
-          <View style={styles.buttonContent}>
-            <ActivityIndicator size="small" color="#005c99" />
-            <Text style={styles.buttonText}>Submitting...</Text>
           </View>
-        ) : (
-          <Text style={styles.buttonText}>Submit</Text>
         )}
-      </TouchableOpacity>
-    </ScrollView>
-      )}
-
-      {/* Privacy Notice Modal (matching web) */}
-      <Modal
-        visible={showPrivacyModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          // Don't allow closing without accepting
-          if (!privacyAccepted) {
-            Alert.alert('Privacy Notice', 'Please read and accept the Privacy Notice to continue.');
-          }
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Privacy Notice</Text>
-              <Text style={styles.modalSubtitle}>Republic Act No. 10173 - Data Privacy Act of 2012</Text>
-            </View>
-            
-            <ScrollView 
-              style={styles.modalScrollView} 
-              contentContainerStyle={styles.modalScrollContent}
-              showsVerticalScrollIndicator={true}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.loadingText}>Loading form...</Text>
+            {error && <Text style={styles.errorText}>{error}</Text>}
+          </View>
+        ) : Array.isArray(categories) && categories.length > 0 ? (
+          <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+            {categories
+              .filter((cat) => shouldShowCategory(cat))
+              .map((cat, catIdx) => (
+                <View key={cat.id ?? catIdx} style={styles.card}>
+                  {(cat.title || cat.name) && <Text style={styles.sectionTitle}>{cat.title || cat.name}</Text>}
+                  {cat.description && <Text style={styles.sectionDescription}>{cat.description}</Text>}
+                  {Array.isArray(cat.questions) && cat.questions.map((q: any, qIdx: number) => renderQuestion(q, catIdx, qIdx))}
+                </View>
+              ))}
+            <TouchableOpacity 
+              style={[styles.button, submitting && styles.buttonDisabled]} 
+              onPress={handleSubmit}
+              disabled={submitting}
             >
-              <View style={styles.modalBody}>
-                <Text style={styles.modalText}>
-                  We are committed to protecting your personal data in accordance with the Data Privacy Act of 2012. 
-                  The information you provide in this Tracer Form will be used solely for academic and institutional purposes.
-                </Text>
-                <Text style={styles.modalText}>
-                  Your personal data will be:
-                </Text>
-                <View style={styles.modalBulletList}>
-                  <Text style={styles.modalBullet}>• Collected and processed lawfully and fairly</Text>
-                  <Text style={styles.modalBullet}>• Used only for the stated purposes</Text>
-                  <Text style={styles.modalBullet}>• Kept accurate and up-to-date</Text>
-                  <Text style={styles.modalBullet}>• Stored securely and confidentially</Text>
-                  <Text style={styles.modalBullet}>• Not shared with unauthorized parties</Text>
+              {submitting ? (
+                <View style={styles.buttonContent}>
+                  <ActivityIndicator size="small" color="#005c99" />
+                  <Text style={styles.buttonText}>Submitting...</Text>
                 </View>
-                <Text style={styles.modalText}>
-                  By proceeding with the Tracer Form, you acknowledge that you have read and understood this privacy notice.
-                </Text>
-                
-                <TouchableOpacity
-                  style={[styles.modalCheckbox, privacyAccepted && styles.modalCheckboxChecked]}
-                  onPress={() => setPrivacyAccepted(!privacyAccepted)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.checkboxBox, privacyAccepted && styles.checked]} />
-                  <Text style={styles.modalCheckboxText}>
-                    I have read and understood the Privacy Notice and I voluntarily consent to the collection and use of my personal data for Tracer Form.
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-            
-            <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => {
-                  setShowPrivacyModal(false);
-                  setPrivacyAccepted(false);
-                  navigation.goBack();
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalButtonCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalButton, 
-                  styles.modalButtonAccept, 
-                  !privacyAccepted && styles.modalButtonDisabled
-                ]}
-                onPress={() => {
-                  if (privacyAccepted) {
-                    setShowPrivacyModal(false);
-                  } else {
-                    Alert.alert('Privacy Notice', 'Please accept the Privacy Notice to continue.');
-                  }
-                }}
-                disabled={!privacyAccepted}
-                activeOpacity={0.7}
-              >
-                <Text style={[
-                  styles.modalButtonAcceptText,
-                  !privacyAccepted && styles.modalButtonAcceptTextDisabled
-                ]}>
-                  Accept & Continue
-                </Text>
-              </TouchableOpacity>
+              ) : (
+                <Text style={styles.buttonText}>Submit</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        ) : (
+          // Fallback to existing static form UI if no dynamic questions
+          <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>To our Dear Graduates,</Text>
+              <Text style={styles.sectionDescription}>Kindly complete this questionnaire accurately and truthfully. Your responses will be used for research purposes to assess employability and, ultimately, improve the curriculum programs offered at Cebu Technological University (CTU). Rest assured that your answers to this survey will be treated with the utmost confidentiality.</Text>
+              <Text style={styles.sectionDescription}>Thank you very much!</Text>
+              <Text style={styles.sectionDescription}>If you have any questions, you may contact the office of the Alumni Director through 
+              email address gts@ctu.edu.ph or Contact no: (032) 402 4060.</Text>
             </View>
-          </View>
-        </View>
-      </Modal>
 
-      {/* Job Alignment Confirmation Modal */}
-      <Modal
-        visible={showJobAlignmentModal.visible && showJobAlignmentModal.needsConfirmation}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowJobAlignmentModal({ questionId: '', position: '', visible: false, needsConfirmation: false })}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.jobAlignmentModalContent}>
-            {/* Header */}
-            <View style={styles.jobAlignmentHeader}>
-              <Text style={styles.jobAlignmentTitle}>🤔 Job Alignment Question</Text>
-            </View>
-            
-            {/* Content */}
-            <View style={styles.jobAlignmentBody}>
-              <Text style={styles.jobAlignmentQuestion}>
-                {showJobAlignmentModal.suggestion?.question || `Is '${showJobAlignmentModal.position}' aligned to your program?`}
-              </Text>
-              
-              {/* Radio Options */}
-              <View style={styles.jobAlignmentOptions}>
-                <TouchableOpacity
-                  style={[
-                    styles.jobAlignmentOption,
-                    jobAlignmentAnswer === 'yes' && styles.jobAlignmentOptionSelected
-                  ]}
-                  onPress={() => setJobAlignmentAnswer('yes')}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.radioCircle, jobAlignmentAnswer === 'yes' && styles.radioCircleSelected]}>
-                    {jobAlignmentAnswer === 'yes' && <View style={styles.radioCircleInner} />}
-                  </View>
-                  <Text style={[styles.jobAlignmentOptionText, jobAlignmentAnswer === 'yes' && styles.jobAlignmentOptionTextSelected]}>
-                    ✅ Yes, this job is aligned to my program
-                  </Text>
+            {/* Personal Info */}
+            <View style={styles.card}>
+              <Text style={styles.sectionDescription}>* Required</Text>
+
+              <Text style={styles.label}>1. Email </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                value={form.email}
+                onChangeText={(v) => handleChange('email', v)}
+              />
+
+              <Text style={styles.label}>2. Year Graduated</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Year"
+                keyboardType="numeric"
+                value={form.yearGraduated}
+                onChangeText={(v) => handleChange('yearGraduated', v)}
+              />
+
+              <Text style={styles.label}>3. Course Graduated </Text>
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity style={styles.dropdown} onPress={() => setShowCourseDropdown(!showCourseDropdown)}>
+                  <Text style={{ color: form.courseGraduated ? '#222' : '#aaa' }}>{form.courseGraduated || 'Select your course'}</Text>
+                  <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 250 }} />
                 </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.jobAlignmentOption,
-                    jobAlignmentAnswer === 'no' && styles.jobAlignmentOptionSelected
-                  ]}
-                  onPress={() => setJobAlignmentAnswer('no')}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.radioCircle, jobAlignmentAnswer === 'no' && styles.radioCircleSelected]}>
-                    {jobAlignmentAnswer === 'no' && <View style={styles.radioCircleInner} />}
+                {showCourseDropdown && (
+                  <View style={styles.dropdownList}>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('courseGraduated', 'Bachelor in Science in Information Technology'); setShowCourseDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Bachelor in Science in Information Technology</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('courseGraduated', 'Bachelor in Science in Information System'); setShowCourseDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Bachelor in Science in Information System</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('courseGraduated', 'Bachelor in Industrial Technology major in Computer Technology'); setShowCourseDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Bachelor in Industrial Technology major in Computer Technology</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text style={[styles.jobAlignmentOptionText, jobAlignmentAnswer === 'no' && styles.jobAlignmentOptionTextSelected]}>
-                    ❌ No, this job is not aligned to my program
-                  </Text>
-                </TouchableOpacity>
+                )}
               </View>
             </View>
-            
-            {/* Footer */}
-            <View style={styles.jobAlignmentFooter}>
+
+            {/* PART I - Personal Profile */}
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>PART I - Personal Profile</Text>
+              <Text style={styles.sectionDescription}>N/A if not applicable</Text>
+
+              <Text style={styles.label}>4. Last Name </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Last Name"
+                value={form.lastName}
+                onChangeText={(v) => handleChange('lastName', v)}
+              />       
+
+              <Text style={styles.label}>5. First Name </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="First Name"
+                value={form.firstName}
+                onChangeText={(v) => handleChange('firstName', v)}
+              /> 
+
+              <Text style={styles.label}>6. Middle Name </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Middle Name"
+                value={form.middleName}
+                onChangeText={(v) => handleChange('middleName', v)}
+              /> 
+              <Text style={styles.label}>7. Gender</Text>
+              <RadioGroup
+                radioButtons={genderOptions}
+                selectedId={genderOptions.find((btn) => btn.selected)?.id}
+                onPress={(selectedId: any) => {
+                  const updatedButtons = genderOptions.map((btn) => ({
+                    ...btn,
+                    selected: btn.id === selectedId,
+                  }));
+                  setGenderOptions(updatedButtons);
+
+                  const selected = updatedButtons.find((btn) => btn.id === selectedId);
+                  if (selected) handleChange('gender', selected.value);
+                }}
+                layout="row"
+              />
+
+              <Text style={styles.label}>8. Age </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="22"
+                value={form.age}
+                onChangeText={(v) => handleChange('age', v)}
+              />
+
+              <Text style={styles.label}>9. Birthdate</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="00/00/0000"
+                value={form.birthdate}
+                onChangeText={(v) => handleChange('birthdate', v)}
+              />
+
+              <Text style={styles.label}>10. Landline or Mobile Number</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="+63"
+                value={form.contactno}
+                onChangeText={(v) => handleChange('contactno', v)}
+              />     
+
+              <Text style={styles.label}>11. Social Media Account Link (e.g  https://www.facebook.com/aboloc)  </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="https://www.facebook.com/aboloc"
+                value={form.socmedlink}
+                onChangeText={(v) => handleChange('socmedlink', v)}
+              />  
+
+              <Text style={styles.label}>12. Complete Current Address </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Address 1"
+                value={form.currentAdd}
+                onChangeText={(v) => handleChange('currentAdd', v)}
+              />  
+
+              <Text style={styles.label}>13. Complete Home Address </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Address 1"
+                value={form.homeAdd}
+                onChangeText={(v) => handleChange('homeAdd', v)}
+              />         
+            </View>
+
+
+            {/* PART II - Employment Status */}
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>PART II - Employment Status</Text>
+              <Text style={styles.sectionDescription}>N/A if not applicable</Text>
+
+              <Text style={styles.label}>14. Name of your organization/employer <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Employeer 1"
+                value={form.employeer1}
+                onChangeText={(v) => handleChange('employeer1', v)}
+              />
+
+              <Text style={styles.label}>15. Date hired <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
+              <TextInput
+                style={styles.input}
+                placeholder="00/00/0000"
+                value={form.dateHired1}
+                onChangeText={(v) => handleChange('dateHired1', v)}
+              />    
+
+              <Text style={styles.label}>16. Position <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
+              <Text style={styles.sectionDescription}><Text style={{ fontStyle: 'italic' }}>(N/A if not applicable)</Text></Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Manager"
+                value={form.jobPos1}
+                onChangeText={(v) => handleChange('jobPos1', v)}
+              />  
+
+              <Text style={styles.label}>17. Status of your employment <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity style={styles.dropdown} onPress={() => setShowEmploymentStatusDropdown(!showEmploymentStatusDropdown)}>
+                  <Text style={{ color: form.empstat1 ? '#222' : '#aaa' }}>{form.empstat1 || 'Select Employment Status'}</Text>
+                  <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 130 }} />
+                </TouchableOpacity>
+                {showEmploymentStatusDropdown && (
+                  <View style={styles.dropdownList}>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('empstat1', 'permanent'); setShowEmploymentStatusDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Permanent</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('empstat1', 'temporary'); setShowEmploymentStatusDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Temporary</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <Text style={styles.label}>18. Company Address <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Company 1"
+                value={form.compAdd1}
+                onChangeText={(v) => handleChange('compAdd1', v)}
+              /> 
+
+              <Text style={styles.label}>
+                19. Sector <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text>
+              </Text>
+              <RadioGroup
+                radioButtons={sectorOptions}
+                selectedId={sectorOptions.find((btn) => btn.selected)?.id}
+                onPress={(selectedId: any) => {
+                  const updatedButtons = sectorOptions.map((btn) => ({
+                    ...btn,
+                    selected: btn.id === selectedId,
+                  }));
+                  setSectorOptions(updatedButtons);
+
+                  const selected = updatedButtons.find((btn) => btn.id === selectedId);
+                  if (selected) handleChange('sector', selected.value);
+                }}
+                layout="row"
+              />
+
+              <Text style={styles.label}>20. First Employment Supporting Document </Text>
+              <Text style={styles.labelDesc}>Please upload the soft copy of your Company ID (Back to back) 
+              and either your employment Contract or Certificate of Employment using the provided link below.</Text>
+              <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor's permit </Text>
+              <Text style={styles.labelDesc}>Here is the link:
+              https://bit.ly/FirstEmploymentData</Text>
+              <Text style={styles.labelDesc1}>Note: You will be required to sign in to Google when uploading your files.</Text>
+              <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('First Employment Supporting Document')}>
+              <Text style={styles.uploadButtonText}>Choose File</Text>
+              </TouchableOpacity>
+              {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
+
+              <Text style={styles.label}>
+                21. Are you <Text style={{ fontWeight: 'bold' }}>PRESENTLY</Text> employed?
+              </Text>
+              <RadioGroup
+                radioButtons={presentlyEmployedOptions}
+                selectedId={presentlyEmployedOptions.find((btn) => btn.selected)?.id}
+                onPress={(selectedId: any) => {
+                  const updatedButtons = presentlyEmployedOptions.map((btn) => ({
+                    ...btn,
+                    selected: btn.id === selectedId,
+                  }));
+                  setPresentlyEmployedOptions(updatedButtons);
+
+                  const selected = updatedButtons.find((btn) => btn.id === selectedId);
+                  if (selected) handleChange('presentlyEmployed', selected.value);
+                }}
+                layout="row"
+              />
+
+              </View>
+
+            {/* PART III - Employment Status */}
+            {form.presentlyEmployed === 'Yes' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>PART III - Employment Status</Text>
+              <Text style={styles.label}>
+              22. Are you employed by a company/organization or are you self-employed?
+              </Text>
+
+              <View style={styles.checkboxItem}>
               <TouchableOpacity
-                style={[
-                  styles.jobAlignmentConfirmButton,
-                  (!jobAlignmentAnswer || checkingAlignment) && styles.jobAlignmentConfirmButtonDisabled
-                ]}
-                onPress={async () => {
-                  if (!jobAlignmentAnswer || checkingAlignment) return;
-                  
-                  try {
-                    setCheckingAlignment(true);
-                    const user = await getUserInfo();
-                    if (!user?.id && !user?.user_id) {
-                      Alert.alert('Error', 'User ID not found');
-                      return;
-                    }
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setEmploymentTypes((prev) => ({ ...prev, company: !prev.company }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, employmentTypes.company && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Employed by a company/organization</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setEmploymentTypes((prev) => ({ ...prev, selfEmployed: !prev.selfEmployed }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, employmentTypes.selfEmployed && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Self-employed</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setEmploymentTypes((prev) => ({ ...prev, freelance: !prev.freelance }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, employmentTypes.freelance && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Freelance/Contract-based</Text>
+              </TouchableOpacity>
+              </View>
+              
+              <Text style={styles.label}>23. Status of your CURRENT Employment</Text>
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity style={styles.dropdown} onPress={() => setShowCurrentStatusDropdown(!showCurrentStatusDropdown)}>
+                  <Text style={{ color: form.currentStat ? '#222' : '#aaa' }}>{form.currentStat || 'Select Employment Status'}</Text>
+                  <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 130 }} />
+                </TouchableOpacity>
+                {showCurrentStatusDropdown && (
+                  <View style={styles.dropdownList}>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('currentStat', 'permanent'); setShowCurrentStatusDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Permanent</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('currentStat', 'temporary'); setShowCurrentStatusDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Temporary</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <Text style={styles.label}>24. Name of your CURRENT organization/employer. <Text style={{ fontStyle: 'italic' }}>(Please don't abbreviate)</Text></Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Company 1"
+                value={form.currentComp}
+                onChangeText={(v) => handleChange('currentComp', v)}
+              />
+
+              <Text style={styles.label}>25. Position <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text></Text>
+              <Text style={styles.sectionDescription}><Text style={{ fontStyle: 'italic' }}>(N/A if not applicable)</Text></Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Manager"
+                value={form.currentPos}
+                onChangeText={(v) => handleChange('currentPos', v)}
+              />  
+
+              <Text style={styles.label}>
+                26. Sector <Text style={{ fontStyle: 'italic' }}>(1st employer right after graduation)</Text>
+              </Text>
+              <RadioGroup
+                radioButtons={sectorOptions}
+                selectedId={sectorOptions.find((btn) => btn.selected)?.id}
+                onPress={(selectedId: any) => {
+                  const updatedButtons = sectorOptions.map((btn) => ({
+                    ...btn,
+                    selected: btn.id === selectedId,
+                  }));
+                  setSectorOptions(updatedButtons);
+
+                  const selected = updatedButtons.find((btn) => btn.id === selectedId);
+                  if (selected) handleChange('sector', selected.value);
+                }}
+                layout="row"
+              />
+
+
+              <Text style={styles.label}>
+              27. How long have you been employed? <Text style={{ fontStyle: 'italic' }}>(Current Employment)</Text></Text>
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity style={styles.dropdown} onPress={() => setShowYearsEmployedDropdown(!showYearsEmployedDropdown)}>
+                  <Text style={{ color: form.yearsEmployed ? '#222' : '#aaa' }}>{form.yearsEmployed || 'Select duration'}</Text>
+                  <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 195}} />
+                </TouchableOpacity>
+                {showYearsEmployedDropdown && (
+                  <View style={styles.dropdownList}>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('yearsEmployed', 'less_than_1'); setShowYearsEmployedDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>Less than 1 year</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('yearsEmployed', 'more_than_1'); setShowYearsEmployedDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>More than one (1) year</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <Text style={styles.label}>
+              28. What is your current salary range? <Text style={{ fontStyle: 'italic' }}>(Current Employment)</Text></Text>
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity style={styles.dropdown} onPress={() => setShowSalaryRangeDropdown(!showSalaryRangeDropdown)}>
+                  <Text style={{ color: form.salaryRange ? '#222' : '#aaa' }}>
+                    {form.salaryRange === 'below_5000' ? '5,000 below' :
+                     form.salaryRange === '5001_10000' ? '5,001 to 10,000' :
+                     form.salaryRange === '10001_20000' ? '10,001 to 20,000' :
+                     form.salaryRange === '20001_30000' ? '20,001 to 30,000' :
+                     form.salaryRange === 'above_30000' ? '30,000 above' :
+                     'Select salary range'}
+                  </Text>
+                  <FontAwesome name="chevron-down" size={16} color="#222" style={{ marginLeft: 170 }} />
+                </TouchableOpacity>
+                {showSalaryRangeDropdown && (
+                  <View style={styles.dropdownList}>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'below_5000'); setShowSalaryRangeDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>5,000 below</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '5001_10000'); setShowSalaryRangeDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>5,001 to 10,000</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '10001_20000'); setShowSalaryRangeDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>10,001 to 20,000</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', '20001_30000'); setShowSalaryRangeDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>20,001 to 30,000</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => { handleChange('salaryRange', 'above_30000'); setShowSalaryRangeDropdown(false); }}>
+                      <Text style={{ color: '#222' }}>30,000 above</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+              
+              <Text style={styles.label}>29. CURRENT Employment Supporting Document </Text>
+              <Text style={styles.labelDesc}>Please upload the soft copy of your Company ID (Back to back) 
+              and either your employment Contract or Certificate of Employment using the provided link below.</Text>
+              <Text style={styles.labelDesc}>If you are Self-employed. Please provide barangay permit or DTI registration or mayor's permit </Text>
+              <Text style={styles.labelDesc}>Here is the link:
+              https://bit.ly/FirstEmploymentData</Text>
+              <Text style={styles.labelDesc1}>Note: You will be required to sign in to Google when uploading your files.</Text>
+              <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('Employment Supporting Document(Current)')}>
+              <Text style={styles.uploadButtonText}>Choose File</Text>
+              </TouchableOpacity>
+              {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
+
+              <Text style={styles.label}>
+                30. Have you received any awards or recognition during your employment?
+              </Text>
+              <RadioGroup
+                radioButtons={awardOptions}
+                selectedId={awardOptions.find((btn) => btn.selected)?.id}
+                onPress={(selectedId: any) => {
+                  const updatedButtons = awardOptions.map((btn) => ({
+                    ...btn,
+                    selected: btn.id === selectedId,
+                  }));
+                  setAwardOptions(updatedButtons);
+
+                  const selected = updatedButtons.find((btn) => btn.id === selectedId);
+                  if (selected) {
+                    setHasAwards(selected.value);
                     
-                    const userId = user.id || user.user_id;
-                    const employmentId = showJobAlignmentModal.suggestion?.employment_id || 0;
-                    
-                    const result = await confirmJobAlignment(employmentId, userId, jobAlignmentAnswer === 'yes');
-                    
-                    if (result.success) {
-                      // Update alignment status
-                      setJobAlignmentStatus({
-                        questionId: showJobAlignmentModal.questionId,
-                        status: result.job_alignment_status || (jobAlignmentAnswer === 'yes' ? 'aligned' : 'not_aligned')
-                      });
+                    // When "Yes" is selected, automatically create the first file upload slot for Question 31
+                    if (selected.value === 'Yes') {
+                      // Find Question 31 (Supporting Documents for awards/recognition)
+                      const awardDocsQuestion = categories
+                        ?.flatMap(cat => cat.questions || [])
+                        .find((q: any) => {
+                          const qt = (q.text || '').toLowerCase();
+                          return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
+                                 (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
+                        });
                       
-                      // Close modal
-                      setShowJobAlignmentModal({ questionId: '', position: '', visible: false, needsConfirmation: false });
-                      setJobAlignmentAnswer(null);
-                    } else {
-                      Alert.alert('Error', 'Failed to confirm job alignment');
+                      if (awardDocsQuestion) {
+                        const questionId = String(awardDocsQuestion.id);
+                        const currentFiles = multipleFileAnswers[questionId] || [];
+                        // Auto-create first slot if none exists
+                        if (currentFiles.length === 0) {
+                          setMultipleFileAnswers((prev) => ({ ...prev, [questionId]: [null as any] }));
+                        }
+                      }
+                    } else if (selected.value === 'No') {
+                      // Clear award documents when "No" is selected
+                      const awardDocsQuestion = categories
+                        ?.flatMap(cat => cat.questions || [])
+                        .find((q: any) => {
+                          const qt = (q.text || '').toLowerCase();
+                          return (qt.includes('supporting document') || qt.includes('supporting documents')) && 
+                                 (qt.includes('awards') || qt.includes('award') || qt.includes('recognition'));
+                        });
+                      
+                      if (awardDocsQuestion) {
+                        const questionId = String(awardDocsQuestion.id);
+                        setMultipleFileAnswers((prev) => {
+                          const newState = { ...prev };
+                          delete newState[questionId];
+                          return newState;
+                        });
+                        // Clear file marker from responses
+                        setResponse(questionId, '');
+                      }
                     }
-                  } catch (error) {
-                    console.error('Error confirming job alignment:', error);
-                    Alert.alert('Error', 'Failed to confirm job alignment');
-                  } finally {
-                    setCheckingAlignment(false);
                   }
                 }}
-                disabled={!jobAlignmentAnswer || checkingAlignment}
-                activeOpacity={0.7}
-              >
-                {checkingAlignment ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.jobAlignmentConfirmButtonText}>Confirm Answer</Text>
-                )}
+                layout="row"
+              />
+
+
+              <Text style={styles.label}>
+              31. Supporting document for awards/recognition</Text>
+              <TouchableOpacity style={styles.uploadButton} onPress={() => handleFilePick('Supporting Documents for awards/recognition')}>
+              <Text style={styles.uploadButtonText}>Choose File</Text>
               </TouchableOpacity>
+              {form.file && <Text style={styles.fileText}>{form.file.name}</Text>}
+
+              <Text style={styles.label}>
+                32. Did you pursue further study?
+              </Text>
+              <RadioGroup
+                radioButtons={furtherStudyOptions}
+                selectedId={furtherStudyOptions.find((btn) => btn.selected)?.id}
+                onPress={(selectedId: any) => {
+                  const updatedButtons = furtherStudyOptions.map((btn) => ({
+                    ...btn,
+                    selected: btn.id === selectedId,
+                  }));
+                  setFurtherStudyOptions(updatedButtons);
+
+                  const selected = updatedButtons.find((btn) => btn.id === selectedId);
+                  if (selected) setFurtherStudy(selected.value);
+                }}
+                layout="row"
+              />
+
+            </View>
+            )}
+
+            {/* IF UNEMPLOYED */}
+            {form.presentlyEmployed === 'No' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>IF UNEMPLOYED</Text>
+              <Text style={styles.label}>
+              33. Reason for unemployment</Text>
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, family: !prev.family }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.family && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Family concerns and the decision not to find a job</Text>
+              </TouchableOpacity>
+              </View>
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, health: !prev.health }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.health && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Health-related reasons</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, experience: !prev.experience }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.experience && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Lack of work experience</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, noOpportunity: !prev.noOpportunity }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.noOpportunity && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>No job opportunity</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, notLooking: !prev.notLooking }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.notLooking && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Did not look for a job</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, seeking: !prev.seeking }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.seeking && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Seeking employment</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, study: !prev.study }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.study && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>For further study</Text>
+              </TouchableOpacity>
+              </View>
+
+              <View style={styles.checkboxItem}>
+              <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() =>
+                  setUnemploymentReasons((prev) => ({ ...prev, other: !prev.other }))
+                  }
+              >
+                  <View style={[styles.checkboxBox, unemploymentReasons.other && styles.checked]} />
+                  <Text style={styles.checkboxLabel}>Other</Text>
+              </TouchableOpacity>
+              </View>
+
+              {unemploymentReasons.other && (
+              <TextInput
+                  style={styles.input}
+                  placeholder="Other"
+                  value={unemploymentReasons.otherText}
+                  onChangeText={(text) =>
+                  setUnemploymentReasons((prev) => ({ ...prev, otherText: text }))
+                  }
+              />
+              )}
+            </View>
+            )}
+
+            {/* PART IV - Further Study */}
+            {furtherStudy === 'Yes' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>PART IV - Further Study</Text>
+              <Text style={styles.sectionDescription}>N/A if not applicable</Text> 
+
+              <Text style={styles.label}>34. Date Started</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="00/00/0000"
+                value={form.fsDateStart}
+                onChangeText={(v) => handleChange('fsDateStart', v)}
+              />  
+
+              <Text style={styles.label}>35. Please specify post graduate/degree</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Graduate Program"
+                value={form.postGrad}
+                onChangeText={(v) => handleChange('postGrad', v)}
+              />
+
+              <Text style={styles.label}>36. Name of Institution/University</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="University"
+                value={form.postGradUniv}
+                onChangeText={(v) => handleChange('postGradUniv', v)}
+              />
+
+              <Text style={styles.label}>37. Total number of units obtain</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Units"
+                value={form.totalUnits}
+                onChangeText={(v) => handleChange('totalUnits', v)}
+              />
+          </View>
+          )}
+
+            <TouchableOpacity 
+              style={[styles.button, submitting && styles.buttonDisabled]} 
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <View style={styles.buttonContent}>
+                  <ActivityIndicator size="small" color="#005c99" />
+                  <Text style={styles.buttonText}>Submitting...</Text>
+                </View>
+              ) : (
+                <Text style={styles.buttonText}>Submit</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        )}
+
+        {/* Privacy Notice Modal (matching web) */}
+        <Modal
+          visible={showPrivacyModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            // Don't allow closing without accepting
+            if (!privacyAccepted) {
+              Alert.alert('Privacy Notice', 'Please read and accept the Privacy Notice to continue.');
+            }
+          }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Privacy Notice</Text>
+                <Text style={styles.modalSubtitle}>Republic Act No. 10173 - Data Privacy Act of 2012</Text>
+              </View>
+              
+              <ScrollView 
+                style={styles.modalScrollView} 
+                contentContainerStyle={styles.modalScrollContent}
+                showsVerticalScrollIndicator={true}
+              >
+                <View style={styles.modalBody}>
+                  <Text style={styles.modalText}>
+                    We are committed to protecting your personal data in accordance with the Data Privacy Act of 2012. 
+                    The information you provide in this Tracer Form will be used solely for academic and institutional purposes.
+                  </Text>
+                  <Text style={styles.modalText}>
+                    Your personal data will be:
+                  </Text>
+                  <View style={styles.modalBulletList}>
+                    <Text style={styles.modalBullet}>• Collected and processed lawfully and fairly</Text>
+                    <Text style={styles.modalBullet}>• Used only for the stated purposes</Text>
+                    <Text style={styles.modalBullet}>• Kept accurate and up-to-date</Text>
+                    <Text style={styles.modalBullet}>• Stored securely and confidentially</Text>
+                    <Text style={styles.modalBullet}>• Not shared with unauthorized parties</Text>
+                  </View>
+                  <Text style={styles.modalText}>
+                    By proceeding with the Tracer Form, you acknowledge that you have read and understood this privacy notice.
+                  </Text>
+                  
+                  <TouchableOpacity
+                    style={[styles.modalCheckbox, privacyAccepted && styles.modalCheckboxChecked]}
+                    onPress={() => setPrivacyAccepted(!privacyAccepted)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.checkboxBox, privacyAccepted && styles.checked]} />
+                    <Text style={styles.modalCheckboxText}>
+                      I have read and understood the Privacy Notice and I voluntarily consent to the collection and use of my personal data for Tracer Form.
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+              
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonCancel]}
+                  onPress={() => {
+                    setShowPrivacyModal(false);
+                    setPrivacyAccepted(false);
+                    navigation.goBack();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modalButtonCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton, 
+                    styles.modalButtonAccept, 
+                    !privacyAccepted && styles.modalButtonDisabled
+                  ]}
+                  onPress={() => {
+                    if (privacyAccepted) {
+                      setShowPrivacyModal(false);
+                    } else {
+                      Alert.alert('Privacy Notice', 'Please accept the Privacy Notice to continue.');
+                    }
+                  }}
+                  disabled={!privacyAccepted}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[
+                    styles.modalButtonAcceptText,
+                    !privacyAccepted && styles.modalButtonAcceptTextDisabled
+                  ]}>
+                    Accept & Continue
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
-      
-      {/* Date Picker Modal */}
-      <Modal
-        visible={showDatePicker.visible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowDatePicker({ questionId: '', visible: false })}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.datePickerModalContent}>
-            {/* Header */}
-            <View style={styles.datePickerHeader}>
-              <View style={styles.datePickerIconContainer}>
-                <FontAwesome name="calendar" size={24} color="#174f84" />
+        </Modal>
+
+        {/* Job Alignment Confirmation Modal */}
+        <Modal
+          visible={showJobAlignmentModal.visible && showJobAlignmentModal.needsConfirmation}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowJobAlignmentModal({ questionId: '', position: '', visible: false, needsConfirmation: false })}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.jobAlignmentModalContent}>
+              {/* Header */}
+              <View style={styles.jobAlignmentHeader}>
+                <Text style={styles.jobAlignmentTitle}>🤔 Job Alignment Question</Text>
               </View>
-              <Text style={styles.datePickerTitle}>Select Date</Text>
-              <TouchableOpacity
-                style={styles.datePickerCloseButton}
-                onPress={() => setShowDatePicker({ questionId: '', visible: false })}
-              >
-                <FontAwesome name="times" size={18} color="#666" />
-              </TouchableOpacity>
-            </View>
-            
-            {/* Content */}
-            <View style={styles.datePickerBody}>
-              {/* Date Inputs in Grid */}
-              <View style={styles.dateInputGrid}>
-                {/* Year Input */}
-                <View style={styles.dateInputGroup}>
-                  <Text style={styles.dateInputLabel}>Year</Text>
-                  <TextInput
-                    style={styles.dateInputField}
-                    value={dateInputs.year}
-                    onChangeText={(year) => setDateInputs(prev => ({ ...prev, year }))}
-                    keyboardType="numeric"
-                    placeholder="YYYY"
-                    placeholderTextColor="#999"
-                    maxLength={4}
-                    selectTextOnFocus={true}
-                  />
-                  <Text style={styles.dateInputHint}>1900 - 2100</Text>
-                </View>
+              
+              {/* Content */}
+              <View style={styles.jobAlignmentBody}>
+                <Text style={styles.jobAlignmentQuestion}>
+                  {showJobAlignmentModal.suggestion?.question || `Is '${showJobAlignmentModal.position}' aligned to your program?`}
+                </Text>
                 
-                {/* Month Input */}
-                <View style={styles.dateInputGroup}>
-                  <Text style={styles.dateInputLabel}>Month</Text>
-                  <TextInput
-                    style={styles.dateInputField}
-                    value={dateInputs.month}
-                    onChangeText={(month) => setDateInputs(prev => ({ ...prev, month }))}
-                    keyboardType="numeric"
-                    placeholder="MM"
-                    placeholderTextColor="#999"
-                    maxLength={2}
-                    selectTextOnFocus={true}
-                  />
-                  <Text style={styles.dateInputHint}>1 - 12</Text>
-                </View>
-                
-                {/* Day Input */}
-                <View style={styles.dateInputGroup}>
-                  <Text style={styles.dateInputLabel}>Day</Text>
-                  <TextInput
-                    style={styles.dateInputField}
-                    value={dateInputs.day}
-                    onChangeText={(day) => setDateInputs(prev => ({ ...prev, day }))}
-                    keyboardType="numeric"
-                    placeholder="DD"
-                    placeholderTextColor="#999"
-                    maxLength={2}
-                    selectTextOnFocus={true}
-                  />
-                  <Text style={styles.dateInputHint}>1 - 31</Text>
+                {/* Radio Options */}
+                <View style={styles.jobAlignmentOptions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.jobAlignmentOption,
+                      jobAlignmentAnswer === 'yes' && styles.jobAlignmentOptionSelected
+                    ]}
+                    onPress={() => setJobAlignmentAnswer('yes')}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.radioCircle, jobAlignmentAnswer === 'yes' && styles.radioCircleSelected]}>
+                      {jobAlignmentAnswer === 'yes' && <View style={styles.radioCircleInner} />}
+                    </View>
+                    <Text style={[styles.jobAlignmentOptionText, jobAlignmentAnswer === 'yes' && styles.jobAlignmentOptionTextSelected]}>
+                      ✅ Yes, this job is aligned to my program
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.jobAlignmentOption,
+                      jobAlignmentAnswer === 'no' && styles.jobAlignmentOptionSelected
+                    ]}
+                    onPress={() => setJobAlignmentAnswer('no')}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.radioCircle, jobAlignmentAnswer === 'no' && styles.radioCircleSelected]}>
+                      {jobAlignmentAnswer === 'no' && <View style={styles.radioCircleInner} />}
+                    </View>
+                    <Text style={[styles.jobAlignmentOptionText, jobAlignmentAnswer === 'no' && styles.jobAlignmentOptionTextSelected]}>
+                      ❌ No, this job is not aligned to my program
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
               
-              {/* Preview Section */}
-              {(() => {
-                const year = parseInt(dateInputs.year);
-                const month = parseInt(dateInputs.month);
-                const day = parseInt(dateInputs.day);
-                if (!isNaN(year) && !isNaN(month) && !isNaN(day) && year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-                  const previewDate = new Date(year, month - 1, day);
-                  const maxDays = new Date(year, month, 0).getDate();
-                  if (day <= maxDays && !isNaN(previewDate.getTime())) {
-                    return (
-                      <View style={styles.datePreviewContainer}>
-                        <Text style={styles.datePreviewLabel}>Selected Date</Text>
-                        <View style={styles.datePreviewBox}>
-                          <FontAwesome name="check-circle" size={16} color="#28a745" style={{ marginRight: 8 }} />
-                          <Text style={styles.datePreviewText}>
-                            {year}-{String(month).padStart(2, '0')}-{String(day).padStart(2, '0')}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  }
-                }
-                return null;
-              })()}
+              {/* Footer */}
+              <View style={styles.jobAlignmentFooter}>
+                <TouchableOpacity
+                  style={[
+                    styles.jobAlignmentConfirmButton,
+                    (!jobAlignmentAnswer || checkingAlignment) && styles.jobAlignmentConfirmButtonDisabled
+                  ]}
+                  onPress={async () => {
+                    if (!jobAlignmentAnswer || checkingAlignment) return;
+                    
+                    try {
+                      setCheckingAlignment(true);
+                      const user = await getUserInfo();
+                      if (!user?.id && !user?.user_id) {
+                        Alert.alert('Error', 'User ID not found');
+                        return;
+                      }
+                      
+                      const userId = user.id || user.user_id;
+                      const employmentId = showJobAlignmentModal.suggestion?.employment_id || 0;
+                      
+                      const result = await confirmJobAlignment(employmentId, userId, jobAlignmentAnswer === 'yes');
+                      
+                      if (result.success) {
+                        // Update alignment status
+                        setJobAlignmentStatus({
+                          questionId: showJobAlignmentModal.questionId,
+                          status: result.job_alignment_status || (jobAlignmentAnswer === 'yes' ? 'aligned' : 'not_aligned')
+                        });
+                        
+                        // Close modal
+                        setShowJobAlignmentModal({ questionId: '', position: '', visible: false, needsConfirmation: false });
+                        setJobAlignmentAnswer(null);
+                      } else {
+                        Alert.alert('Error', 'Failed to confirm job alignment');
+                      }
+                    } catch (error) {
+                      console.error('Error confirming job alignment:', error);
+                      Alert.alert('Error', 'Failed to confirm job alignment');
+                    } finally {
+                      setCheckingAlignment(false);
+                    }
+                  }}
+                  disabled={!jobAlignmentAnswer || checkingAlignment}
+                  activeOpacity={0.7}
+                >
+                  {checkingAlignment ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.jobAlignmentConfirmButtonText}>Confirm Answer</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-            
-            {/* Footer Actions */}
-            <View style={styles.datePickerFooter}>
-              <TouchableOpacity
-                style={styles.datePickerButtonCancel}
-                onPress={() => setShowDatePicker({ questionId: '', visible: false })}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.datePickerButtonCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.datePickerButtonConfirm}
-                onPress={() => {
-                  // Validate inputs on confirm
+          </View>
+        </Modal>
+        
+        {/* Date Picker Modal */}
+        <Modal
+          visible={showDatePicker.visible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowDatePicker({ questionId: '', visible: false })}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.datePickerModalContent}>
+              {/* Header */}
+              <View style={styles.datePickerHeader}>
+                <View style={styles.datePickerIconContainer}>
+                  <FontAwesome name="calendar" size={24} color="#174f84" />
+                </View>
+                <Text style={styles.datePickerTitle}>Select Date</Text>
+                <TouchableOpacity
+                  style={styles.datePickerCloseButton}
+                  onPress={() => setShowDatePicker({ questionId: '', visible: false })}
+                >
+                  <FontAwesome name="times" size={18} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              {/* Content */}
+              <View style={styles.datePickerBody}>
+                {/* Date Inputs in Grid */}
+                <View style={styles.dateInputGrid}>
+                  {/* Year Input */}
+                  <View style={styles.dateInputGroup}>
+                    <Text style={styles.dateInputLabel}>Year</Text>
+                    <TextInput
+                      style={styles.dateInputField}
+                      value={dateInputs.year}
+                      onChangeText={(year) => setDateInputs(prev => ({ ...prev, year }))}
+                      keyboardType="numeric"
+                      placeholder="YYYY"
+                      placeholderTextColor="#999"
+                      maxLength={4}
+                      selectTextOnFocus={true}
+                    />
+                    <Text style={styles.dateInputHint}>1900 - 2100</Text>
+                  </View>
+                  
+                  {/* Month Input */}
+                  <View style={styles.dateInputGroup}>
+                    <Text style={styles.dateInputLabel}>Month</Text>
+                    <TextInput
+                      style={styles.dateInputField}
+                      value={dateInputs.month}
+                      onChangeText={(month) => setDateInputs(prev => ({ ...prev, month }))}
+                      keyboardType="numeric"
+                      placeholder="MM"
+                      placeholderTextColor="#999"
+                      maxLength={2}
+                      selectTextOnFocus={true}
+                    />
+                    <Text style={styles.dateInputHint}>1 - 12</Text>
+                  </View>
+                  
+                  {/* Day Input */}
+                  <View style={styles.dateInputGroup}>
+                    <Text style={styles.dateInputLabel}>Day</Text>
+                    <TextInput
+                      style={styles.dateInputField}
+                      value={dateInputs.day}
+                      onChangeText={(day) => setDateInputs(prev => ({ ...prev, day }))}
+                      keyboardType="numeric"
+                      placeholder="DD"
+                      placeholderTextColor="#999"
+                      maxLength={2}
+                      selectTextOnFocus={true}
+                    />
+                    <Text style={styles.dateInputHint}>1 - 31</Text>
+                  </View>
+                </View>
+                
+                {/* Preview Section */}
+                {(() => {
                   const year = parseInt(dateInputs.year);
                   const month = parseInt(dateInputs.month);
                   const day = parseInt(dateInputs.day);
-                  
-                  if (isNaN(year) || isNaN(month) || isNaN(day)) {
-                    Alert.alert('Invalid Date', 'Please enter year, month, and day');
-                    return;
+                  if (!isNaN(year) && !isNaN(month) && !isNaN(day) && year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                    const previewDate = new Date(year, month - 1, day);
+                    const maxDays = new Date(year, month, 0).getDate();
+                    if (day <= maxDays && !isNaN(previewDate.getTime())) {
+                      return (
+                        <View style={styles.datePreviewContainer}>
+                          <Text style={styles.datePreviewLabel}>Selected Date</Text>
+                          <View style={styles.datePreviewBox}>
+                            <FontAwesome name="check-circle" size={16} color="#28a745" style={{ marginRight: 8 }} />
+                            <Text style={styles.datePreviewText}>
+                              {year}-{String(month).padStart(2, '0')}-{String(day).padStart(2, '0')}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    }
                   }
-                  
-                  if (year < 1900 || year > 2100) {
-                    Alert.alert('Invalid Year', 'Year must be between 1900 and 2100');
-                    return;
-                  }
-                  
-                  if (month < 1 || month > 12) {
-                    Alert.alert('Invalid Month', 'Month must be between 1 and 12');
-                    return;
-                  }
-                  
-                  const maxDays = new Date(year, month, 0).getDate();
-                  if (day < 1 || day > maxDays) {
-                    Alert.alert('Invalid Day', `Day must be between 1 and ${maxDays} for ${year}-${String(month).padStart(2, '0')}`);
-                    return;
-                  }
-                  
-                  const finalDate = new Date(year, month - 1, day);
-                  if (isNaN(finalDate.getTime())) {
-                    Alert.alert('Invalid Date', 'Please enter a valid date');
-                    return;
-                  }
-                  
-                  // Format as YYYY-MM-DD
-                  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                  setResponse(showDatePicker.questionId, dateStr);
-                  setShowDatePicker({ questionId: '', visible: false });
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.datePickerButtonConfirmText}>Confirm</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-      
-      {/* Employment Duration Picker Modal */}
-      <Modal
-        visible={showEmploymentDurationPicker.visible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowEmploymentDurationPicker({ questionId: '', visible: false })}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.pickerModalContent}>
-            <View style={styles.pickerModalHeader}>
-              <Text style={styles.pickerModalTitle}>Select Employment Duration</Text>
-              <TouchableOpacity
-                onPress={() => setShowEmploymentDurationPicker({ questionId: '', visible: false })}
-              >
-                <FontAwesome name="times" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.pickerModalScrollView} nestedScrollEnabled={true}>
-              {[
-                { value: 'less_than_6_months', label: 'Less than 6 months' },
-                { value: '6_months_1_year', label: '6 months – 1 year' },
-                { value: '1_2_years', label: '1 – 2 years' },
-                { value: '3_5_years', label: '3 – 5 years' },
-                { value: 'more_than_5_years', label: 'More than 5 years' }
-              ].map((opt) => (
+                  return null;
+                })()}
+              </View>
+              
+              {/* Footer Actions */}
+              <View style={styles.datePickerFooter}>
                 <TouchableOpacity
-                  key={opt.value}
-                  style={styles.pickerModalOption}
+                  style={styles.datePickerButtonCancel}
+                  onPress={() => setShowDatePicker({ questionId: '', visible: false })}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.datePickerButtonCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.datePickerButtonConfirm}
                   onPress={() => {
-                    setResponse(showEmploymentDurationPicker.questionId, opt.value);
-                    setShowEmploymentDurationPicker({ questionId: '', visible: false });
+                    // Validate inputs on confirm
+                    const year = parseInt(dateInputs.year);
+                    const month = parseInt(dateInputs.month);
+                    const day = parseInt(dateInputs.day);
+                    
+                    if (isNaN(year) || isNaN(month) || isNaN(day)) {
+                      Alert.alert('Invalid Date', 'Please enter year, month, and day');
+                      return;
+                    }
+                    
+                    if (year < 1900 || year > 2100) {
+                      Alert.alert('Invalid Year', 'Year must be between 1900 and 2100');
+                      return;
+                    }
+                    
+                    if (month < 1 || month > 12) {
+                      Alert.alert('Invalid Month', 'Month must be between 1 and 12');
+                      return;
+                    }
+                    
+                    const maxDays = new Date(year, month, 0).getDate();
+                    if (day < 1 || day > maxDays) {
+                      Alert.alert('Invalid Day', `Day must be between 1 and ${maxDays} for ${year}-${String(month).padStart(2, '0')}`);
+                      return;
+                    }
+                    
+                    const finalDate = new Date(year, month - 1, day);
+                    if (isNaN(finalDate.getTime())) {
+                      Alert.alert('Invalid Date', 'Please enter a valid date');
+                      return;
+                    }
+                    
+                    // Format as YYYY-MM-DD
+                    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    setResponse(showDatePicker.questionId, dateStr);
+                    setShowDatePicker({ questionId: '', visible: false });
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.pickerModalOptionText}>{opt.label}</Text>
-                  {responses[showEmploymentDurationPicker.questionId] === opt.value && (
-                    <FontAwesome name="check" size={16} color="#174f84" />
-                  )}
+                  <Text style={styles.datePickerButtonConfirmText}>Confirm</Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-      
-      {/* Salary Range Picker Modal */}
-      <Modal
-        visible={showSalaryRangePicker.visible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowSalaryRangePicker({ questionId: '', visible: false })}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.pickerModalContent}>
-            <View style={styles.pickerModalHeader}>
-              <Text style={styles.pickerModalTitle}>Select Salary Range</Text>
-              <TouchableOpacity
-                onPress={() => setShowSalaryRangePicker({ questionId: '', visible: false })}
-              >
-                <FontAwesome name="times" size={20} color="#666" />
-              </TouchableOpacity>
+              </View>
             </View>
-            <ScrollView style={styles.pickerModalScrollView} nestedScrollEnabled={true}>
-              {[
-                { value: 'below_5000', label: '5,000 below' },
-                { value: '5001_10000', label: '5,001 to 10,000' },
-                { value: '10001_20000', label: '10,001 to 20,000' },
-                { value: '20001_30000', label: '20,001 to 30,000' },
-                { value: 'above_30000', label: '30,000 above' }
-              ].map((opt) => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={styles.pickerModalOption}
-                  onPress={() => {
-                    setResponse(showSalaryRangePicker.questionId, opt.value);
-                    setShowSalaryRangePicker({ questionId: '', visible: false });
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.pickerModalOptionText}>{opt.label}</Text>
-                  {responses[showSalaryRangePicker.questionId] === opt.value && (
-                    <FontAwesome name="check" size={16} color="#174f84" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
           </View>
-        </View>
-      </Modal>
-      
-      <TermsAndConditionsModal
-        isVisible={showTermsModal}
-        onClose={handleTermsClose}
-        onAccept={handleTermsAccept}
-      />
-      
-      {/* Auto-save status indicator (matching web) */}
-      {saveStatus && (
-        <View style={styles.saveStatusIndicator}>
-          <Text style={styles.saveStatusText}>
-            {saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? 'Saving...' : 'Unsaved'}
-          </Text>
-        </View>
-      )}
-    </View>
+        </Modal>
+        
+        {/* Employment Duration Picker Modal */}
+        <Modal
+          visible={showEmploymentDurationPicker.visible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowEmploymentDurationPicker({ questionId: '', visible: false })}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerModalHeader}>
+                <Text style={styles.pickerModalTitle}>Select Employment Duration</Text>
+                <TouchableOpacity
+                  onPress={() => setShowEmploymentDurationPicker({ questionId: '', visible: false })}
+                >
+                  <FontAwesome name="times" size={20} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerModalScrollView} nestedScrollEnabled={true}>
+                {[
+                  { value: 'less_than_6_months', label: 'Less than 6 months' },
+                  { value: '6_months_1_year', label: '6 months – 1 year' },
+                  { value: '1_2_years', label: '1 – 2 years' },
+                  { value: '3_5_years', label: '3 – 5 years' },
+                  { value: 'more_than_5_years', label: 'More than 5 years' }
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={styles.pickerModalOption}
+                    onPress={() => {
+                      setResponse(showEmploymentDurationPicker.questionId, opt.value);
+                      setShowEmploymentDurationPicker({ questionId: '', visible: false });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.pickerModalOptionText}>{opt.label}</Text>
+                    {responses[showEmploymentDurationPicker.questionId] === opt.value && (
+                      <FontAwesome name="check" size={16} color="#174f84" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+        
+        {/* Salary Range Picker Modal */}
+        <Modal
+          visible={showSalaryRangePicker.visible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowSalaryRangePicker({ questionId: '', visible: false })}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerModalHeader}>
+                <Text style={styles.pickerModalTitle}>Select Salary Range</Text>
+                <TouchableOpacity
+                  onPress={() => setShowSalaryRangePicker({ questionId: '', visible: false })}
+                >
+                  <FontAwesome name="times" size={20} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerModalScrollView} nestedScrollEnabled={true}>
+                {[
+                  { value: 'below_5000', label: '5,000 below' },
+                  { value: '5001_10000', label: '5,001 to 10,000' },
+                  { value: '10001_20000', label: '10,001 to 20,000' },
+                  { value: '20001_30000', label: '20,001 to 30,000' },
+                  { value: 'above_30000', label: '30,000 above' }
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={styles.pickerModalOption}
+                    onPress={() => {
+                      setResponse(showSalaryRangePicker.questionId, opt.value);
+                      setShowSalaryRangePicker({ questionId: '', visible: false });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.pickerModalOptionText}>{opt.label}</Text>
+                    {responses[showSalaryRangePicker.questionId] === opt.value && (
+                      <FontAwesome name="check" size={16} color="#174f84" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+        
+        <TermsAndConditionsModal
+          isVisible={showTermsModal}
+          onClose={handleTermsClose}
+          onAccept={handleTermsAccept}
+        />
+        
+        {/* Auto-save status indicator (matching web) */}
+        {saveStatus && (
+          <View style={styles.saveStatusIndicator}>
+            <Text style={styles.saveStatusText}>
+              {saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? 'Saving...' : 'Unsaved'}
+            </Text>
+          </View>
+        )}
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 

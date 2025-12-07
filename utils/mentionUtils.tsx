@@ -95,8 +95,10 @@ export const renderTextWithMentions = (
     // and stops at the first space, punctuation, or end of string
     // Updated to use greedy matching to capture full names with spaces
     let lastIndex = 0;
-    // Match @ followed by name (with spaces allowed), stopping at space, punctuation, or end
-    // The lookahead ensures we don't consume the space/punctuation after the mention
+    // Match mentions like "@First Last" (any number of name segments) and stop before following text.
+    // Examples: "@John", "@John Doe", "@John Michael Doe".
+    // The lookahead ensures we stop at a space, punctuation, another "@", or end of string,
+    // so trailing text like " hello" is not part of the clickable mention.
     const mentionRegexLocal = /@([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)(?=\s|$|[,.;:!?\-]|@)/g;
     
     // Reset regex lastIndex to ensure proper matching

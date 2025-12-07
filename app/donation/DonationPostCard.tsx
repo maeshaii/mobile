@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Alert, Modal, ScrollView, Dimensions } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Modal, ScrollView, Dimensions, Alert } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import dayjs from 'dayjs';
@@ -37,7 +37,7 @@ interface Props {
 
 const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
-  const { showAlert } = useAlert();
+  const { showConfirm, showAlert } = useAlert();
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
@@ -99,36 +99,32 @@ const DonationPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, 
   };
 
   const handleDelete = () => {
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await deleteDonationPost(post.post_id);
-              if (response.success !== false) {
-                showAlert({
-                  title: 'Success',
-                  message: 'Post deleted successfully.',
-                  type: 'success',
-                  variant: 'success',
-                });
-                onDeleted?.(post.post_id);
-              } else {
-                Alert.alert('Error', response.message || 'Failed to delete post.');
-              }
-            } catch (error: any) {
-              console.error('Error deleting post:', error);
-              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Failed to delete post');
-            }
-          },
-        },
-      ]
-    );
+    setShowActions(false);
+    showConfirm({
+      title: 'Delete Post',
+      message: 'Are you sure you want to delete this post?',
+      confirmText: 'Delete',
+      type: 'warning',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await deleteDonationPost(post.post_id);
+          onDeleted?.(post.post_id);
+          showAlert({
+            title: 'Success',
+            message: 'Post deleted successfully.',
+            type: 'success',
+            variant: 'success',
+          });
+        } catch {
+          showAlert({
+            title: 'Error',
+            message: 'Failed to delete post. Please try again.',
+            type: 'error',
+          });
+        }
+      },
+    });
   };
 
 

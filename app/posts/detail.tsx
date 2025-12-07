@@ -4,7 +4,49 @@ import CachedImage from '../../components/CachedImage';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { getPostDetail, getForumDetail, getDonationDetail, getUserInfo, followUser, unfollowUser, checkFollowStatus, commentOnPost, getPostComments, getForumComments, getDonationComments, updateComment, deleteComment, likePost, unlikePost, repostPost, API_BASE_URL, getPostLikes, getPostReposts, getCommentReplies, createCommentReply, updateCommentReply, deleteCommentReply, editPost, deletePost } from '../../services/api';
+import { 
+  getPostDetail, 
+  getForumDetail, 
+  getDonationDetail, 
+  getUserInfo, 
+  followUser, 
+  unfollowUser, 
+  checkFollowStatus, 
+  commentOnPost, 
+  commentOnForumPost,
+  commentOnDonationPost,
+  getPostComments, 
+  getForumComments, 
+  getDonationComments, 
+  updateComment, 
+  deleteComment, 
+  updateForumComment,
+  deleteForumComment,
+  updateDonationComment,
+  deleteDonationComment,
+  likePost, 
+  unlikePost, 
+  likeForumPost,
+  unlikeForumPost,
+  likeDonationPost,
+  unlikeDonationPost,
+  repostPost, 
+  repostForumPost,
+  repostDonationPost,
+  API_BASE_URL, 
+  getPostLikes, 
+  getPostReposts, 
+  getCommentReplies, 
+  createCommentReply, 
+  updateCommentReply, 
+  deleteCommentReply, 
+  editPost, 
+  editForumPost,
+  editDonationPost,
+  deletePost,
+  deleteForumPost,
+  deleteDonationPost
+} from '../../services/api';
 import UserAvatar from '../../components/UserAvatar';
 import { renderTextWithMentions } from '../../utils/mentionUtils';
 import MentionInput from '../../components/MentionInput';
@@ -242,7 +284,15 @@ export default function PostDetailScreen() {
     if (!postId || !commentText.trim()) return;
     try {
       setSubmittingComment(true);
-      await commentOnPost(postId, commentText.trim());
+      const trimmed = commentText.trim();
+
+      if (isForumPost) {
+        await commentOnForumPost(postId, trimmed);
+      } else if (isDonationPost) {
+        await commentOnDonationPost(postId, trimmed);
+      } else {
+        await commentOnPost(postId, trimmed);
+      }
       setCommentText('');
       await loadComments();
     } catch (error: any) {
@@ -257,7 +307,15 @@ export default function PostDetailScreen() {
   const handleUpdateComment = async (commentId: number) => {
     if (!editText.trim()) return;
     try {
-      await updateComment(postId!, commentId, editText.trim());
+      const trimmed = editText.trim();
+
+      if (isForumPost) {
+        await updateForumComment(postId!, commentId, trimmed);
+      } else if (isDonationPost) {
+        await updateDonationComment(postId!, commentId, trimmed);
+      } else {
+        await updateComment(postId!, commentId, trimmed);
+      }
       setEditingId(null);
       setEditText('');
       await loadComments();
@@ -268,7 +326,13 @@ export default function PostDetailScreen() {
 
   const handleDeleteComment = async (commentId: number) => {
     try {
-      await deleteComment(postId!, commentId);
+      if (isForumPost) {
+        await deleteForumComment(postId!, commentId);
+      } else if (isDonationPost) {
+        await deleteDonationComment(postId!, commentId);
+      } else {
+        await deleteComment(postId!, commentId);
+      }
       await loadComments();
     } catch {
       Alert.alert('Error', 'Failed to delete comment');
@@ -282,15 +346,22 @@ export default function PostDetailScreen() {
       // Preserve existing images before editing
       const existingImages = getImagesFromContent(post);
       
-      // Update the original post content/caption
-      await editPost(postId, { post_content: editPostContent.trim() });
+      // Update the original post content/caption based on post type
+      if (isForumPost) {
+        await editForumPost(postId, { post_content: editPostContent.trim() });
+      } else if (isDonationPost) {
+        await editDonationPost(postId, { description: editPostContent.trim() });
+      } else {
+        await editPost(postId, { post_content: editPostContent.trim() });
+      }
       
       // Update the post state immediately for better UX, preserving images
       setPost((prev: any) => ({
         ...prev,
         post_content: editPostContent.trim(),
-        // Also update caption if it exists
+        // Also update caption/description fields if they exist
         caption: editPostContent.trim(),
+        description: editPostContent.trim(),
         // Preserve existing images - ensure post_images is maintained
         post_images: prev.post_images || existingImages.map(img => ({
           image_id: img.image_id,
@@ -303,7 +374,7 @@ export default function PostDetailScreen() {
       
       showAlert({
         title: 'Success',
-        message: 'Post updated successfully!',
+        message: isDonationPost ? 'Donation updated successfully!' : 'Post updated successfully!',
         type: 'success',
         variant: 'success',
       });
@@ -343,10 +414,16 @@ export default function PostDetailScreen() {
     if (!postId) return;
     try {
       setActionLoading(true);
-      await deletePost(postId); // This should cascade delete all reposts
+      if (isForumPost) {
+        await deleteForumPost(postId);
+      } else if (isDonationPost) {
+        await deleteDonationPost(postId);
+      } else {
+        await deletePost(postId); // This should cascade delete all reposts
+      }
       showAlert({
         title: 'Success',
-        message: 'Post and all its reposts have been deleted successfully!',
+        message: isDonationPost ? 'Donation and all its reposts have been deleted successfully!' : 'Post and all its reposts have been deleted successfully!',
         type: 'success',
         variant: 'success',
       });
@@ -915,17 +992,38 @@ export default function PostDetailScreen() {
               if (!postId || actionLoading) return;
               try {
                 setActionLoading(true);
-                if (isLiked) {
-                  await unlikePost(postId);
-                  setIsLiked(false);
-                  // Update post data
-                  const updatedPost = await getPostDetail(postId);
-                  setPost(updatedPost);
+                let updatedPost: any = null;
+
+                if (isForumPost) {
+                  if (isLiked) {
+                    await unlikeForumPost(postId);
+                    setIsLiked(false);
+                  } else {
+                    await likeForumPost(postId);
+                    setIsLiked(true);
+                  }
+                  updatedPost = await getForumDetail(postId);
+                } else if (isDonationPost) {
+                  if (isLiked) {
+                    await unlikeDonationPost(postId);
+                    setIsLiked(false);
+                  } else {
+                    await likeDonationPost(postId);
+                    setIsLiked(true);
+                  }
+                  updatedPost = await getDonationDetail(postId);
                 } else {
-                  await likePost(postId);
-                  setIsLiked(true);
-                  // Update post data
-                  const updatedPost = await getPostDetail(postId);
+                  if (isLiked) {
+                    await unlikePost(postId);
+                    setIsLiked(false);
+                  } else {
+                    await likePost(postId);
+                    setIsLiked(true);
+                  }
+                  updatedPost = await getPostDetail(postId);
+                }
+
+                if (updatedPost) {
                   setPost(updatedPost);
                 }
               } catch (error) {
@@ -959,7 +1057,14 @@ export default function PostDetailScreen() {
               if (!postId || actionLoading) return;
               try {
                 setActionLoading(true);
-                await repostPost(postId);
+
+                if (isForumPost) {
+                  await repostForumPost(postId);
+                } else if (isDonationPost) {
+                  await repostDonationPost(postId);
+                } else {
+                  await repostPost(postId);
+                }
                 showAlert({
                   title: 'Success',
                   message: 'Post shared successfully!',
@@ -967,8 +1072,14 @@ export default function PostDetailScreen() {
                   variant: 'success',
                 });
                 // Update post data
-                const updatedPost = await getPostDetail(postId);
-                setPost(updatedPost);
+                const updatedPost = isForumPost
+                  ? await getForumDetail(postId)
+                  : isDonationPost
+                    ? await getDonationDetail(postId)
+                    : await getPostDetail(postId);
+                if (updatedPost) {
+                  setPost(updatedPost);
+                }
               } catch (error) {
                 Alert.alert('Error', 'Failed to share post');
               } finally {
@@ -1626,10 +1737,16 @@ export default function PostDetailScreen() {
                           if (!postId) return;
                           try {
                             setActionLoading(true);
-                            await deletePost(postId);
+                            if (isForumPost) {
+                              await deleteForumPost(postId);
+                            } else if (isDonationPost) {
+                              await deleteDonationPost(postId);
+                            } else {
+                              await deletePost(postId);
+                            }
                             showAlert({
                               title: 'Success',
-                              message: 'Post and all its reposts have been deleted successfully!',
+                              message: isDonationPost ? 'Donation and all its reposts have been deleted successfully!' : 'Post and all its reposts have been deleted successfully!',
                               type: 'success',
                               variant: 'success',
                             });

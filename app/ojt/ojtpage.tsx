@@ -326,27 +326,14 @@ export default function OJTPage() {
   const renderPostsWithSuggestions = () => {
     const elements: React.ReactNode[] = [];
     
-    // For users with fewer than 2 posts, show People You May Know immediately
-    const shouldShowImmediately = posts.length < 2;
-    
-    if (shouldShowImmediately) {
-      elements.push(
-        <View key="people-you-may-know">
-          <PeopleYouMayKnowCard />
-        </View>
-      );
-    }
+    // Always show People You May Know at the top
+    elements.push(
+      <View key="people-you-may-know">
+        <PeopleYouMayKnowCard />
+      </View>
+    );
     
     posts.forEach((item, index) => {
-      // Add People You May Know after the first 2 posts (only if not shown immediately)
-      if (index === 2 && !shouldShowImmediately) {
-        elements.push(
-          <View key="people-you-may-know">
-            <PeopleYouMayKnowCard />
-          </View>
-        );
-      }
-      
       if (item.item_type === 'repost') {
         elements.push(
           <RepostCard

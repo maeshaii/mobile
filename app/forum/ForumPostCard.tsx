@@ -49,7 +49,7 @@ interface Props {
 
 const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onOpenViewer, onEdited, onDeleted, onRepostToggle }) => {
   const router = useRouter();
-  const { showAlert } = useAlert();
+  const { showConfirm, showAlert } = useAlert();
 
   // Local state
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
@@ -149,35 +149,31 @@ const ForumPostCard: React.FC<Props> = ({ post, currentUserId, onLikeToggle, onO
 
   const handleDelete = async () => {
     setShowActions(false);
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await deleteForumPost(post.post_id);
-              if (response.success !== false) {
-                showAlert({
-                  title: 'Success',
-                  message: 'Post deleted successfully.',
-                  type: 'success',
-                  variant: 'success',
-                });
-                onDeleted?.(post.post_id);
-              } else {
-                Alert.alert('Error', response.message || 'Failed to delete post.');
-              }
-            } catch (error: any) {
-              Alert.alert('Error', error?.response?.data?.error || error?.message || 'Could not delete post.');
-            }
-          }
+    showConfirm({
+      title: 'Delete Post',
+      message: 'Are you sure you want to delete this post?',
+      confirmText: 'Delete',
+      type: 'warning',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await deleteForumPost(post.post_id);
+          onDeleted?.(post.post_id);
+          showAlert({
+            title: 'Success',
+            message: 'Post deleted successfully.',
+            type: 'success',
+            variant: 'success',
+          });
+        } catch {
+          showAlert({
+            title: 'Error',
+            message: 'Failed to delete post. Please try again.',
+            type: 'error',
+          });
         }
-      ]
-    );
+      },
+    });
   };
 
 

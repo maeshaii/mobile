@@ -1683,33 +1683,33 @@ export default function RepostCommentsScreen() {
                 style={styles.sheetRow}
                 onPress={() => {
                   setActionForRepost(false);
-                  Alert.alert(
-                    'Delete Repost',
-                    'Are you sure you want to delete this repost?',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            console.log('Deleting repost:', repost.repost_id);
-                            await deleteRepost(repost.repost_id);
-                            showAlert({
-                              title: 'Success',
-                              message: 'Repost deleted successfully!',
-                              type: 'success',
-                              variant: 'success',
-                            });
-                            router.back();
-                          } catch (error) {
-                            console.error('Error deleting repost:', error);
-                            Alert.alert('Error', 'Failed to delete repost. Please try again.');
-                          }
-                        }
+                  showConfirm({
+                    title: 'Delete Repost',
+                    message: 'Are you sure you want to delete this repost?',
+                    confirmText: 'Delete',
+                    type: 'warning',
+                    destructive: true,
+                    onConfirm: async () => {
+                      try {
+                        console.log('Deleting repost:', repost.repost_id);
+                        await deleteRepost(repost.repost_id);
+                        showAlert({
+                          title: 'Success',
+                          message: 'Repost deleted successfully!',
+                          type: 'success',
+                          variant: 'success',
+                        });
+                        router.back();
+                      } catch (error) {
+                        console.error('Error deleting repost:', error);
+                        showAlert({
+                          title: 'Error',
+                          message: 'Failed to delete repost. Please try again.',
+                          type: 'error',
+                        });
                       }
-                    ]
-                  );
+                    },
+                  });
                 }}
               >
                 <FontAwesome name="trash" size={18} color="#dc2626" style={{ marginRight: 8 }} />

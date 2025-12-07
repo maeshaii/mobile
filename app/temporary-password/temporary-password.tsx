@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   ScrollView,
   SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,6 +34,8 @@ export default function TemporaryPasswordScreen() {
   const [showOld, setShowOld] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const confirmPasswordInputRef = useRef<TextInput>(null);
 
   const handleCopyPassword = async () => {
     try {
@@ -135,13 +139,20 @@ export default function TemporaryPasswordScreen() {
     return (
       <View style={styles.gradientBackground}>
         <SafeAreaView style={styles.firstTimeContainer}>
-          <ScrollView 
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
+          <KeyboardAvoidingView
+            style={styles.keyboardAvoidingView}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
-            {/* Central Card */}
-            <View style={styles.centralCard}>
+            <ScrollView 
+              ref={scrollViewRef}
+              style={styles.scrollView}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Central Card */}
+              <View style={styles.centralCard}>
               {/* Header with Back Button and Title */}
               <View style={styles.cardHeader}>
                 <TouchableOpacity 
@@ -191,14 +202,31 @@ export default function TemporaryPasswordScreen() {
                 Must be 16+ chars with upper, lower, number, and symbol.
               </Text>
               {newPassword.length > 0 && (
-                <Text style={styles.strengthText}>
-                  Strength: {passwordValidation.message}
-                </Text>
+                <View style={[
+                  styles.strengthContainer,
+                  passwordValidation.message === 'Weak' ? styles.strengthWeak :
+                  passwordValidation.message === 'Medium' ? styles.strengthMedium :
+                  styles.strengthStrong
+                ]}>
+                  <Text style={[
+                    styles.strengthLabel,
+                    passwordValidation.message === 'Weak' ? styles.strengthTextWeak :
+                    passwordValidation.message === 'Medium' ? styles.strengthTextMedium :
+                    styles.strengthTextStrong
+                  ]}>Strength:</Text>
+                  <Text style={[
+                    styles.strengthValue,
+                    passwordValidation.message === 'Weak' ? styles.strengthTextWeak :
+                    passwordValidation.message === 'Medium' ? styles.strengthTextMedium :
+                    styles.strengthTextStrong
+                  ]}>{passwordValidation.message}</Text>
+                </View>
               )}
               
               <Text style={styles.label}>Confirm Password</Text>
               <View style={styles.inputWithIcon}>
                 <TextInput
+                  ref={confirmPasswordInputRef}
                   style={styles.input}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
@@ -207,6 +235,12 @@ export default function TemporaryPasswordScreen() {
                   editable={!isLoading}
                   placeholder="Confirm your new password"
                   placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                  onFocus={() => {
+                    // Scroll to end when confirm password input is focused to ensure it's visible
+                    setTimeout(() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
@@ -239,7 +273,8 @@ export default function TemporaryPasswordScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </ScrollView>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </View>
     );
@@ -309,6 +344,9 @@ const styles = StyleSheet.create({
   firstTimeContainer: {
     flex: 1,
   },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
@@ -317,6 +355,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
     paddingVertical: 40,
+    paddingBottom: 60, // Extra padding to ensure button is accessible when keyboard is open
   },
   centralCard: {
     backgroundColor: '#1a4d7a',
@@ -421,11 +460,45 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     opacity: 0.9,
   },
-  strengthText: {
-    fontSize: 12,
-    color: '#ffffff',
-    marginBottom: 8,
-    fontWeight: '500',
+  strengthContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 2,
+    fontWeight: '600',
+  },
+  strengthLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  strengthValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  strengthWeak: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: 'rgba(239, 68, 68, 0.5)',
+  },
+  strengthMedium: {
+    backgroundColor: 'rgba(234, 179, 8, 0.2)',
+    borderColor: 'rgba(234, 179, 8, 0.5)',
+  },
+  strengthStrong: {
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    borderColor: 'rgba(34, 197, 94, 0.5)',
+  },
+  strengthTextWeak: {
+    color: '#fca5a5',
+  },
+  strengthTextMedium: {
+    color: '#fde047',
+  },
+  strengthTextStrong: {
+    color: '#86efac',
   },
   errorText: {
     color: '#ffb3b3',
