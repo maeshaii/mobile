@@ -1094,6 +1094,21 @@ export default function PostCommentsScreen() {
           data={comments}
           keyExtractor={(c) => String(c.comment_id)}
           renderItem={renderComment}
+          onScrollToIndexFailed={({ index, averageItemLength }) => {
+            // Fallback when the list cannot compute an offscreen index
+            const fallbackOffset = (averageItemLength || 80) * index;
+            flatListRef.current?.scrollToOffset({
+              offset: fallbackOffset,
+              animated: true,
+            });
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index,
+                animated: true,
+                viewPosition: 0.3,
+              });
+            }, 250);
+          }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }

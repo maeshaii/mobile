@@ -601,47 +601,106 @@ const NotificationScreen = () => {
     }
 
     // When user mentions me in a comment or reply → go to that post's comments with comment/reply highlighted
+    // Prioritize comment_id/reply_id to ensure we highlight the specific comment/reply
     if (type === 'mention' || message?.includes('mentioned')) {
-      if (item.post_id) {
-        const params: any = { postId: item.post_id };
-        if (item.reply_id) {
-          params.highlightReplyId = item.reply_id.toString();
-          params.highlightCommentId = item.comment_id?.toString();
-        } else if (item.comment_id) {
-          params.highlightCommentId = item.comment_id.toString();
+      // Prioritize comment_id and reply_id - if they exist, we need to navigate to comments with highlighting
+      if (item.comment_id || item.reply_id) {
+        // Check for repost first (comment/reply on repost)
+        if (item.repost_id) {
+          const params: any = { repostId: item.repost_id };
+          if (item.reply_id) {
+            params.highlightReplyId = item.reply_id.toString();
+            params.highlightCommentId = item.comment_id?.toString();
+          } else if (item.comment_id) {
+            params.highlightCommentId = item.comment_id.toString();
+          }
+          router.push({
+            pathname: '/repost/repost-comments',
+            params,
+          });
+          return;
         }
+        // Check for forum post
+        else if (item.forum_id) {
+          const params: any = { 
+            postId: item.forum_id,
+            isForumPost: 'true',
+          };
+          if (item.reply_id) {
+            params.highlightReplyId = item.reply_id.toString();
+            params.highlightCommentId = item.comment_id?.toString();
+          } else if (item.comment_id) {
+            params.highlightCommentId = item.comment_id.toString();
+          }
+          router.push({
+            pathname: '/posts/comments',
+            params,
+          });
+          return;
+        }
+        // Check for donation post
+        else if (item.donation_id) {
+          const params: any = { 
+            postId: item.donation_id,
+            isDonationPost: 'true',
+          };
+          if (item.reply_id) {
+            params.highlightReplyId = item.reply_id.toString();
+            params.highlightCommentId = item.comment_id?.toString();
+          } else if (item.comment_id) {
+            params.highlightCommentId = item.comment_id.toString();
+          }
+          router.push({
+            pathname: '/posts/comments',
+            params,
+          });
+          return;
+        }
+        // Regular post with comment/reply
+        else if (item.post_id) {
+          const params: any = { postId: item.post_id };
+          if (item.reply_id) {
+            params.highlightReplyId = item.reply_id.toString();
+            params.highlightCommentId = item.comment_id?.toString();
+          } else if (item.comment_id) {
+            params.highlightCommentId = item.comment_id.toString();
+          }
+          router.push({
+            pathname: '/posts/comments',
+            params,
+          });
+          return;
+        }
+      }
+      // Fallback: if no comment_id/reply_id, navigate to post (mention in post content)
+      else if (item.repost_id) {
         router.push({
-          pathname: '/posts/comments',
-          params,
+          pathname: '/repost/repost-comments',
+          params: { repostId: item.repost_id },
         });
         return;
       } else if (item.forum_id) {
-        const params: any = { 
-          postId: item.forum_id,
-          isForumPost: 'true',
-        };
-        if (item.reply_id) {
-          params.highlightReplyId = item.reply_id.toString();
-          params.highlightCommentId = item.comment_id?.toString();
-        } else if (item.comment_id) {
-          params.highlightCommentId = item.comment_id.toString();
-        }
         router.push({
           pathname: '/posts/comments',
-          params,
+          params: { 
+            postId: item.forum_id,
+            isForumPost: 'true',
+          },
         });
         return;
-      } else if (item.repost_id) {
-        const params: any = { repostId: item.repost_id };
-        if (item.reply_id) {
-          params.highlightReplyId = item.reply_id.toString();
-          params.highlightCommentId = item.comment_id?.toString();
-        } else if (item.comment_id) {
-          params.highlightCommentId = item.comment_id.toString();
-        }
+      } else if (item.donation_id) {
         router.push({
-          pathname: '/repost/repost-comments',
-          params,
+          pathname: '/posts/comments',
+          params: { 
+            postId: item.donation_id,
+            isDonationPost: 'true',
+          },
+        });
+        return;
+      } else if (item.post_id) {
+        router.push({
+          pathname: '/posts/comments',
+          params: { postId: item.post_id },
         });
         return;
       } else {
@@ -898,6 +957,11 @@ const NotificationScreen = () => {
     const type = item.notif_type?.toLowerCase() || '';
     const subject = item.subject || '';
     
+    // Always show "at" icon for mention notifications first!
+    if (type === 'mention') {
+      return 'at';
+    }
+
     // Use the pre-detected notification source
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
@@ -992,7 +1056,7 @@ const NotificationScreen = () => {
     } else if (!name && fullMessage) {
       // Try to extract name from the beginning of the message as last resort
       // Pattern: "Full Name action..." or "Full Name|ID action..."
-      const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started)/i);
+      const nameMatch = fullMessage.match(/^([^|]+)\s+(liked|commented|reposted|mentioned|shared|started|replied)/i);
       if (nameMatch && nameMatch[1]) {
         userName = nameMatch[1].trim();
       }

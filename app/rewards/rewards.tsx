@@ -1416,9 +1416,29 @@ export default function RewardsScreen() {
                         >
                           <View style={styles.requestCard}>
                             <View style={styles.requestCardHeader}>
-                              <Text style={styles.requestCardTitle} numberOfLines={1}>
-                                {request.reward_name}
-                              </Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: 8 }}>
+                                <Text style={styles.requestCardTitle} numberOfLines={1}>
+                                  {request.reward_name}
+                                </Text>
+                                {request.notes && request.notes.toLowerCase().includes('tracker') && (
+                                  <View style={{
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                    borderRadius: 4,
+                                    backgroundColor: '#dbeafe',
+                                  }}>
+                                    <Text style={{
+                                      fontSize: 10,
+                                      fontWeight: '600',
+                                      color: '#1e40af',
+                                      textTransform: 'uppercase',
+                                      letterSpacing: 0.5,
+                                    }}>
+                                      Tracker
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
                           <View
                             style={[
                               styles.statusBadge,
@@ -1489,9 +1509,29 @@ export default function RewardsScreen() {
             <View style={styles.modalOverlay}>
               <View style={styles.rewardDetailModalContent}>
                 <View style={styles.modalHeader}>
-                  <View>
+                  <View style={{ flex: 1 }}>
                     <Text style={styles.rewardDetailSubtitle}>REWARD DETAILS</Text>
-                    <Text style={styles.rewardDetailTitle}>{selectedRewardDetail.reward_name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                      <Text style={styles.rewardDetailTitle}>{selectedRewardDetail.reward_name}</Text>
+                      {selectedRewardDetail.notes && selectedRewardDetail.notes.toLowerCase().includes('tracker') && (
+                        <View style={{
+                          paddingHorizontal: 6,
+                          paddingVertical: 2,
+                          borderRadius: 4,
+                          backgroundColor: '#dbeafe',
+                        }}>
+                          <Text style={{
+                            fontSize: 10,
+                            fontWeight: '600',
+                            color: '#1e40af',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.5,
+                          }}>
+                            Tracker
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                   <TouchableOpacity onPress={() => {
                     setShowRewardDetailModal(false);
@@ -1651,7 +1691,11 @@ export default function RewardsScreen() {
                     <View style={styles.instructionsBox}>
                       <View style={styles.instructionsHeader}>
                         <FontAwesome name="info-circle" size={20} color="#1e40af" />
-                        <Text style={styles.instructionsTitle}>Instructions</Text>
+                        <Text style={styles.instructionsTitle}>
+                          {selectedRewardDetail.notes.toLowerCase().includes('tracker') 
+                            ? 'Reward Information' 
+                            : 'Instructions'}
+                        </Text>
                       </View>
                       <Text style={styles.instructionsText}>{selectedRewardDetail.notes}</Text>
                     </View>
