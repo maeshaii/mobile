@@ -153,14 +153,31 @@ const HomeScreen = () => {
       
       const shouldShow = !!reminderData?.should_show_reminder;
       if (!shouldShow) {
-        console.log('ℹ️ Employment reminder: API returned false; showing anyway per request. Reason:', reminderData?.reason || 'unknown');
+        console.log('ℹ️ Employment reminder: API returned false. Reason:', reminderData?.reason || 'unknown');
+        return; // Don't show modal if API says no
       }
 
+      // Check if user has dismissed this reminder
       try {
-        await AsyncStorage.removeItem('employmentUpdateReminderDismissedUntil');
-      } catch (_) {}
+        const dismissedUntil = await AsyncStorage.getItem('employmentUpdateReminderDismissedUntil');
+        if (dismissedUntil) {
+          const dismissedDate = new Date(dismissedUntil);
+          const now = new Date();
+          if (now < dismissedDate) {
+            console.log('ℹ️ Employment reminder dismissed until:', dismissedUntil);
+            return; // Still within dismissal period
+          } else {
+            // Dismissal period expired, remove it
+            await AsyncStorage.removeItem('employmentUpdateReminderDismissedUntil');
+          }
+        }
+      } catch (_) {
+        // If AsyncStorage access fails, continue anyway
+      }
 
-      console.log('✅ Employment reminder: showing (forced) after delay');
+      // Only show if API says yes and user hasn't dismissed it
+      // Delay to avoid clashing with tracker modal
+      console.log('✅ Employment reminder: showing after delay');
       setTimeout(() => {
         if (isMountedRef.current) {
           setShowEmploymentUpdateModal(true);
@@ -168,12 +185,8 @@ const HomeScreen = () => {
       }, 3000);
     } catch (error) {
       console.error('❌ Error checking employment update reminder:', error);
-      // On error, still show once to avoid blocking the user
-      setTimeout(() => {
-        if (isMountedRef.current) {
-          setShowEmploymentUpdateModal(true);
-        }
-      }, 3000);
+      // On error, don't show modal - it's better to not show than to show incorrectly
+      // The API check ensures we only show for users who have submitted tracker with employment data
     }
   }, []);
 
