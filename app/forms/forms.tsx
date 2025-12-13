@@ -23,7 +23,6 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getTrackerQuestions, getUserInfo, submitTrackerResponse, getAlumniDetails, getActiveTrackerForm, checkUserTrackerStatus, getTrackerAcceptingStatus, saveTrackerDraft, loadTrackerDraft, getJobAutocomplete, checkJobAlignment, confirmJobAlignment } from '../../services/api';
-import TermsAndConditionsModal from './termsandcondi';
 
 type FileAsset = {
   name: string;
@@ -84,8 +83,6 @@ export default function TrackerForm() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showTermsModal, setShowTermsModal] = useState(false);
-  const [termsAccepted, setTermsAccepted] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   
@@ -95,6 +92,7 @@ export default function TrackerForm() {
   const [hasDraftData, setHasDraftData] = useState(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userIdRef = useRef<string | null>(null);
+  const justLoadedDraftRef = useRef<boolean>(false);
 
   // Dropdown states (fallback UI)
   const [showCourseDropdown, setShowCourseDropdown] = useState(false);
@@ -513,11 +511,17 @@ export default function TrackerForm() {
               console.log(`📋 Mobile: Loaded ${Object.keys(sanitizedAnswers).length} answers (${fileMarkerCount} file markers)`);
               
               if (Object.keys(sanitizedAnswers).length > 0) {
+                // Set flag to prevent immediate auto-save after loading draft
+                justLoadedDraftRef.current = true;
                 setResponses(sanitizedAnswers);
                 setSaveStatus('saved');
                 setHasDraftData(true);
                 draftLoaded = true;
                 console.log('✅ Mobile: Draft loaded with file markers preserved');
+                // Reset flag after 5 seconds to allow normal auto-save
+                setTimeout(() => {
+                  justLoadedDraftRef.current = false;
+                }, 5000);
               } else {
                 console.log('ℹ️ Mobile: Draft found but no valid answers after sanitization');
                 setHasDraftData(false);
@@ -709,6 +713,11 @@ export default function TrackerForm() {
   useEffect(() => {
     if (!draftCheckComplete || !userIdRef.current || !privacyAccepted) {
       return; // Don't auto-save if draft check not complete, no user ID, or privacy not accepted
+    }
+
+    // Don't auto-save immediately after loading a draft (prevents double save)
+    if (justLoadedDraftRef.current) {
+      return;
     }
 
     // Clear existing timer
@@ -910,26 +919,12 @@ export default function TrackerForm() {
     }
   };
 
-  // Submit form: show terms modal first if not accepted
+  // Submit form: directly submit without showing terms modal
   const handleSubmit = async () => {
-    // Show terms modal if not already accepted
-    if (!termsAccepted) {
-      setShowTermsModal(true);
-      return;
-    }
-    
-    // If terms already accepted, proceed with submission
     await submitForm();
   };
 
-  // Terms modal handlers
-  const handleTermsAccept = () => {
-    setTermsAccepted(true);
-    setShowTermsModal(false);
-    // Don't submit form here - let user fill out form first, then submit via Submit button
-  };
-
-  // Actual form submission logic (extracted from handleSubmit)
+  // Actual form submission logic
   const submitForm = async () => {
     try {
       setSubmitting(true);
@@ -1167,9 +1162,6 @@ export default function TrackerForm() {
     }
   };
 
-  const handleTermsClose = () => {
-    setShowTermsModal(false);
-  };
 
   const [hasAwards, setHasAwards] = useState('No');
   const [awardOptions, setAwardOptions] = useState([
@@ -3461,7 +3453,11 @@ export default function TrackerForm() {
           animationType="fade"
           onRequestClose={() => setShowDatePicker({ questionId: '', visible: false })}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
             <View style={styles.datePickerModalContent}>
               {/* Header */}
               <View style={styles.datePickerHeader}>
@@ -3611,7 +3607,7 @@ export default function TrackerForm() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
         
         {/* Employment Duration Picker Modal */}
@@ -3703,21 +3699,6 @@ export default function TrackerForm() {
             </View>
           </View>
         </Modal>
-        
-        <TermsAndConditionsModal
-          isVisible={showTermsModal}
-          onClose={handleTermsClose}
-          onAccept={handleTermsAccept}
-        />
-        
-        {/* Auto-save status indicator (matching web) */}
-        {saveStatus && (
-          <View style={styles.saveStatusIndicator}>
-            <Text style={styles.saveStatusText}>
-              {saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? 'Saving...' : 'Unsaved'}
-            </Text>
-          </View>
-        )}
       </View>
     </KeyboardAvoidingView>
   );

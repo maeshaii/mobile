@@ -160,7 +160,12 @@ export const logoutUser = async () => {
   } catch (e) {
     console.warn('Failed to delete lastLogin:', e);
   }
-  
+  // Also clear userType on logout
+  try {
+    await Storage.deleteItem('userType');
+  } catch (e) {
+    console.warn('Failed to delete userType:', e);
+  }
   // Reset token refresh state to prevent issues with subsequent logins
   isRefreshing = false;
   refreshWaitQueue = [];
@@ -347,6 +352,17 @@ export const loginUser = async (acc_username: string, acc_password: string) => {
       await Storage.setItem('lastLogin', new Date().toISOString());
       if (response.data.user) {
         await Storage.setItem('user', JSON.stringify(response.data.user));
+        // --- Set userType for ProfileTab menu cache ---
+        const user = response.data.user;
+        const isOjt = !!(user.account_type?.ojt || user.role === 'ojt' || user.user_type === 'ojt');
+        const isAlumni = !!user.account_type?.user && !isOjt;
+        if (isAlumni) {
+          await Storage.setItem('userType', 'alumni');
+        } else if (isOjt) {
+          await Storage.setItem('userType', 'ojt');
+        } else {
+          await Storage.deleteItem('userType');
+        }
       }
     }
     
@@ -2122,9 +2138,22 @@ export const uploadAttachment = async (file: any, conversationId: number) => {
     console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Upload failed:', response.status, errorText);
-      throw new Error(`Upload failed: ${response.status} ${errorText}`);
+      let errorMessage = `Upload failed: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.detail || errorData.message || errorMessage;
+        console.error('Upload failed:', response.status, errorData);
+      } catch {
+        // If JSON parsing fails, try text
+        const errorText = await response.text();
+        errorMessage = errorText || errorMessage;
+        console.error('Upload failed:', response.status, errorText);
+      }
+      
+      const error: any = new Error(errorMessage);
+      error.status = response.status;
+      error.error = errorMessage;
+      throw error;
     }
     
     const data = await response.json();
@@ -2235,6 +2264,20 @@ export const getRewardRequests = async (status?: string) => {
     return data;
   } catch (error) {
     console.error('Mobile getRewardRequests API Error:', error);
+    throw error;
+  }
+};
+
+// Mobile -> Backend: POST /api/rewards/requests/{request_id}/update-gcash/
+export const updateRewardRequestGcash = async (requestId: number, gcashNumber: string, gcashName: string) => {
+  try {
+    const { data } = await api.post(`/api/rewards/requests/${requestId}/update-gcash/`, {
+      gcash_number: gcashNumber,
+      gcash_name: gcashName
+    });
+    return data;
+  } catch (error) {
+    console.error('Mobile updateRewardRequestGcash API Error:', error);
     throw error;
   }
 };

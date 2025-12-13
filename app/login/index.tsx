@@ -44,9 +44,6 @@ export default function LandingScreen() {
                 </Text>
               </View>
             </View>
-            <Text style={styles.brandSubtitle}>
-              Excellence in Technology Education
-            </Text>
           </View>
 
           <View style={styles.collaborationContainer}>
@@ -162,17 +159,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
     lineHeight: 20,
-  },
-  brandSubtitle: {
-    fontSize: 15,
-    fontWeight: '400',
-    color: '#ffffff',
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-    opacity: 0.9,
-    marginTop: 8,
   },
   collaborationContainer: {
     alignItems: 'center',

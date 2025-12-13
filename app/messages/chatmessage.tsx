@@ -32,6 +32,28 @@ import { profilePicCache } from '../../services/profilePicCache';
 const samplePic = require('../../assets/images/sample_pic.jpg');
 const ctuLogo = require('../../assets/images/ctu_logo.png');
 
+/** Normalize attachment URLs to https and ensure they are absolute */
+const buildAttachmentUrl = (url?: string | null): string | null => {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  
+  // Force https for ngrok (ATS on iOS) and prepend API base for relative paths
+  const absolute = trimmed.startsWith('http')
+    ? trimmed.replace(/^http:\/\//i, 'https://')
+    : `${API_BASE_URL}${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
+  return absolute;
+};
+
+/** Use the streaming-friendly API route (adds range support and bypass headers server-side) */
+const buildStreamingUrl = (url?: string | null): string | null => {
+  const absolute = buildAttachmentUrl(url);
+  if (!absolute) return null;
+  return absolute.includes('/media/')
+    ? absolute.replace('/media/', '/api/messaging/files/')
+    : absolute;
+};
+
 type UiMsg = { 
   id: string; 
   text: string; 
@@ -117,6 +139,7 @@ const ChatMessageScreen = () => {
   const typingIndicatorRef = useRef<TypingIndicator | null>(null);
   const hasMarkedAsRead = useRef(false);
   const typingTimeoutRef = useRef<any>(null);
+  const typingTimeoutsRef = useRef<Record<number, NodeJS.Timeout>>({});
   const inputRef = useRef<TextInput>(null);
   const isResolvingConversation = useRef(false);
 
@@ -603,18 +626,51 @@ const ChatMessageScreen = () => {
           });
           break;
         case 'typing':
-          // Handle typing indicators
+          // Filter out current user - don't show typing indicator for yourself
+          if (event.user_id && event.user_id === myId) {
+            // Ignore typing events from current user
+            break;
+          }
+          
+          // Handle typing indicators based on is_typing flag
           if (event.user_id && event.user_id !== myId) {
-            setTypingUsers(prev => new Set(prev).add(event.user_id));
-            
-            // Clear typing indicator after 3 seconds
-            setTimeout(() => {
-              setTypingUsers(prev => {
-                const newSet = new Set(prev);
+            setTypingUsers(prev => {
+              const newSet = new Set(prev);
+              // Check is_typing flag to add or remove user
+              if (event.is_typing) {
+                // User started typing - add to set
+                newSet.add(event.user_id);
+              } else {
+                // User stopped typing - remove from set
                 newSet.delete(event.user_id);
-                return newSet;
-              });
-            }, 3000);
+              }
+              return newSet;
+            });
+            
+            // Also set a timeout to clear typing indicator after 3 seconds as a safety measure
+            // (in case stop_typing event is missed)
+            if (event.is_typing) {
+              // Clear any existing timeout for this user
+              if (typingTimeoutsRef.current[event.user_id]) {
+                clearTimeout(typingTimeoutsRef.current[event.user_id]);
+              }
+              
+              // Set new timeout to clear typing indicator after 3 seconds
+              typingTimeoutsRef.current[event.user_id] = setTimeout(() => {
+                setTypingUsers(prev => {
+                  const newSet = new Set(prev);
+                  newSet.delete(event.user_id);
+                  return newSet;
+                });
+                delete typingTimeoutsRef.current[event.user_id];
+              }, 3000);
+            } else {
+              // Clear timeout if user stopped typing
+              if (typingTimeoutsRef.current[event.user_id]) {
+                clearTimeout(typingTimeoutsRef.current[event.user_id]);
+                delete typingTimeoutsRef.current[event.user_id];
+              }
+            }
           }
           break;
         
@@ -708,6 +764,16 @@ const ChatMessageScreen = () => {
     return () => {
       // Clean up WebSocket connection
       console.log('🔌 [WebSocket] Cleaning up connection');
+      
+      // Clear all typing timeouts
+      Object.values(typingTimeoutsRef.current).forEach(timeout => {
+        clearTimeout(timeout);
+      });
+      typingTimeoutsRef.current = {};
+      
+      // Clear typing users when conversation changes
+      setTypingUsers(new Set());
+      
       if (wsRef.current) {
         wsRef.current.disconnect();
         wsRef.current = null;
@@ -1317,9 +1383,24 @@ const ChatMessageScreen = () => {
       // Scroll to bottom
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Attachment upload failed:', error);
-      Alert.alert('Upload Failed', `Failed to upload attachment: ${(error as Error).message || 'Unknown error'}`);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to upload attachment. Please try again.';
+      if (error?.error || error?.message) {
+        // Mobile fetch response error
+        const errorData = typeof error.error === 'string' ? error.error : error.message;
+        errorMessage = errorData || errorMessage;
+      } else if (error?.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error?.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Upload Failed', errorMessage);
     }
   };
 
@@ -1450,6 +1531,9 @@ const ChatMessageScreen = () => {
               
               const myId = currentUser.id;
               const isActuallyMine = item.sent || item.sender_id === myId;
+              const attachmentUrl = buildAttachmentUrl(item.attachment_url);
+              const streamingUrl = buildStreamingUrl(item.attachment_url);
+              const videoSourceUrl = streamingUrl || attachmentUrl;
               
               console.log('Rendering message:', {
                 id: item.id,
@@ -1521,28 +1605,23 @@ const ChatMessageScreen = () => {
                     )}
                     
                     {/* Message content */}
-                    {item.attachment_url ? (
+                    {attachmentUrl ? (
                       <View>
-                        {console.log('Rendering attachment:', {
-                          url: item.attachment_url,
-                          category: item.attachment_info?.file_category,
-                          type: item.attachment_info?.file_type,
-                          name: item.attachment_info?.file_name
-                        })}
                         {item.attachment_info?.file_category === 'image' || isImageFile(item.attachment_info?.file_category || 'document', item.attachment_info?.file_type) ? (
                           <TouchableOpacity
                             activeOpacity={0.8}
                               onPress={() => {
-                                if (item.attachment_url) {
-                                  // Show image in modal for viewing
-                                  const fullUrl = item.attachment_url.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`;
-                                  setViewingImageUrl(fullUrl);
-                                  setShowImageModal(true);
-                                }
+                                if (!attachmentUrl) return;
+                                // Show image in modal for viewing
+                                setViewingImageUrl(attachmentUrl);
+                                setShowImageModal(true);
                               }}
                           >
                             <Image 
-                              source={{ uri: item.attachment_url?.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}` }} 
+                              source={{ 
+                                uri: attachmentUrl, 
+                                headers: { 'ngrok-skip-browser-warning': 'true' }
+                              }} 
                               style={styles.attachmentImage}
                               resizeMode="cover"
                               defaultSource={samplePic}
@@ -1550,7 +1629,7 @@ const ChatMessageScreen = () => {
                                 console.log('Image load error:', error);
                               }}
                               onLoad={() => {
-                                console.log('Image loaded successfully:', item.attachment_url);
+                                console.log('Image loaded successfully:', attachmentUrl);
                               }}
                             />
                             {item.attachment_info?.file_name && (
@@ -1578,8 +1657,12 @@ const ChatMessageScreen = () => {
                               )}
                               <Video
                                 source={{ 
-                                  uri: item.attachment_url?.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`,
+                                  uri: videoSourceUrl || attachmentUrl || '',
                                   overrideFileExtensionAndroid: 'mp4',
+                                  headers: {
+                                    'ngrok-skip-browser-warning': 'true',
+                                    'User-Agent': 'MobileApp/1.0'
+                                  }
                                 }}
                                 style={styles.videoPlayer}
                                 useNativeControls={true}
@@ -1600,15 +1683,38 @@ const ChatMessageScreen = () => {
                                     setPlayingVideoId(null);
                                   }
                                 }}
-                                onError={(error) => {
-                                  console.error('Video error:', error);
+                                onError={(error: any) => {
+                                  console.error('Video error:', { error, url: videoSourceUrl });
                                   setVideoLoading(prev => {
                                     const newSet = new Set(prev);
                                     newSet.delete(item.id);
                                     return newSet;
                                   });
-                                  Alert.alert('Error', 'Could not play video');
                                   setPlayingVideoId(null);
+                                  
+                                  // Extract error message
+                                  const errorMessage = error?.message || error?.localizedDescription || 'Could not play video';
+                                  
+                                  // Show error with option to download
+                                  Alert.alert(
+                                    'Video Error',
+                                    `${errorMessage}\n\nWould you like to download the video instead?`,
+                                    [
+                                      {
+                                        text: 'Cancel',
+                                        style: 'cancel',
+                                      },
+                                      {
+                                        text: 'Download',
+                                        onPress: () => {
+                                          const downloadUrl = streamingUrl || attachmentUrl;
+                                          if (downloadUrl) {
+                                            downloadVideo(downloadUrl, item.attachment_info?.file_name || 'video');
+                                          }
+                                        },
+                                      },
+                                    ]
+                                  );
                                 }}
                                 onLoad={(status) => {
                                   console.log('Video loaded successfully');
@@ -1634,19 +1740,16 @@ const ChatMessageScreen = () => {
                                         {
                                           text: 'Yes',
                                           onPress: async () => {
-                                            if (item.attachment_url && !isSharing) {
+                                            const downloadUrl = streamingUrl || attachmentUrl;
+                                            if (downloadUrl && !isSharing) {
                                               try {
                                                 setIsSharing(true);
-                                                const fullUrl = item.attachment_url.startsWith('http') ? item.attachment_url : `${API_BASE_URL}${item.attachment_url}`;
-                                                
-                                                // Convert media URL to api URL if needed
-                                                const bypassUrl = fullUrl.replace(/\/media\//, '/api/messaging/files/');
                                                 
                                                 const filename = item.attachment_info?.file_name || `video_${Date.now()}.mp4`;
                                                 
                                                 // PROPER DOWNLOAD - saves to device Gallery
                                                 await downloadVideo(
-                                                  bypassUrl,
+                                                  downloadUrl,
                                                   filename,
                                                   item.attachment_info?.file_type || 'video/mp4'
                                                 );
@@ -1686,14 +1789,13 @@ const ChatMessageScreen = () => {
                           <TouchableOpacity
                             activeOpacity={0.8}
                             onPress={() => {
-                              const url = item.attachment_url;
+                              const url = attachmentUrl;
                               const fileName = item.attachment_info?.file_name || item.text;
                               const fileType = item.attachment_info?.file_type || 'application/octet-stream';
                               if (!url) return;
                               
                               // Show download confirmation for documents
-                              const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
-                              setDownloadFile({ url: fullUrl, name: fileName, mimeType: fileType });
+                              setDownloadFile({ url, name: fileName, mimeType: fileType });
                               setShowDownloadModal(true);
                             }}
                             style={[styles.fileAttachment, isActuallyMine ? styles.fileAttachmentSent : styles.fileAttachmentReceived]}
@@ -1728,6 +1830,16 @@ const ChatMessageScreen = () => {
                       </Text>
                     )}
                     
+                    {/* P0 Feature: Edited Indicator - Below message text */}
+                    {item.is_edited && (
+                      <Text style={[
+                        styles.editedIndicator,
+                        isActuallyMine ? styles.editedIndicatorSent : styles.editedIndicatorReceived
+                      ]}>
+                        (edited)
+                      </Text>
+                    )}
+                    
                     {/* P0 Feature: Message Reactions Display */}
                     {item.reactions && item.reactions.length > 0 && (
                       <View style={styles.reactionsContainer}>
@@ -1756,15 +1868,6 @@ const ChatMessageScreen = () => {
                           minute: '2-digit' 
                         }) : ''}
                       </Text>
-                      {/* P0 Feature: Edited Indicator */}
-                      {item.is_edited && (
-                        <Text style={[
-                          styles.editedIndicator,
-                          isActuallyMine ? styles.editedIndicatorSent : styles.editedIndicatorReceived
-                        ]}>
-                          (edited)
-                        </Text>
-                      )}
                       {/* P0 Feature: Read Receipts */}
                       {isActuallyMine && (
                         <Text style={[
@@ -1796,21 +1899,31 @@ const ChatMessageScreen = () => {
           />
           
           {/* Typing Indicator */}
-          {typingUsers.size > 0 && (
-            <View style={styles.typingIndicator}>
-              <View style={styles.typingDots}>
-                <View style={[styles.typingDot, styles.typingDot1]} />
-                <View style={[styles.typingDot, styles.typingDot2]} />
-                <View style={[styles.typingDot, styles.typingDot3]} />
+          {(() => {
+            // Filter out current user from typing users (safety check)
+            const myId = currentUser?.id;
+            const otherTypingUsers = Array.from(typingUsers).filter(userId => userId !== myId);
+            
+            if (otherTypingUsers.length === 0) {
+              return null;
+            }
+            
+            return (
+              <View style={styles.typingIndicator}>
+                <View style={styles.typingDots}>
+                  <View style={[styles.typingDot, styles.typingDot1]} />
+                  <View style={[styles.typingDot, styles.typingDot2]} />
+                  <View style={[styles.typingDot, styles.typingDot3]} />
+                </View>
+                <Text style={styles.typingText}>
+                  {otherTypingUsers.map(userId => {
+                    // For now, just show "Someone" - you could enhance this to show actual names
+                    return 'Someone';
+                  }).join(', ')} typing...
+                </Text>
               </View>
-              <Text style={styles.typingText}>
-                {Array.from(typingUsers).map(userId => {
-                  // For now, just show "Someone" - you could enhance this to show actual names
-                  return 'Someone';
-                }).join(', ')} typing...
-              </Text>
-            </View>
-          )}
+            );
+          })()}
         </View>
 
         {/* Input Bar - Fixed at bottom with keyboard offset */}
@@ -1819,7 +1932,7 @@ const ChatMessageScreen = () => {
           {
             bottom: isKeyboardVisible && keyboardHeight > 0 
               ? keyboardHeight 
-              : Math.max(insets.bottom + 10, Platform.OS === 'ios' ? 30 : 25),
+              : Math.max(insets.bottom, 8),
             zIndex: 1000
           }
         ]}>
@@ -2829,6 +2942,7 @@ const styles = StyleSheet.create({
   editedIndicator: {
     fontSize: 10,
     fontStyle: 'italic',
+    marginTop: 4,
     marginLeft: 4,
   },
   editedIndicatorSent: {

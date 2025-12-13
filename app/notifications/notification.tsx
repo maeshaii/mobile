@@ -957,11 +957,6 @@ const NotificationScreen = () => {
     const type = item.notif_type?.toLowerCase() || '';
     const subject = item.subject || '';
     
-    // Always show "at" icon for mention notifications first!
-    if (type === 'mention') {
-      return 'at';
-    }
-
     // Use the pre-detected notification source
     const isAdminNotification = item.isAdminNotification || false;
     const isPesoNotification = item.isPesoNotification || false;
@@ -1056,7 +1051,7 @@ const NotificationScreen = () => {
     } else if (!name && fullMessage) {
       // Try to extract name from the beginning of the message as last resort
       // Pattern: "Full Name action..." or "Full Name|ID action..."
-      const nameMatch = fullMessage.match(/^([^|]+)\s+(liked|commented|reposted|mentioned|shared|started|replied)/i);
+      const nameMatch = fullMessage.match(/^([^|]+?)\s+(liked|commented|reposted|mentioned|shared|started)/i);
       if (nameMatch && nameMatch[1]) {
         userName = nameMatch[1].trim();
       }

@@ -4,7 +4,7 @@ import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import NavBar from '../(tabs)/navbar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { API_BASE_URL, getUserInfo, getAdminPesoUsers, getAlumniDetails } from '../../services/api';
+import { API_BASE_URL, getUserInfo, getAdminPesoUsers, getAlumniDetails, Storage } from '../../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import UserAvatar from '../../components/UserAvatar';
 
@@ -47,10 +47,10 @@ export default function ProfileTab() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
-  // Initialize with filtered items (no Forum/Donation) to prevent flash for OJT users
-  const [menuItems, setMenuItems] = useState(
-    allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation')
-  );
+  // <--- User type cache state --->
+  const [userTypeCache, setUserTypeCache] = useState<string | null>(null);
+  // Initialize menuItems based on cache (will update after real fetch)
+  const [menuItems, setMenuItems] = useState(allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation'));
   // Keep this false so we render immediately and refresh quietly in the background
   const [menuLoading, setMenuLoading] = useState(false);
   const [adminProfile, setAdminProfile] = useState<AdminPesoProfile | null>(null);
@@ -106,37 +106,53 @@ export default function ProfileTab() {
     }
   }, []);
 
+  // On mount, check cache for userType
+  useEffect(() => {
+    (async () => {
+      const cachedType = await Storage.getItem('userType');
+      setUserTypeCache(cachedType);
+      // Show everything for alumni; hide for ojt by default
+      if (cachedType === 'alumni') {
+        setMenuItems(allMenuItems);
+      } else if (cachedType === 'ojt') {
+        setMenuItems(allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation'));
+      }
+      // If not cached or admin/coordinator, wait for API fetch
+    })();
+  }, []);
+
   const fetchUser = useCallback(async () => {
     try {
-      // Don't block initial render; just refresh quietly.
       setMenuLoading(true);
       const userInfo = await getUserInfo();
       setUser(userInfo);
-      
-      // Load admin and PESO profiles
       await loadAdminAndPesoProfiles();
-      
-      // Determine account type flags
+      // Determine account type
       const isOjt = !!(
         userInfo?.account_type?.ojt ||
         userInfo?.role === 'ojt' ||
         userInfo?.user_type === 'ojt'
       );
       const isAlumni = !!userInfo?.account_type?.user && !isOjt;
-      
-      // Forum and Donation are **only** for pure alumni accounts (never for OJT)
-      const filteredItems = isAlumni
-        ? allMenuItems
-        : allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation');
-      
-      setMenuItems(filteredItems);
+      // Sync cache if changed; update menu
+      let effectiveType: string = '';
+      if (isAlumni) {
+        effectiveType = 'alumni';
+        setMenuItems(allMenuItems);
+      } else if (isOjt) {
+        effectiveType = 'ojt';
+        setMenuItems(allMenuItems.filter(item => item.label !== 'Forum' && item.label !== 'Donation'));
+      }
+      if (effectiveType && effectiveType !== userTypeCache) {
+        await Storage.setItem('userType', effectiveType);
+        setUserTypeCache(effectiveType);
+      }
     } catch (e) {
       console.error('ProfileTab - Error fetching user info:', e);
       setUser(null);
-      // Default to showing all items if we can't determine user type
       setMenuItems(allMenuItems);
     }
-  }, [loadAdminAndPesoProfiles]);
+  }, [loadAdminAndPesoProfiles, userTypeCache]);
 
   // Load once on mount so the first visit is fast and cached
   useEffect(() => {

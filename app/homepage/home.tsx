@@ -125,6 +125,7 @@ const HomeScreen = () => {
   const [showPostModal, setShowPostModal] = useState<boolean>(false);
   const [modalPostId, setModalPostId] = useState<number | null>(null);
   const router = useRouter();
+  const { showAlert } = useAlert();
   const params = useLocalSearchParams();
   const [nowTick, setNowTick] = useState(0);
   const [showTrackerReminder, setShowTrackerReminder] = useState<boolean>(false);
@@ -136,6 +137,46 @@ const HomeScreen = () => {
   const [headerVisible, setHeaderVisible] = useState(true);
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const navbarTranslateY = useRef(new Animated.Value(0)).current;
+  // Check employment update reminder function (defined early to avoid lint errors)
+  const checkEmploymentUpdateReminder = React.useCallback(async () => {
+    try {
+      const currentUser = await getUserInfo();
+      const userId = currentUser?.user_id || currentUser?.id;
+      if (!userId) {
+        console.log('🔍 Employment reminder: No user ID found');
+        return;
+      }
+
+      console.log('🔍 Employment reminder: Checking API for user', userId);
+      const reminderData = await checkEmploymentReminder(userId);
+      console.log('🔍 Employment update reminder check result:', reminderData);
+      
+      const shouldShow = !!reminderData?.should_show_reminder;
+      if (!shouldShow) {
+        console.log('ℹ️ Employment reminder: API returned false; showing anyway per request. Reason:', reminderData?.reason || 'unknown');
+      }
+
+      try {
+        await AsyncStorage.removeItem('employmentUpdateReminderDismissedUntil');
+      } catch (_) {}
+
+      console.log('✅ Employment reminder: showing (forced) after delay');
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          setShowEmploymentUpdateModal(true);
+        }
+      }, 3000);
+    } catch (error) {
+      console.error('❌ Error checking employment update reminder:', error);
+      // On error, still show once to avoid blocking the user
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          setShowEmploymentUpdateModal(true);
+        }
+      }, 3000);
+    }
+  }, []);
+
   useEffect(() => {
     // Check for token before loading anything
     const checkAuthAndLoad = async () => {
@@ -259,58 +300,6 @@ const HomeScreen = () => {
     } catch (error) {
       console.error('❌ Homepage: Error checking tracker status:', error);
       // Don't show modal if there's an error checking status
-    }
-  }, []);
-
-  // Check employment update reminder function
-  const checkEmploymentUpdateReminder = React.useCallback(async () => {
-    try {
-      const currentUser = await getUserInfo();
-      const userId = currentUser?.user_id || currentUser?.id;
-      if (!userId) {
-        console.log('🔍 Employment reminder: No user ID found');
-        return;
-      }
-
-      // Check reminder status from API FIRST (before checking dismissal)
-      // This allows us to see what the API returns even if dismissed
-      console.log('🔍 Employment reminder: Checking API for user', userId);
-      const reminderData = await checkEmploymentReminder(userId);
-      console.log('🔍 Employment update reminder check result:', reminderData);
-      
-      // Only proceed if API says we should show
-      if (!reminderData?.should_show_reminder) {
-        console.log('ℹ️ Employment reminder: Should not show modal. Reason:', reminderData?.reason || 'unknown');
-        return;
-      }
-
-      // Now check if user dismissed this reminder (only if API says to show)
-      const dismissedUntil = await AsyncStorage.getItem('employmentUpdateReminderDismissedUntil');
-      if (dismissedUntil) {
-        const dismissedDate = new Date(dismissedUntil);
-        if (dismissedDate > new Date()) {
-          console.log('🔍 Employment reminder dismissed until:', dismissedDate);
-          console.log('ℹ️ Employment reminder: API says to show, but user dismissed until', dismissedDate.toISOString());
-          return; // Still dismissed
-        } else {
-          console.log('🔍 Employment reminder dismissal expired, showing modal');
-        }
-      }
-
-      // API says to show and not dismissed (or dismissal expired)
-      console.log('✅ Employment reminder: Should show modal, setting timeout');
-      // Show modal after a short delay (don't conflict with tracker modal)
-      setTimeout(() => {
-        if (isMountedRef.current) {
-          console.log('✅ Employment reminder: Showing modal now');
-          setShowEmploymentUpdateModal(true);
-        } else {
-          console.log('⚠️ Employment reminder: Component unmounted, not showing modal');
-        }
-      }, 3000);
-    } catch (error) {
-      console.error('❌ Error checking employment update reminder:', error);
-      // Don't show modal if there's an error
     }
   }, []);
 
@@ -1396,20 +1385,14 @@ const HomeScreen = () => {
           }, 100);
         }}
         onMaybeLater={() => {
+          // Match tracker modal: just close, no long-term suppression
+          AsyncStorage.removeItem('employmentUpdateReminderDismissedUntil');
           setShowEmploymentUpdateModal(false);
-          // Dismiss for 7 days
-          const dismissedUntil = new Date();
-          dismissedUntil.setDate(dismissedUntil.getDate() + 7);
-          AsyncStorage.setItem('employmentUpdateReminderDismissedUntil', dismissedUntil.toISOString());
-          console.log('🔍 Employment reminder dismissed until:', dismissedUntil);
         }}
         onNoChanges={() => {
+          // Also allow future prompts; just close
+          AsyncStorage.removeItem('employmentUpdateReminderDismissedUntil');
           setShowEmploymentUpdateModal(false);
-          // Dismiss permanently (user confirmed no changes needed)
-          const dismissedUntil = new Date();
-          dismissedUntil.setDate(dismissedUntil.getDate() + 180); // 6 months
-          AsyncStorage.setItem('employmentUpdateReminderDismissedUntil', dismissedUntil.toISOString());
-          console.log('✅ User confirmed no changes - reminder dismissed for 6 months');
         }}
       />
 
