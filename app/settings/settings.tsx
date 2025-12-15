@@ -593,17 +593,28 @@ export default function SettingsPage() {
           console.log('OJT - hasEmploymentData:', hasEmploymentData);
         } else {
           // For Alumni accounts: check if they have Part III tracker data
-          const hasTrackerData = data.has_tracker_data || false;
-          const hasPartIIIData = data.has_part_iii_data || false;
+          // Use strict boolean checking to ensure we only show data when explicitly true
+          const hasPartIIIData = data.has_part_iii_data === true;
+          // Fallback: check if actual employment fields are populated (in case backend flag isn't set but data exists)
+          const hasAnyEmploymentFields = Boolean(
+            (data.employment_type && data.employment_type.trim() !== '') ||
+            (data.current_employment_status && data.current_employment_status.trim() !== '') ||
+            (data.current_company_name && data.current_company_name.trim() !== '') ||
+            (data.current_position && data.current_position.trim() !== '') ||
+            (data.employment_supporting_doc && data.employment_supporting_doc !== '')
+          );
           
-          // For alumni: if they have Part III data, show it
-          setHasJobInDB(hasPartIIIData);
+          // Only show Employment Details if Part III data actually exists (actual fields filled in tracker)
+          // DO NOT use has_tracker_data because that only checks if TrackerData record exists,
+          // not whether the user has actually filled in employment information
+          setHasJobInDB(hasPartIIIData || hasAnyEmploymentFields);
           
-          console.log('Alumni - hasTrackerData:', hasTrackerData);
-          console.log('Alumni - hasPartIIIData:', hasPartIIIData);
-          console.log('Alumni - hasJobInDB:', hasPartIIIData);
-          console.log('Alumni - Debug info:', data.debug || 'No debug info');
-          console.log('Alumni - Full employment data:', data);
+          console.log('🔍 Alumni Employment Check:');
+          console.log('  - has_part_iii_data from API:', data.has_part_iii_data);
+          console.log('  - hasPartIIIData (computed):', hasPartIIIData);
+          console.log('  - hasAnyEmploymentFields (fallback):', hasAnyEmploymentFields);
+          console.log('  - Final hasJobInDB:', hasPartIIIData || hasAnyEmploymentFields);
+          console.log('  - Debug info:', data.debug || 'No debug info');
         }
         
         console.log('Employment data loaded:', data);
